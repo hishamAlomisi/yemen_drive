@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1600" viewBox="0 0 900 1600">
+  <defs>
+    <pattern id="roads" width="180" height="180" patternUnits="userSpaceOnUse" patternTransform="rotate(18)">
+      <rect width="180" height="180" fill="#dfe5e8"/>
+      <path d="M-20 35H210M-20 112H210M36-20V210M142-20V210" stroke="#c5cfd4" stroke-width="12"/>
+      <path d="M-20 72H210M88-20V210" stroke="#f7f8f9" stroke-width="4"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-opacity=".22"/>
+    </filter>
+  </defs>
+  <rect width="900" height="1600" fill="url(#roads)"/>
+  <path d="M-50 1260C180 1060 190 820 430 720S720 480 950 240" fill="none" stroke="#8aa5b2" stroke-width="34" opacity=".8"/>
+  <path d="M-50 1260C180 1060 190 820 430 720S720 480 950 240" fill="none" stroke="#f5f7f8" stroke-width="5" opacity=".9"/>
+  <path d="M120 0C250 240 370 350 520 510S660 820 830 1050" fill="none" stroke="#b9c7ce" stroke-width="22" opacity=".8"/>
+  <g filter="url(#shadow)">
+    <circle cx="100" cy="116" r="48" fill="#1d2029"/>
+    <path d="M80 114h40M100 94v40" stroke="#f8f4ed" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="800" cy="116" r="48" fill="#1d2029"/>
+    <path d="M777 105h46M777 117h46M777 129h46" stroke="#f8f4ed" stroke-width="7" stroke-linecap="round"/>
+    <rect x="178" y="66" width="530" height="100" rx="50" fill="#1d2029"/>
+    <circle cx="232" cy="116" r="20" fill="none" stroke="#ffc62f" stroke-width="7"/>
+    <path d="M232 82v22M232 128v22M198 116h22M244 116h22" stroke="#ffc62f" stroke-width="5"/>
+    <text x="285" y="130" fill="#fff" font-family="Arial, sans-serif" font-size="34" font-weight="700">موقعي الحالي · صنعاء</text>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="36" y="1060" width="828" height="500" rx="40" fill="#1b1e27"/>
+    <rect x="420" y="1086" width="54" height="7" rx="4" fill="#686a73"/>
+    <text x="810" y="1170" fill="#fff" text-anchor="end" font-family="Arial, sans-serif" font-size="40" font-weight="700">إلى أين تريد الذهاب؟</text>
+    <rect x="70" y="1200" width="760" height="94" rx="24" fill="#262a35" stroke="#4a4d58" stroke-width="2"/>
+    <circle cx="755" cy="1247" r="23" fill="none" stroke="#f4efe5" stroke-width="7"/>
+    <path d="M771 1265l24 24" stroke="#f4efe5" stroke-width="7" stroke-linecap="round"/>
+    <text x="690" y="1260" fill="#d9d2c6" text-anchor="end" font-family="Arial, sans-serif" font-size="28">ابحث عن وجهتك</text>
+    <text x="810" y="1370" fill="#d9d2c6" text-anchor="end" font-family="Arial, sans-serif" font-size="25">الخدمات</text>
+    <g>
+      <rect x="590" y="1395" width="220" height="92" rx="22" fill="#ffc62f"/>
+      <text x="700" y="1452" fill="#17191f" text-anchor="middle" font-family="Arial, sans-serif" font-size="29" font-weight="700">نقل</text>
+      <rect x="350" y="1395" width="220" height="92" rx="22" fill="#2a2e3a"/>
+      <text x="460" y="1452" fill="#fff" text-anchor="middle" font-family="Arial, sans-serif" font-size="29" font-weight="700">توصيل</text>
+      <rect x="110" y="1395" width="220" height="92" rx="22" fill="#2a2e3a"/>
+      <text x="220" y="1452" fill="#fff" text-anchor="middle" font-family="Arial, sans-serif" font-size="29" font-weight="700">تأجير</text>
+    </g>
+  </g>
+  <rect y="1560" width="900" height="40" fill="#17191f"/>
+</svg>

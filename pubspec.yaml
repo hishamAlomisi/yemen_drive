@@ -1,0 +1,44 @@
+name: yemen_drive
+description: Arabic RTL taxi booking UI based on the Yemen Drive Figma community kit.
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.6.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  get: ^4.7.2
+  dio: ^5.9.0
+  get_storage: ^2.1.1
+  flutter_secure_storage: ^10.3.1
+  intl: ^0.20.2
+  uuid: ^4.5.1
+  country_picker: ^2.0.27
+  google_maps_flutter: ^2.13.1
+  geolocator: ^14.0.2
+  signalr_netcore: ^1.4.4
+  connectivity_plus: ^6.1.4
+  url_launcher: ^6.3.2
+  share_plus: ^13.2.0
+  path_provider: ^2.1.6
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/branding/
+    - assets/images/services/
+    - assets/images/vehicles/
+  fonts:
+    - family: BeINArabic
+      fonts:
+        - asset: assets/fonts/bein_ar_regular.ttf
+          weight: 400

@@ -1,0 +1,11 @@
+export 'account_routes.dart';
+export 'bindings/account_binding.dart';
+export 'favourites/controllers/favourites_controller.dart';
+export 'history/controllers/history_controller.dart';
+export 'models/account_models.dart';
+export 'offers/controllers/offers_controller.dart';
+export 'profile/controllers/profile_controller.dart';
+export 'settings/controllers/settings_controller.dart';
+export 'support/controllers/complaint_controller.dart';
+export 'support/controllers/referral_controller.dart';
+export 'wallet/controllers/wallet_controller.dart';
