@@ -282,7 +282,7 @@ class VehicleDetailsPage extends GetView<RideController> {
               ],
             ),
             const SizedBox(height: AppSpacing.lg),
-            const RouteSummaryCard(),
+            RouteSummaryCard(),
           ],
         ),
       ),
@@ -336,7 +336,7 @@ class RideRequestPage extends GetView<RideController> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: AppSpacing.md),
-            const RouteSummaryCard(compact: true),
+            RouteSummaryCard(compact: true),
             const SizedBox(height: AppSpacing.sm),
             AppButton(
               label: 'إلغاء الطلب',

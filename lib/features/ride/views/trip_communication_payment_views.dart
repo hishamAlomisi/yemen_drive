@@ -95,6 +95,15 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
   @override
   Widget build(BuildContext context) => Obx(() {
         final location = Get.find<LocationController>();
+        final canProceedToPayment = controller.activeRideStatus.value == 'Completed' ||
+            controller.activeRideStatus.value == '6';
+        final statusLabel = switch (controller.activeRideStatus.value) {
+          'DriverAssigned' || '3' => 'تم تعيين السائق',
+          'DriverEnRoute' || '4' => 'السائق في الطريق',
+          'InProgress' || '5' => 'الرحلة جارية',
+          'Completed' || '6' => 'تم الوصول',
+          _ => 'جاري تحديث حالة الرحلة',
+        };
         return RideMapShell(
           processStep: 4,
           map: AppGoogleMap(
@@ -118,15 +127,19 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           showMarker: false,
           panelMaxHeightFactor: .58,
           panelFooter: AppButton(
-            label: 'متابعة إلى الدفع',
-            onPressed: () => Get.toNamed<void>(RideRoutes.payment),
+            label: canProceedToPayment
+                ? 'متابعة إلى الدفع'
+                : 'بانتظار اكتمال الرحلة',
+            onPressed: canProceedToPayment
+                ? () => Get.toNamed<void>(RideRoutes.payment)
+                : null,
           ),
           top: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               const RideBackButton(),
-              RideStatusPill(
-                label: 'السائق في الطريق',
+                  RideStatusPill(
+                label: statusLabel,
                 icon: Icons.local_taxi_rounded,
               ),
             ],
@@ -137,7 +150,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
               const RidePanelHandle(),
               const DriverCard(),
               const SizedBox(height: AppSpacing.sm),
-              const RouteSummaryCard(compact: true),
+              RouteSummaryCard(compact: true),
               const SizedBox(height: AppSpacing.md),
               TripEmergencyActions(
                 onShareTrip: _shareTrip,
@@ -501,8 +514,10 @@ class RideChatPage extends GetView<ChatController> {
   const RideChatPage({super.key});
 
   @override
-  Widget build(BuildContext context) => RidePageFrame(
-        title: 'محمد اليمني',
+  Widget build(BuildContext context) {
+    final offer = Get.find<RideController>().acceptedOffer.value;
+    return RidePageFrame(
+        title: offer?.driverName ?? 'المحادثة',
         resizeToAvoidBottomInset: true,
         actions: <Widget>[
           IconButton(
@@ -560,6 +575,7 @@ class RideChatPage extends GetView<ChatController> {
           ],
         ),
       );
+  }
 }
 
 class DriverCallPage extends StatelessWidget {
@@ -730,7 +746,7 @@ class ActiveRidePage extends StatelessWidget {
             const SizedBox(height: AppSpacing.md),
             const DriverCard(status: 'الرحلة جارية'),
             const SizedBox(height: AppSpacing.sm),
-            const TripMetricRow(),
+            TripMetricRow(),
             const SizedBox(height: AppSpacing.md),
             const TripSafetyActions(),
           ],
@@ -825,7 +841,13 @@ class _ChatDriverStatus extends StatelessWidget {
   const _ChatDriverStatus();
 
   @override
-  Widget build(BuildContext context) => AppCard(
+  Widget build(BuildContext context) => Obx(() {
+        final ride = Get.find<RideController>();
+        final driverName = ride.assignedDriverName.value.isNotEmpty
+            ? ride.assignedDriverName.value
+            : ride.acceptedOffer.value?.driverName ?? 'السائق المعين';
+        final eta = ride.acceptedOffer.value?.etaMinutes;
+        return AppCard(
         margin: const EdgeInsets.only(top: AppSpacing.xs),
         padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
@@ -844,17 +866,22 @@ class _ChatDriverStatus extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    'محمد اليمني',
+                    driverName,
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
-                  Text('متصل الآن', style: TextStyle(color: AppColors.success)),
+                  Text('تحديث حالة الرحلة مباشر',
+                      style: TextStyle(color: AppColors.success)),
                 ],
               ),
             ),
-            RideStatusPill(label: '3 دقائق', icon: Icons.schedule_rounded),
+            RideStatusPill(
+              label: eta == null || eta <= 0 ? '—' : '$eta دقائق',
+              icon: Icons.schedule_rounded,
+            ),
           ],
         ),
       );
+      });
 }
 
 class _MessageBubble extends StatelessWidget {

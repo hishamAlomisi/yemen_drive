@@ -9,6 +9,8 @@ abstract interface class RideNegotiationRepository {
     required int serviceCatalogItemId,
     required RideCoordinate pickup,
     required RideCoordinate destination,
+    double? distanceKm,
+    double? durationMinutes,
   });
 
   Future<String> createRequest(RideRequestDraft draft);
@@ -16,6 +18,13 @@ abstract interface class RideNegotiationRepository {
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
   Future<void> cancelRequest(String requestId);
+  Future<Map<String, Object?>> getRideDetail(String requestId);
+  Future<void> publishPassengerLocation(
+    String requestId,
+    RideCoordinate location, {
+    double? bearing,
+    double? speed,
+  });
 }
 
 /// REST implementation. The API returns the
@@ -31,6 +40,8 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     required int serviceCatalogItemId,
     required RideCoordinate pickup,
     required RideCoordinate destination,
+    double? distanceKm,
+    double? durationMinutes,
   }) async {
     final result = await _client.execute<Object?>(
       model: 'PricingModel',
@@ -38,8 +49,8 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       data: <String, Object?>{
         'serviceKindId': serviceKindId,
         'serviceCatalogItemId': serviceCatalogItemId,
-        'distanceKm': _distance(pickup, destination),
-        'durationMinutes': 0,
+        'distanceKm': distanceKm ?? _distance(pickup, destination),
+        'durationMinutes': durationMinutes ?? 0,
       },
     );
     if (result is! ApiSuccess) {
@@ -77,6 +88,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         'destinationLatitude': draft.destinationCoordinate.latitude,
         'destinationLongitude': draft.destinationCoordinate.longitude,
         'customerPrice': draft.offeredPrice,
+        'idempotencyKey': draft.idempotencyKey,
       },
     );
     final id =
@@ -116,24 +128,69 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
 
   @override
   Future<void> acceptOffer(String requestId, String offerId) async {
-    await _client.execute<Object?>(
+    final result = await _client.execute<Object?>(
         model: 'RideOfferActionModel',
         operation: 'accept',
         data: {'rideId': requestId, 'offerId': offerId});
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر قبول عرض السائق من الخادم.');
+    }
   }
 
   @override
   Future<void> rejectOffer(String requestId, String offerId) async {
-    await _client.execute<Object?>(
+    final result = await _client.execute<Object?>(
         model: 'RideOfferActionModel',
         operation: 'reject',
         data: {'rideId': requestId, 'offerId': offerId});
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر رفض عرض السائق من الخادم.');
+    }
   }
 
   @override
   Future<void> cancelRequest(String requestId) async {
-    await _client.execute<Object?>(
+    final result = await _client.execute<Object?>(
         model: 'RideModel', operation: 'cancel', data: {'id': requestId});
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر إلغاء طلب الرحلة من الخادم.');
+    }
+  }
+
+  @override
+  Future<Map<String, Object?>> getRideDetail(String requestId) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideModel',
+      operation: 'get',
+      data: <String, Object?>{'id': requestId},
+    );
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر تحديث حالة الرحلة من الخادم.');
+    }
+    return _map(result.data);
+  }
+
+  @override
+  Future<void> publishPassengerLocation(
+    String requestId,
+    RideCoordinate location, {
+    double? bearing,
+    double? speed,
+  }) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideLocationModel',
+      operation: 'add',
+      data: <String, Object?>{
+        'rideId': requestId,
+        'latitude': location.latitude,
+        'longitude': location.longitude,
+        'bearing': bearing,
+        'speed': speed,
+      },
+    );
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر حفظ موقع العميل للرحلة.');
+    }
   }
 
   static Map<String, Object?> _map(Object? value) =>

@@ -56,11 +56,7 @@ class NotificationsPage extends GetView<NotificationsController> {
             separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
             itemBuilder: (context, index) {
               final item = controller.items[index];
-              return _NotificationTile(
-                item: item,
-                onTap: () =>
-                    controller.items[index] = item.copyWith(isRead: true),
-              );
+              return _NotificationTile(item: item, onTap: () => controller.markRead(item));
             },
           ),
         ),

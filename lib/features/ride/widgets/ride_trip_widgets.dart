@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -8,6 +10,8 @@ import '../../../core/config/app_environment.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../account/account_routes.dart';
+import '../controllers/ride_controller.dart';
+import '../controllers/safety_recording_controller.dart';
 import '../ride_routes.dart';
 import 'ride_common_widgets.dart';
 
@@ -22,7 +26,19 @@ class DriverCard extends StatelessWidget {
   final String status;
 
   @override
-  Widget build(BuildContext context) => AppCard(
+  Widget build(BuildContext context) => Obx(() {
+        final ride = Get.find<RideController>();
+        final offer = ride.acceptedOffer.value;
+        final driverName = offer?.driverName.trim().isNotEmpty == true
+            ? offer!.driverName
+            : ride.assignedDriverName.value.isNotEmpty
+                ? ride.assignedDriverName.value
+                : 'السائق المعين';
+        final vehicle = offer?.vehicleSummary.trim().isNotEmpty == true
+            ? offer!.vehicleSummary
+            : 'بيانات المركبة قيد التحميل';
+        final rating = offer?.rating ?? 0;
+        return AppCard(
         child: Column(
           children: <Widget>[
             Row(
@@ -38,7 +54,7 @@ class DriverCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
                       Text(
-                        'محمد اليمني',
+                        driverName,
                         style:
                             Theme.of(context).textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w900,
@@ -53,21 +69,21 @@ class DriverCard extends StatelessWidget {
                             color: AppColors.primaryDark,
                           ),
                           SizedBox(width: 4),
-                          Text('4.9 · 1,248 رحلة'),
+                          Text(rating > 0 ? rating.toStringAsFixed(1) : '—'),
                         ],
                       ),
                     ],
                   ),
                 ),
-                const Column(
+                Column(
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: <Widget>[
                     Text(
-                      'تويوتا كامري',
-                      style: TextStyle(fontWeight: FontWeight.w700),
+                      vehicle,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-                    SizedBox(height: 3),
-                    Text('ر س د 4821'),
+                    const SizedBox(height: 3),
+                    const Text(''),
                   ],
                 ),
               ],
@@ -92,7 +108,16 @@ class DriverCard extends StatelessWidget {
                   RideIconButton(
                     icon: Icons.call_outlined,
                     tooltip: 'اتصال',
-                    onPressed: () => Get.toNamed<void>(RideRoutes.call),
+                    onPressed: () async {
+                      final phone = ride.assignedDriverPhone.value;
+                      if (phone.isEmpty ||
+                          !await launchUrl(Uri(scheme: 'tel', path: phone))) {
+                        Get.snackbar(
+                          'تعذر الاتصال',
+                          'رقم السائق غير متاح حاليًا.',
+                        );
+                      }
+                    },
                   ),
                 ],
               ],
@@ -100,22 +125,39 @@ class DriverCard extends StatelessWidget {
           ],
         ),
       );
+      });
 }
 
 class RouteSummaryCard extends StatelessWidget {
   const RouteSummaryCard({
-    this.from = 'موقعي الحالي',
-    this.to = 'شارع النصر، صنعاء',
+    this.from,
+    this.to,
     this.compact = false,
     super.key,
   });
 
-  final String from;
-  final String to;
+  final String? from;
+  final String? to;
   final bool compact;
 
   @override
-  Widget build(BuildContext context) => AppCard(
+  Widget build(BuildContext context) {
+    final draft = Get.isRegistered<RideController>()
+        ? Get.find<RideController>().currentDraft.value
+        : null;
+    final fromLabel = from?.trim().isNotEmpty == true
+        ? from!.trim()
+        : draft?.pickupAddress.trim().isNotEmpty == true
+            ? draft!.pickupAddress.trim()
+            : draft?.pickup ?? 'نقطة الانطلاق';
+    final toLabel = to?.trim().isNotEmpty == true
+        ? to!.trim()
+        : draft?.destinationAddressName.trim().isNotEmpty == true
+            ? draft!.destinationAddressName.trim()
+            : draft?.destinationAddress.trim().isNotEmpty == true
+                ? draft!.destinationAddress.trim()
+                : draft?.destination ?? 'الوجهة المحددة';
+    return AppCard(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -143,7 +185,7 @@ class RouteSummaryCard extends StatelessWidget {
                 children: <Widget>[
                   Text('من', style: Theme.of(context).textTheme.bodySmall),
                   Text(
-                    from,
+                    fromLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontWeight: FontWeight.w800),
@@ -151,7 +193,7 @@ class RouteSummaryCard extends StatelessWidget {
                   SizedBox(height: compact ? 10 : 18),
                   Text('إلى', style: Theme.of(context).textTheme.bodySmall),
                   Text(
-                    to,
+                    toLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(fontWeight: FontWeight.w800),
@@ -162,26 +204,38 @@ class RouteSummaryCard extends StatelessWidget {
           ],
         ),
       );
+  }
 }
 
 class TripMetricRow extends StatelessWidget {
   const TripMetricRow({super.key});
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => Obx(() {
+        final ride = Get.find<RideController>();
+        final draft = ride.currentDraft.value;
+        final distanceKm = draft?.routeDistanceMeters != null
+            ? draft!.routeDistanceMeters! / 1000
+            : ride.routeDistanceKm.value;
+        final durationSeconds = draft?.routeDurationSeconds;
+        final price = ride.acceptedOffer.value?.price ??
+            (ride.offeredPrice.value > 0 ? ride.offeredPrice.value : null);
+        return Row(
         children: <Widget>[
-          const Expanded(
+          Expanded(
             child: _TripMetric(
               icon: Icons.schedule_rounded,
-              value: '18 د',
+              value: durationSeconds == null
+                  ? '—'
+                  : '${(durationSeconds / 60).ceil()} د',
               label: 'المدة',
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
-          const Expanded(
+          Expanded(
             child: _TripMetric(
               icon: Icons.route_rounded,
-              value: '8.4 كم',
+              value: distanceKm > 0 ? '${distanceKm.toStringAsFixed(1)} كم' : '—',
               label: 'المسافة',
             ),
           ),
@@ -189,12 +243,15 @@ class TripMetricRow extends StatelessWidget {
           Expanded(
             child: _TripMetric(
               icon: Icons.payments_outlined,
-              value: '24 ${AppEnvironment.defaultCurrency}',
+              value: price == null
+                  ? '—'
+                  : '${price.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
               label: 'التكلفة',
             ),
           ),
         ],
       );
+      });
 }
 
 class TripSafetyActions extends StatelessWidget {
@@ -317,13 +374,14 @@ class _SafetySheetContent extends StatefulWidget {
 }
 
 class _SafetySheetContentState extends State<_SafetySheetContent> {
-  bool _isRecording = false;
+  final SafetyRecordingController _recording =
+      Get.find<SafetyRecordingController>();
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
-    return SingleChildScrollView(
+    return Obx(() => SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
@@ -392,21 +450,17 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
                 onTap: widget.onCallEmergency,
               ),
               _SafetySheetAction(
-                icon: _isRecording
+                icon: _recording.isRecording.value
                     ? Icons.stop_circle_outlined
                     : Icons.mic_none_rounded,
-                label: _isRecording
+                label: _recording.isRecording.value
                     ? 'stop_audio_recording'.tr
                     : 'start_audio_recording'.tr,
-                isDanger: _isRecording,
+                isDanger: _recording.isRecording.value,
                 onTap: () {
-                  setState(() => _isRecording = !_isRecording);
-                  Get.snackbar(
-                    _isRecording
-                        ? 'start_audio_recording'.tr
-                        : 'stop_audio_recording'.tr,
-                    'audio_recording_hint'.tr,
-                  );
+                  if (!_recording.isWorking.value) {
+                    unawaited(_toggleRecording());
+                  }
                 },
               ),
               _SafetySheetAction(
@@ -463,6 +517,40 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
           ),
         ],
       ),
+    ));
+  }
+
+  Future<void> _toggleRecording() async {
+    if (_recording.isRecording.value) {
+      await _recording.stop();
+      if (_recording.error.value.isEmpty) {
+        Get.snackbar('stop_audio_recording'.tr, 'تم حفظ تسجيل السلامة على الخادم.');
+      } else {
+        Get.snackbar('stop_audio_recording'.tr, _recording.error.value);
+      }
+      return;
+    }
+
+    final consent = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Text('تسجيل السلامة'),
+        content: const Text(
+          'سيُسجل صوت هذه الرحلة ويُرسل إلى خادم يمن درايف أثناء التسجيل. '
+          'تستطيع إيقافه في أي وقت.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: () => Get.back<bool>(result: false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Get.back<bool>(result: true), child: const Text('أوافق وأبدأ')),
+        ],
+      ),
+    );
+    if (consent != true) return;
+    final started = await _recording.start();
+    Get.snackbar(
+      started ? 'start_audio_recording'.tr : 'تعذر بدء التسجيل',
+      started
+          ? 'تسجيل السلامة نشط ومرفوع إلى الخادم أثناء الرحلة.'
+          : _recording.error.value,
     );
   }
 }

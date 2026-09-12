@@ -52,12 +52,16 @@ class RideController extends GetxController {
   final RxBool autoStartTransport = RidePreferences.autoStartTransport.obs;
   final RxBool isSearchingForDriver = false.obs;
   final RxBool isDriverAssigned = false.obs;
+  final RxString activeRideStatus = ''.obs;
   final RxString cancellationReason = ''.obs;
   final Rx<NegotiationStatus> negotiationStatus = NegotiationStatus.idle.obs;
   final Rxn<RideQuote> quote = Rxn<RideQuote>();
   final Rxn<RideRequestDraft> currentDraft = Rxn<RideRequestDraft>();
   final Rxn<DriverOffer> acceptedOffer = Rxn<DriverOffer>();
+  final RxString assignedDriverName = ''.obs;
+  final RxString assignedDriverPhone = ''.obs;
   final RxDouble offeredPrice = 0.0.obs;
+  final RxDouble routeDistanceKm = 0.0.obs;
   final RxList<DriverOffer> driverOffers = <DriverOffer>[].obs;
   final RxSet<String> removingOfferIds = <String>{}.obs;
   final RxBool offersExhausted = false.obs;
@@ -79,7 +83,10 @@ class RideController extends GetxController {
   String? _requestId;
   bool _isResumingRequest = false;
   int _catalogRequestId = 0;
+  DateTime? _lastPassengerLocationPublished;
   bool hasShownTripSharePrompt = false;
+
+  String? get currentRideId => _requestId;
 
   @override
   void onInit() {
@@ -543,10 +550,26 @@ class RideController extends GetxController {
           distanceFilter: 5,
         ),
       ).listen((position) {
-        trackedPassenger.value = RideCoordinate(
+        final current = RideCoordinate(
           latitude: position.latitude,
           longitude: position.longitude,
         );
+        trackedPassenger.value = current;
+        final rideId = _requestId;
+        final now = DateTime.now();
+        if (!AppEnvironment.useDemoData &&
+            rideId != null &&
+            (_lastPassengerLocationPublished == null ||
+                now.difference(_lastPassengerLocationPublished!) >=
+                    const Duration(seconds: 8))) {
+          _lastPassengerLocationPublished = now;
+          unawaited(_repository.publishPassengerLocation(
+            rideId,
+            current,
+            bearing: position.heading,
+            speed: position.speed,
+          ));
+        }
       });
     } catch (_) {
       // Demo tracking remains active when a device does not provide location.
@@ -659,6 +682,9 @@ class RideController extends GetxController {
     negotiationStatus.value = NegotiationStatus.quoting;
     Get.toNamed<void>(RideRoutes.negotiationQuote);
 
+    final routeDistance =
+        _routeDistanceKm(location.routePoints, pickupPoint, destinationPoint);
+    routeDistanceKm.value = routeDistance;
     final result = await _repository.getQuote(
       serviceKindId: vehicle.serviceKindId!,
       serviceCatalogItemId: vehicle.serviceCatalogItemId!,
@@ -670,6 +696,7 @@ class RideController extends GetxController {
         latitude: destinationPoint.latitude,
         longitude: destinationPoint.longitude,
       ),
+      distanceKm: routeDistance,
     );
 
     quote.value = result;
@@ -774,6 +801,7 @@ class RideController extends GetxController {
       destinationAddressName: location.addressNameController.text.trim(),
       destinationStreet: location.streetController.text.trim(),
       destinationDetails: location.detailsController.text.trim(),
+      routeDistanceMeters: (routeDistanceKm.value * 1000).round(),
       idempotencyKey: DateTime.now().microsecondsSinceEpoch.toString(),
     );
     currentDraft.value = draft;
@@ -800,7 +828,12 @@ class RideController extends GetxController {
   Future<void> acceptOffer(DriverOffer offer) async {
     final requestId = _requestId;
     if (requestId == null) return;
-    await _repository.acceptOffer(requestId, offer.id);
+    try {
+      await _repository.acceptOffer(requestId, offer.id);
+    } on FormatException catch (error) {
+      Get.snackbar('تعذر قبول العرض', error.message);
+      return;
+    }
     acceptedOffer.value = offer;
     driverOffers.assignAll(
       driverOffers.map(
@@ -812,6 +845,7 @@ class RideController extends GetxController {
       ),
     );
     negotiationStatus.value = NegotiationStatus.accepted;
+    activeRideStatus.value = 'DriverAssigned';
     driverFound();
   }
 
@@ -887,7 +921,74 @@ class RideController extends GetxController {
     isSearchingForDriver.value = false;
     isDriverAssigned.value = true;
     if (AppEnvironment.useDemoData) startDemoTracking();
+    if (!AppEnvironment.useDemoData) startRealTracking();
     Get.offNamed<void>(RideRoutes.driverLocation);
+  }
+
+  void startRealTracking() {
+    _trackingTimer?.cancel();
+    unawaited(refreshActiveRide());
+    unawaited(_startPassengerPositionTracking());
+    _trackingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      unawaited(refreshActiveRide());
+    });
+  }
+
+  Future<void> refreshActiveRide() async {
+    final rideId = _requestId;
+    if (rideId == null) return;
+    try {
+      final detail = await _repository.getRideDetail(rideId);
+      final ride = detail['ride'];
+      if (ride is Map) {
+        activeRideStatus.value = '${ride['status'] ?? ''}';
+      }
+      final driver = detail['driver'];
+      if (driver is Map) {
+        assignedDriverName.value = '${driver['name'] ?? ''}'.trim();
+        assignedDriverPhone.value = '${driver['phoneNumber'] ?? ''}'.trim();
+      }
+      final location = detail['driverLocation'];
+      if (location is Map) {
+        final values = Map<Object?, Object?>.from(location);
+        final latitude = _asDouble(values['latitude']);
+        final longitude = _asDouble(values['longitude']);
+        if (latitude != null && longitude != null) {
+          trackedDriver.value = DriverTrackingSnapshot(
+            driverId: '${values['driverId'] ?? ''}',
+            location: RideCoordinate(latitude: latitude, longitude: longitude),
+            heading: _asDouble(values['bearing']),
+            updatedAt: DateTime.tryParse('${values['observedAtUtc'] ?? ''}') ?? DateTime.now(),
+          );
+        }
+      }
+    } catch (_) {
+      // Keep the last confirmed marker visible during a transient network failure.
+    }
+  }
+
+  double? _asDouble(Object? value) => value is num
+      ? value.toDouble()
+      : double.tryParse('${value ?? ''}');
+
+  double _routeDistanceKm(
+    List<LatLng> routePoints,
+    LatLng pickup,
+    LatLng destination,
+  ) {
+    final points = routePoints.length >= 2
+        ? routePoints
+        : <LatLng>[pickup, destination];
+    var meters = 0.0;
+    for (var index = 1; index < points.length; index++) {
+      meters += Geolocator.distanceBetween(
+        points[index - 1].latitude,
+        points[index - 1].longitude,
+        points[index].latitude,
+        points[index].longitude,
+      );
+    }
+    return meters / 1000;
   }
 
   void cancelRide(String reason) {

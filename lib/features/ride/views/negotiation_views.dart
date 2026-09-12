@@ -125,7 +125,7 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
                       ],
                     ),
                     const SizedBox(height: AppSpacing.lg),
-                    const RouteSummaryCard(compact: true),
+                    RouteSummaryCard(compact: true),
                   ],
                 ),
         );

@@ -7,6 +7,7 @@ import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/notifications_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/ride_controller.dart';
+import '../controllers/safety_recording_controller.dart';
 import '../home/repositories/service_kind_repository.dart';
 import '../location_selection/repositories/location_search_repository.dart';
 import '../location_selection/repositories/route_repository.dart';
@@ -69,10 +70,27 @@ class RideBinding extends Bindings {
       );
     }
     Get.lazyPut<NotificationsController>(
-      NotificationsController.new,
+      () => NotificationsController(
+        Get.find<ApiClient>(),
+        Get.find<AuthSessionService>(),
+      ),
       fenix: true,
     );
-    Get.lazyPut<ChatController>(ChatController.new, fenix: true);
+    Get.lazyPut<ChatController>(
+      () => ChatController(
+        Get.find<ApiClient>(),
+        Get.find<AuthSessionService>(),
+        Get.find<RideController>(),
+      ),
+      fenix: true,
+    );
     Get.lazyPut<PaymentController>(PaymentController.new, fenix: true);
+    Get.lazyPut<SafetyRecordingController>(
+      () => SafetyRecordingController(
+        Get.find<ApiClient>(),
+        Get.find<RideController>(),
+      ),
+      fenix: true,
+    );
   }
 }

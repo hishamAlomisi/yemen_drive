@@ -6,6 +6,7 @@
     <!-- Location permissions. Request them at runtime only when needed. -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Android 13+ notification permission; it must also be requested at runtime. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />

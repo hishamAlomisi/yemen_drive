@@ -1,5 +1,4 @@
 import 'package:dio/dio.dart';
-import 'package:flutter/foundation.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../core/config/app_environment.dart';
@@ -80,11 +79,6 @@ class GoogleRoutesRepository implements RouteRepository {
       final error = response.data?['error'];
       final message =
           error is Map<String, dynamic> ? _googleErrorMessage(error) : null;
-      debugPrint('##########');
-      debugPrint('Google Routes HTTP status: ${response.statusCode}');
-      debugPrint(message ?? 'Google Routes request was rejected.');
-      debugPrint('Google Routes response: ${response.data}');
-      debugPrint('######');
       if (response.statusCode == 403) {
         return _getLegacyDirectionsRoute(
           key: key,
@@ -159,11 +153,6 @@ class GoogleRoutesRepository implements RouteRepository {
           final encoded =
               overview is Map<String, dynamic> ? overview['points'] : null;
           if (encoded is String && encoded.isNotEmpty) {
-            debugPrint('##########');
-            debugPrint(
-              'Routes API denied the request; Directions API fallback succeeded.',
-            );
-            debugPrint('######');
             return _decodePolyline(encoded);
           }
         }
@@ -171,10 +160,6 @@ class GoogleRoutesRepository implements RouteRepository {
     }
     final message = data?['error_message']?.toString() ??
         'Directions API returned status: ${status ?? response.statusCode}';
-    debugPrint('##########');
-    debugPrint('Directions API fallback failed: $message');
-    debugPrint('Directions response: $data');
-    debugPrint('######');
     throw RouteRequestException(
       statusCode: response.statusCode ?? 0,
       message: message,
