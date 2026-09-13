@@ -18,6 +18,7 @@ abstract interface class RideNegotiationRepository {
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
   Future<void> cancelRequest(String requestId);
+  Future<Map<String, Object?>?> findLatestOpenRide();
   Future<Map<String, Object?>> getRideDetail(String requestId);
   Future<void> publishPassengerLocation(
     String requestId,
@@ -208,6 +209,23 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     if (result is! ApiSuccess) {
       throw const FormatException('تعذر إلغاء طلب الرحلة من الخادم.');
     }
+  }
+
+  @override
+  Future<Map<String, Object?>?> findLatestOpenRide() async {
+    final result = await _client.execute<Object?>(
+      model: 'RideModel',
+      operation: 'list',
+      data: const <String, Object?>{},
+    );
+    if (result is! ApiSuccess || result.data is! List) return null;
+
+    for (final raw in result.data as List) {
+      final ride = _map(raw);
+      final status = int.tryParse('${ride['status'] ?? ''}');
+      if (status != null && status >= 0 && status <= 5) return ride;
+    }
+    return null;
   }
 
   @override

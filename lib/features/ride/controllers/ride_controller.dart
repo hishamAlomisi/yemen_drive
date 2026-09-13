@@ -82,6 +82,7 @@ class RideController extends GetxController {
   StreamSubscription<Position>? _passengerPositionSubscription;
   String? _requestId;
   bool _isResumingRequest = false;
+  bool _hasCheckedForOpenRide = false;
   int _catalogRequestId = 0;
   DateTime? _lastPassengerLocationPublished;
   bool hasShownTripSharePrompt = false;
@@ -98,6 +99,91 @@ class RideController extends GetxController {
     unawaited(_loadHomeServices());
   }
 
+  @override
+  void onReady() {
+    super.onReady();
+    unawaited(restoreOpenRideOnLaunch());
+  }
+
+  /// Restores the server's latest non-final ride after an app restart. The
+  /// server remains the source of truth; no local draft is used to recreate it.
+  Future<void> restoreOpenRideOnLaunch() async {
+    if (_hasCheckedForOpenRide || !_session.isAuthenticated.value) return;
+    _hasCheckedForOpenRide = true;
+
+    try {
+      final ride = await _repository.findLatestOpenRide();
+      if (ride == null) return;
+      final rideId = ride['id']?.toString();
+      final status = _asInt(ride['status']);
+      if (rideId == null || rideId.isEmpty || status == null) return;
+
+      _restoreRideSnapshot(rideId, ride);
+      if (status <= 2) {
+        negotiationStatus.value = NegotiationStatus.searching;
+        isSearchingForDriver.value = true;
+        offersExhausted.value = false;
+        offersStreamDone.value = false;
+        await _watchOffers(rideId);
+        if (!isClosed) Get.offAllNamed<void>(RideRoutes.negotiationQuote);
+        return;
+      }
+
+      negotiationStatus.value = NegotiationStatus.accepted;
+      isDriverAssigned.value = true;
+      await refreshActiveRide();
+      startRealTracking();
+      if (!isClosed) Get.offAllNamed<void>(RideRoutes.driverLocation);
+    } catch (_) {
+      // Opening the home screen remains available when the network is offline.
+    }
+  }
+
+  void _restoreRideSnapshot(String rideId, Map<String, Object?> ride) {
+    _requestId = rideId;
+    activeRideStatus.value = '${ride['status'] ?? ''}';
+    final pickupLatitude = _asDouble(ride['pickupLatitude']) ?? 0;
+    final pickupLongitude = _asDouble(ride['pickupLongitude']) ?? 0;
+    final destinationLatitude = _asDouble(ride['destinationLatitude']) ?? 0;
+    final destinationLongitude = _asDouble(ride['destinationLongitude']) ?? 0;
+    final price = _asDouble(ride['customerPrice']) ?? 0;
+    final pickup =
+        RideCoordinate(latitude: pickupLatitude, longitude: pickupLongitude);
+    final destination = RideCoordinate(
+      latitude: destinationLatitude,
+      longitude: destinationLongitude,
+    );
+    currentDraft.value = RideRequestDraft(
+      customerId: _session.currentUserId.value,
+      pickup: '${ride['pickupAddress'] ?? 'نقطة الانطلاق'}',
+      destination: '${ride['destinationAddress'] ?? 'الوجهة'}',
+      pickupCoordinate: pickup,
+      destinationCoordinate: destination,
+      serviceKindId: _asInt(ride['serviceKindId']) ?? 0,
+      serviceCatalogItemId: _asInt(ride['serviceCatalogItemId']) ?? 0,
+      offeredPrice: price,
+      pickupAddress: '${ride['pickupAddress'] ?? ''}',
+      destinationAddress: '${ride['destinationAddress'] ?? ''}',
+    );
+    final location = Get.find<LocationController>();
+    final pickupPoint = LatLng(pickupLatitude, pickupLongitude);
+    final destinationPoint = LatLng(destinationLatitude, destinationLongitude);
+    location.pickup.value = pickupPoint;
+    location.destination.value = destinationPoint;
+    location.routePoints.assignAll(<LatLng>[pickupPoint, destinationPoint]);
+    location.fromController.text =
+        '${ride['pickupAddress'] ?? 'نقطة الانطلاق'}';
+    location.toController.text = '${ride['destinationAddress'] ?? 'الوجهة'}';
+    quote.value = RideQuote(
+      suggestedPrice: price,
+      minPrice: price,
+      maxPrice: price,
+      priceStep: 1,
+      currency: 'YER',
+    );
+    offeredPrice.value = price;
+  }
+
   Future<void> _loadHomeServices() async {
     final serviceKinds = _serviceKinds;
     if (serviceKinds == null || AppEnvironment.useDemoData) return;
@@ -110,7 +196,8 @@ class RideController extends GetxController {
 
   void applyAdminDefaultServiceKind() {
     if (!autoStartTransport.value) return;
-    final index = homeServices.indexWhere((item) => item.isDefault && item.id != null);
+    final index =
+        homeServices.indexWhere((item) => item.isDefault && item.id != null);
     if (index < 0) return;
     final selected = homeServices[index];
     homeServiceIndex.value = index;
@@ -820,8 +907,12 @@ class RideController extends GetxController {
     );
     currentDraft.value = draft;
     _requestId = await _repository.createRequest(draft);
+    await _watchOffers(_requestId!);
+  }
+
+  Future<void> _watchOffers(String requestId) async {
     await _offersSubscription?.cancel();
-    _offersSubscription = _repository.watchOffers(_requestId!).listen(
+    _offersSubscription = _repository.watchOffers(requestId).listen(
       (offer) {
         offersExhausted.value = false;
         receivedOffersCount.value++;
@@ -904,7 +995,19 @@ class RideController extends GetxController {
   Future<void> retryDriverSearch() async {
     offersExhausted.value = false;
     offersStreamDone.value = false;
-    await requestRide();
+    final requestId = _requestId;
+    if (requestId == null) {
+      await requestRide();
+      return;
+    }
+
+    // Retry observes the same still-open ride. Creating a fresh request here
+    // would duplicate a trip every time the offer polling window ends.
+    isSearchingForDriver.value = true;
+    receivedOffersCount.value = 0;
+    removingOfferIds.clear();
+    driverOffers.clear();
+    await _watchOffers(requestId);
   }
 
   Future<void> cancelDriverSearch() async {
@@ -972,7 +1075,8 @@ class RideController extends GetxController {
             driverId: '${values['driverId'] ?? ''}',
             location: RideCoordinate(latitude: latitude, longitude: longitude),
             heading: _asDouble(values['bearing']),
-            updatedAt: DateTime.tryParse('${values['observedAtUtc'] ?? ''}') ?? DateTime.now(),
+            updatedAt: DateTime.tryParse('${values['observedAtUtc'] ?? ''}') ??
+                DateTime.now(),
           );
         }
       }
@@ -981,18 +1085,19 @@ class RideController extends GetxController {
     }
   }
 
-  double? _asDouble(Object? value) => value is num
-      ? value.toDouble()
-      : double.tryParse('${value ?? ''}');
+  double? _asDouble(Object? value) =>
+      value is num ? value.toDouble() : double.tryParse('${value ?? ''}');
+
+  int? _asInt(Object? value) =>
+      value is num ? value.toInt() : int.tryParse('${value ?? ''}');
 
   double _routeDistanceKm(
     List<LatLng> routePoints,
     LatLng pickup,
     LatLng destination,
   ) {
-    final points = routePoints.length >= 2
-        ? routePoints
-        : <LatLng>[pickup, destination];
+    final points =
+        routePoints.length >= 2 ? routePoints : <LatLng>[pickup, destination];
     var meters = 0.0;
     for (var index = 1; index < points.length; index++) {
       meters += Geolocator.distanceBetween(
