@@ -137,9 +137,12 @@ class RegistrationController extends GetxController {
 
   String _normalize(String value, PhoneCountry selectedCountry) {
     final digits = value.replaceAll(RegExp(r'\D'), '');
-    if (value.trim().startsWith('+')) return digits;
-    final local = digits.startsWith('0') ? digits.substring(1) : digits;
-    return '${selectedCountry.phoneCode}$local';
+    final withoutCountryCode = digits.startsWith(selectedCountry.phoneCode)
+        ? digits.substring(selectedCountry.phoneCode.length)
+        : digits;
+    return withoutCountryCode.startsWith('0')
+        ? withoutCountryCode.substring(1)
+        : withoutCountryCode;
   }
 
   @override

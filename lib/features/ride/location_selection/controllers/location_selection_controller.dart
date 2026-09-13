@@ -5,6 +5,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../../core/config/app_environment.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
 import '../../models/ride_models.dart';
@@ -15,10 +16,6 @@ import '../repositories/route_repository.dart';
 class LocationController extends GetxController {
   LocationController(
       this._routeRepository, this._searchRepository, this._client);
-
-  // TEMPORARY_TEST_BYPASS: remove this flag and restore hasDrivingRoute checks
-  // after Google Routes API billing/permissions are configured.
-  static const bool temporaryRouteBypass = false;
 
   final RouteRepository _routeRepository;
   final LocationSearchRepository _searchRepository;
@@ -104,8 +101,10 @@ class LocationController extends GetxController {
   bool get hasCompleteRoute =>
       pickup.value != null && destination.value != null;
   bool get hasDrivingRoute => hasCompleteRoute && routePoints.length >= 2;
-  bool get canContinueLocationFlow =>
-      hasDrivingRoute || (temporaryRouteBypass && hasCompleteRoute);
+  bool get canContinueLocationFlow => hasDrivingRoute;
+
+  bool get _useDevelopmentRouteFallback =>
+      !AppEnvironment.isProduction && AppEnvironment.googleRoutesApiKey.isEmpty;
 
   Set<Marker> get markers => <Marker>{
         if (pickup.value != null)
@@ -424,6 +423,14 @@ class LocationController extends GetxController {
     isRouteLoading.value = true;
     routePoints.clear();
     try {
+      if (_useDevelopmentRouteFallback) {
+        routePoints.assignAll(<LatLng>[start, end]);
+        Get.snackbar(
+          'مسار تقديري للتطوير',
+          'استُخدم خط بين النقطتين المختارتين للاختبار. لا يمثل مسار قيادة فعلياً.',
+        );
+        return;
+      }
       final points = await _routeRepository.getDrivingRoute(
         origin: start,
         destination: end,

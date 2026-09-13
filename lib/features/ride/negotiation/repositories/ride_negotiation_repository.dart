@@ -104,12 +104,24 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     for (var i = 0; i < 60; i++) {
       final result = await _client.execute<Object?>(
           model: 'RideModel', operation: 'get', data: {'id': requestId});
-      final offers = result is ApiSuccess ? _map(result.data)['offers'] : null;
+      if (result is! ApiSuccess) {
+        throw const FormatException('تعذر تحديث عروض السائقين من الخادم.');
+      }
+      final offers = _map(result.data)['offers'];
       if (offers is List) {
-        for (final raw in offers.whereType<Map<Object?, Object?>>()) {
-          final item = Map<String, Object?>.from(raw);
+        for (final raw in offers) {
+          final item = _map(raw);
+          if (item.isEmpty) continue;
           final id = item['id']?.toString() ?? '';
           if (id.isEmpty || !seen.add(id)) continue;
+          final expiresAt = _serverUtcDateTime(item['expiresAtUtc']);
+          final status = _offerStatus(item['status']);
+          // The ride snapshot retains its offer history. An expired or already
+          // handled offer must never briefly appear as a new customer choice.
+          if (status != DriverOfferStatus.pending ||
+              (expiresAt != null && !expiresAt.isAfter(DateTime.now()))) {
+            continue;
+          }
           yield DriverOffer(
             id: id,
             driverName: item['driverName']?.toString() ?? '',
@@ -117,13 +129,53 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
             price: _number(item['amount']),
             rating: 0,
             etaMinutes: 0,
-            expiresAt:
-                DateTime.tryParse(item['expiresAtUtc']?.toString() ?? ''),
+            status: status,
+            expiresAt: expiresAt,
+            createdAt: _serverUtcDateTime(item['createdAtUtc']),
           );
         }
       }
       await Future<void>.delayed(const Duration(seconds: 2));
     }
+  }
+
+  DriverOfferStatus _offerStatus(Object? value) {
+    switch (value?.toString().toLowerCase()) {
+      case 'accepted':
+      case '1':
+        return DriverOfferStatus.accepted;
+      case 'rejected':
+      case '2':
+        return DriverOfferStatus.rejected;
+      case 'expired':
+      case '3':
+        return DriverOfferStatus.expired;
+      default:
+        return DriverOfferStatus.pending;
+    }
+  }
+
+  /// SQL-backed UTC values can arrive without a trailing timezone marker.
+  /// Treat such values as UTC; parsing them as device-local time would make a
+  /// valid offer appear expired whenever the device is ahead of UTC.
+  static DateTime? _serverUtcDateTime(Object? value) {
+    final text = value?.toString().trim() ?? '';
+    if (text.isEmpty) return null;
+    final parsed = DateTime.tryParse(text);
+    if (parsed == null) return null;
+    final hasOffset =
+        RegExp(r'(?:Z|[+-]\d{2}:?\d{2})$', caseSensitive: false).hasMatch(text);
+    if (hasOffset) return parsed.toUtc();
+    return DateTime.utc(
+      parsed.year,
+      parsed.month,
+      parsed.day,
+      parsed.hour,
+      parsed.minute,
+      parsed.second,
+      parsed.millisecond,
+      parsed.microsecond,
+    );
   }
 
   @override

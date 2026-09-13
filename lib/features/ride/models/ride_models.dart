@@ -152,6 +152,7 @@ class DriverOffer {
     required this.etaMinutes,
     this.status = DriverOfferStatus.pending,
     this.expiresAt,
+    this.createdAt,
   });
 
   final String id;
@@ -162,8 +163,13 @@ class DriverOffer {
   final int etaMinutes;
   final DriverOfferStatus status;
   final DateTime? expiresAt;
+  final DateTime? createdAt;
 
-  DriverOffer copyWith({DriverOfferStatus? status, DateTime? expiresAt}) =>
+  DriverOffer copyWith({
+    DriverOfferStatus? status,
+    DateTime? expiresAt,
+    DateTime? createdAt,
+  }) =>
       DriverOffer(
         id: id,
         driverName: driverName,
@@ -173,6 +179,7 @@ class DriverOffer {
         etaMinutes: etaMinutes,
         status: status ?? this.status,
         expiresAt: expiresAt ?? this.expiresAt,
+        createdAt: createdAt ?? this.createdAt,
       );
 }
 

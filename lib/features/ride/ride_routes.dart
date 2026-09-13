@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 
 import '../account/bindings/account_binding.dart';
+import '../account/profile/bindings/profile_binding.dart';
 import 'bindings/ride_binding.dart';
 import 'home/views.dart';
 import 'location_selection/bindings/location_selection_binding.dart';
@@ -39,13 +40,21 @@ List<GetPage<dynamic>> get ridePages => <GetPage<dynamic>>[
       GetPage<dynamic>(
         name: RideRoutes.homeTransport,
         page: MainShellPage.new,
-        bindings: <Bindings>[RideBinding(), AccountBinding()],
+        bindings: <Bindings>[
+          RideBinding(),
+          AccountBinding(),
+          ProfileBinding(),
+        ],
         transition: Transition.noTransition,
       ),
       GetPage<dynamic>(
         name: RideRoutes.homeDelivery,
         page: MainShellPage.new,
-        bindings: <Bindings>[RideBinding(), AccountBinding()],
+        bindings: <Bindings>[
+          RideBinding(),
+          AccountBinding(),
+          ProfileBinding(),
+        ],
         transition: Transition.noTransition,
       ),
       _ridePage(RideRoutes.notifications, NotificationsPage.new),

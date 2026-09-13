@@ -530,6 +530,7 @@ class _DriverOfferCard extends StatefulWidget {
 class _DriverOfferCardState extends State<_DriverOfferCard> {
   Timer? _timer;
   double _progress = 1;
+  int _remainingSeconds = 0;
 
   @override
   void initState() {
@@ -548,9 +549,18 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
       return;
     }
     final remaining = expiresAt.difference(DateTime.now()).inMilliseconds;
-    final progress = (remaining / const Duration(seconds: 20).inMilliseconds)
-        .clamp(0.0, 1.0);
-    if (mounted) setState(() => _progress = progress);
+    final createdAt = widget.offer.createdAt;
+    final total = createdAt == null
+        ? const Duration(minutes: 5).inMilliseconds
+        : expiresAt.difference(createdAt).inMilliseconds;
+    final progress = (remaining / total.clamp(1, 300000)).clamp(0.0, 1.0);
+    final remainingSeconds = (remaining / 1000).ceil().clamp(0, 300);
+    if (mounted) {
+      setState(() {
+        _progress = progress;
+        _remainingSeconds = remainingSeconds;
+      });
+    }
     if (remaining <= 0) {
       _timer?.cancel();
       if (Get.isRegistered<RideController>()) {
@@ -650,7 +660,7 @@ class _DriverOfferCardState extends State<_DriverOfferCard> {
                       alignment: AlignmentDirectional.centerStart,
                       child: Text(
                         'offer_expires_in'.trParams(<String, String>{
-                          'seconds': '${(_progress * 20).ceil()}',
+                          'seconds': '$_remainingSeconds',
                         }),
                         style: Theme.of(context).textTheme.labelSmall,
                       ),

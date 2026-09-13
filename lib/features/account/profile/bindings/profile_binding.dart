@@ -8,9 +8,17 @@ class ProfileBinding extends Bindings {
   @override
   void dependencies() {
     AccountBinding().dependencies();
-    Get.lazyPut<ProfileRepository>(
-        () => ApiProfileRepository(Get.find<ApiClient>()));
-    Get.lazyPut<ProfileController>(
-        () => ProfileController(Get.find<ProfileRepository>()));
+    if (!Get.isRegistered<ProfileRepository>()) {
+      Get.lazyPut<ProfileRepository>(
+        () => ApiProfileRepository(Get.find<ApiClient>()),
+        fenix: true,
+      );
+    }
+    if (!Get.isRegistered<ProfileController>()) {
+      Get.lazyPut<ProfileController>(
+        () => ProfileController(Get.find<ProfileRepository>()),
+        fenix: true,
+      );
+    }
   }
 }

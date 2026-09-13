@@ -56,7 +56,8 @@ class NotificationsPage extends GetView<NotificationsController> {
             separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
             itemBuilder: (context, index) {
               final item = controller.items[index];
-              return _NotificationTile(item: item, onTap: () => controller.markRead(item));
+              return _NotificationTile(
+                  item: item, onTap: () => controller.markRead(item));
             },
           ),
         ),
@@ -79,13 +80,15 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   @override
   void initState() {
     super.initState();
-    if (rideController.autoStartTransport.value) {
-      rideController.serviceType.value = RideServiceType.transport;
-      rideController.homeServiceIndex.value = 0;
-    }
     WidgetsBinding.instance.addPostFrameCallback(
       (_) async {
+        if (!mounted) return;
+        if (rideController.autoStartTransport.value) {
+          rideController.serviceType.value = RideServiceType.transport;
+          rideController.homeServiceIndex.value = 0;
+        }
         await controller.ensureInitialPickupLocation();
+        if (!mounted) return;
         if (rideController.nearbyDrivers.isEmpty) {
           if (AppEnvironment.useDemoData)
             rideController.loadDemoNearbyDrivers();

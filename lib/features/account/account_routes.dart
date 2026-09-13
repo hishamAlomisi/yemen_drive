@@ -77,7 +77,7 @@ List<GetPage<dynamic>> get accountPages => <GetPage<dynamic>>[
       GetPage<dynamic>(
         name: AccountRoutes.offers,
         page: OffersPage.new,
-        binding: ProfileBinding(),
+        binding: AccountBinding(),
       ),
       GetPage<dynamic>(
         name: AccountRoutes.offerDetails,
@@ -87,7 +87,7 @@ List<GetPage<dynamic>> get accountPages => <GetPage<dynamic>>[
       GetPage<dynamic>(
         name: AccountRoutes.profile,
         page: ProfilePage.new,
-        binding: AccountBinding(),
+        binding: ProfileBinding(),
       ),
       GetPage<dynamic>(
         name: AccountRoutes.menu,

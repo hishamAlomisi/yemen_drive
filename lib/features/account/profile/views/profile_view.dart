@@ -98,10 +98,19 @@ class ProfilePage extends GetView<ProfileController> {
               prefixIcon: Icon(Icons.phone_outlined),
             ),
             const SizedBox(height: AppSpacing.md),
-            Obx(
-              () => DropdownButtonFormField<String>(
-                key: ValueKey<String>(controller.gender.value),
-                initialValue: controller.gender.value,
+            Obx(() {
+              const genderValues = <String>{
+                'أنثى',
+                'ذكر',
+                'أفضل عدم التحديد',
+              };
+              final selectedGender =
+                  genderValues.contains(controller.gender.value)
+                      ? controller.gender.value
+                      : null;
+              return DropdownButtonFormField<String>(
+                key: ValueKey<String?>(selectedGender),
+                initialValue: selectedGender,
                 decoration: const InputDecoration(
                   labelText: 'الجنس',
                   prefixIcon: Icon(Icons.wc_rounded),
@@ -117,8 +126,8 @@ class ProfilePage extends GetView<ProfileController> {
                 onChanged: (value) {
                   if (value != null) controller.gender.value = value;
                 },
-              ),
-            ),
+              );
+            }),
             const SizedBox(height: AppSpacing.md),
             AppTextField(
               controller: controller.addressController,

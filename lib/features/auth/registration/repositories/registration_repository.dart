@@ -75,6 +75,14 @@ class ApiRegistrationRepository implements RegistrationRepository {
   Map<String, Object?> _payload(Object? data) {
     if (data is! Map) return <String, Object?>{};
     final map = Map<String, Object?>.from(data);
+    if (map['success'] == false) {
+      final message = map['message']?.toString().trim();
+      throw FormatException(
+        message == null || message.isEmpty
+            ? 'تعذر إنشاء الحساب. حاول مرة أخرى.'
+            : message,
+      );
+    }
     final nested = map['data'];
     return nested is Map ? Map<String, Object?>.from(nested) : map;
   }

@@ -67,6 +67,33 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
 
   @override
   Widget build(BuildContext context) {
+    // MEmu's graphics driver cannot create the EGL configuration required by
+    // Google Maps. Keep map interaction usable for development flows without
+    // instantiating the native map; production always uses the live map.
+    final useDevelopmentBackdrop = !kIsWeb && !AppEnvironment.isProduction;
+    if (useDevelopmentBackdrop) {
+      return SizedBox(
+        width: widget.width,
+        height: widget.height,
+        child: LayoutBuilder(
+          builder: (context, constraints) => GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: widget.onTap == null
+                ? null
+                : (details) => widget.onTap!(
+                      _developmentTargetForTap(
+                        details.localPosition,
+                        constraints.biggest,
+                      ),
+                    ),
+            child: MapBackdrop(
+              showMarker: widget.showDemoMarker,
+              showRoute: widget.showDemoRoute,
+            ),
+          ),
+        ),
+      );
+    }
     // Android and iOS receive the key through their native configuration.
     // Web needs its JavaScript API key during web bootstrap.
     if (kIsWeb && AppEnvironment.googleMapsApiKey.isEmpty) {
@@ -133,6 +160,18 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
         ],
       ),
     );
+  }
+
+  LatLng _developmentTargetForTap(Offset position, Size size) {
+    final safeWidth = size.width <= 0 ? 1 : size.width;
+    final safeHeight = size.height <= 0 ? 1 : size.height;
+    // A small bounded offset is sufficient to make pickup/destination
+    // selection testable while clearly remaining a development simulation.
+    final latitude =
+        widget.initialTarget.latitude + ((.5 - position.dy / safeHeight) * .02);
+    final longitude =
+        widget.initialTarget.longitude + ((position.dx / safeWidth - .5) * .02);
+    return LatLng(latitude, longitude);
   }
 
   @override

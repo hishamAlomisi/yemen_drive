@@ -95,8 +95,10 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
   @override
   Widget build(BuildContext context) => Obx(() {
         final location = Get.find<LocationController>();
-        final canProceedToPayment = controller.activeRideStatus.value == 'Completed' ||
-            controller.activeRideStatus.value == '6';
+        final canProceedToPayment =
+            controller.activeRideStatus.value == 'Completed' ||
+                controller.activeRideStatus.value == '6';
+        final useDevelopmentTrackingFallback = !AppEnvironment.isProduction;
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
           'DriverEnRoute' || '4' => 'السائق في الطريق',
@@ -106,23 +108,25 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         };
         return RideMapShell(
           processStep: 4,
-          map: AppGoogleMap(
-            initialTarget:
-                location.pickup.value ?? const LatLng(15.3694, 44.1910),
-            markers: <Marker>{
-              ...location.markers,
-              ...controller.trackingMarkers,
-            },
-            followTarget: controller.trackedDriver.value == null
-                ? null
-                : LatLng(
-                    controller.trackedDriver.value!.location.latitude,
-                    controller.trackedDriver.value!.location.longitude,
-                  ),
-            polylines: location.polylines,
-            showDemoMarker: false,
-            showDemoRoute: false,
-          ),
+          map: useDevelopmentTrackingFallback
+              ? const _DevelopmentTrackingMap()
+              : AppGoogleMap(
+                  initialTarget:
+                      location.pickup.value ?? const LatLng(15.3694, 44.1910),
+                  markers: <Marker>{
+                    ...location.markers,
+                    ...controller.trackingMarkers,
+                  },
+                  followTarget: controller.trackedDriver.value == null
+                      ? null
+                      : LatLng(
+                          controller.trackedDriver.value!.location.latitude,
+                          controller.trackedDriver.value!.location.longitude,
+                        ),
+                  polylines: location.polylines,
+                  showDemoMarker: false,
+                  showDemoRoute: false,
+                ),
           showRoute: true,
           showMarker: false,
           panelMaxHeightFactor: .58,
@@ -138,7 +142,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               const RideBackButton(),
-                  RideStatusPill(
+              RideStatusPill(
                 label: statusLabel,
                 icon: Icons.local_taxi_rounded,
               ),
@@ -160,6 +164,41 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           ),
         );
       });
+}
+
+class _DevelopmentTrackingMap extends StatelessWidget {
+  const _DevelopmentTrackingMap();
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+        color: AppColors.mapLandLight,
+        child: Center(
+          child: Container(
+            margin: const EdgeInsets.all(32),
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .94),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Icon(Icons.location_searching_rounded, size: 42),
+                SizedBox(height: 10),
+                Text(
+                  'متابعة موقع السائق التجريبية',
+                  textAlign: TextAlign.center,
+                ),
+                SizedBox(height: 6),
+                Text(
+                  'الخريطة الحية تعمل عند تجهيز بيئة الخرائط الفعلية.',
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
 }
 
 class _RideCancelDecisionDialog extends StatelessWidget {
@@ -517,64 +556,64 @@ class RideChatPage extends GetView<ChatController> {
   Widget build(BuildContext context) {
     final offer = Get.find<RideController>().acceptedOffer.value;
     return RidePageFrame(
-        title: offer?.driverName ?? 'المحادثة',
-        resizeToAvoidBottomInset: true,
-        actions: <Widget>[
-          IconButton(
-            onPressed: () => Get.toNamed<void>(RideRoutes.call),
-            tooltip: 'اتصال',
-            icon: Icon(Icons.call_outlined),
+      title: offer?.driverName ?? 'المحادثة',
+      resizeToAvoidBottomInset: true,
+      actions: <Widget>[
+        IconButton(
+          onPressed: () => Get.toNamed<void>(RideRoutes.call),
+          tooltip: 'اتصال',
+          icon: Icon(Icons.call_outlined),
+        ),
+      ],
+      body: Column(
+        children: <Widget>[
+          const _ChatDriverStatus(),
+          Expanded(
+            child: Obx(
+              () => ListView.separated(
+                reverse: false,
+                padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                itemCount: controller.messages.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: AppSpacing.sm),
+                itemBuilder: (context, index) =>
+                    _MessageBubble(message: controller.messages[index]),
+              ),
+            ),
+          ),
+          SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.xs),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: AppTextField(
+                      controller: controller.messageController,
+                      hint: 'اكتب رسالتك...',
+                      textInputAction: TextInputAction.send,
+                      prefixIcon: Icon(Icons.emoji_emotions_outlined),
+                      onSubmitted: (_) => controller.sendMessage(),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Material(
+                    color: AppColors.primary,
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      onPressed: controller.sendMessage,
+                      tooltip: 'إرسال',
+                      color: Colors.black,
+                      icon: Icon(Icons.send_rounded),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ],
-        body: Column(
-          children: <Widget>[
-            const _ChatDriverStatus(),
-            Expanded(
-              child: Obx(
-                () => ListView.separated(
-                  reverse: false,
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  itemCount: controller.messages.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(height: AppSpacing.sm),
-                  itemBuilder: (context, index) =>
-                      _MessageBubble(message: controller.messages[index]),
-                ),
-              ),
-            ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.xs),
-                child: Row(
-                  children: <Widget>[
-                    Expanded(
-                      child: AppTextField(
-                        controller: controller.messageController,
-                        hint: 'اكتب رسالتك...',
-                        textInputAction: TextInputAction.send,
-                        prefixIcon: Icon(Icons.emoji_emotions_outlined),
-                        onSubmitted: (_) => controller.sendMessage(),
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Material(
-                      color: AppColors.primary,
-                      shape: const CircleBorder(),
-                      child: IconButton(
-                        onPressed: controller.sendMessage,
-                        tooltip: 'إرسال',
-                        color: Colors.black,
-                        icon: Icon(Icons.send_rounded),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
+      ),
+    );
   }
 }
 
@@ -848,39 +887,39 @@ class _ChatDriverStatus extends StatelessWidget {
             : ride.acceptedOffer.value?.driverName ?? 'السائق المعين';
         final eta = ride.acceptedOffer.value?.etaMinutes;
         return AppCard(
-        margin: const EdgeInsets.only(top: AppSpacing.xs),
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.md,
-          vertical: 10,
-        ),
-        child: Row(
-          children: <Widget>[
-            CircleAvatar(
-              radius: 19,
-              backgroundColor: AppColors.primary,
-              child: Icon(Icons.person_rounded, color: Colors.black),
-            ),
-            SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text(
-                    driverName,
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  Text('تحديث حالة الرحلة مباشر',
-                      style: TextStyle(color: AppColors.success)),
-                ],
+          margin: const EdgeInsets.only(top: AppSpacing.xs),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.md,
+            vertical: 10,
+          ),
+          child: Row(
+            children: <Widget>[
+              CircleAvatar(
+                radius: 19,
+                backgroundColor: AppColors.primary,
+                child: Icon(Icons.person_rounded, color: Colors.black),
               ),
-            ),
-            RideStatusPill(
-              label: eta == null || eta <= 0 ? '—' : '$eta دقائق',
-              icon: Icons.schedule_rounded,
-            ),
-          ],
-        ),
-      );
+              SizedBox(width: AppSpacing.sm),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      driverName,
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    Text('تحديث حالة الرحلة مباشر',
+                        style: TextStyle(color: AppColors.success)),
+                  ],
+                ),
+              ),
+              RideStatusPill(
+                label: eta == null || eta <= 0 ? '—' : '$eta دقائق',
+                icon: Icons.schedule_rounded,
+              ),
+            ],
+          ),
+        );
       });
 }
 

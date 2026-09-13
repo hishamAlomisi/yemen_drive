@@ -94,9 +94,12 @@ class LoginController extends GetxController {
 
   String _normalize(String value, PhoneCountry country) {
     final digits = value.replaceAll(RegExp(r'\D'), '');
-    if (value.trim().startsWith('+')) return digits;
-    final local = digits.startsWith('0') ? digits.substring(1) : digits;
-    return '${country.phoneCode}$local';
+    final withoutCountryCode = digits.startsWith(country.phoneCode)
+        ? digits.substring(country.phoneCode.length)
+        : digits;
+    return withoutCountryCode.startsWith('0')
+        ? withoutCountryCode.substring(1)
+        : withoutCountryCode;
   }
 
   String _mask(String phone) => phone.length < 5
