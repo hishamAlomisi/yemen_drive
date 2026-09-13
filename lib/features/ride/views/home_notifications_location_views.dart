@@ -84,8 +84,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
       (_) async {
         if (!mounted) return;
         if (rideController.autoStartTransport.value) {
-          rideController.serviceType.value = RideServiceType.transport;
-          rideController.homeServiceIndex.value = 0;
+          rideController.applyAdminDefaultServiceKind();
         }
         await controller.ensureInitialPickupLocation();
         if (!mounted) return;

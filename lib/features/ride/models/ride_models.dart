@@ -24,6 +24,7 @@ class RideQuote {
     required this.minPrice,
     required this.maxPrice,
     required this.priceStep,
+    this.serviceFee = 0,
     required this.currency,
   });
 
@@ -31,6 +32,7 @@ class RideQuote {
   final double minPrice;
   final double maxPrice;
   final double priceStep;
+  final double serviceFee;
   final String currency;
 
   Map<String, Object?> toJson() => <String, Object?>{

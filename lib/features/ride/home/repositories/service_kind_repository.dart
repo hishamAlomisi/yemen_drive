@@ -28,6 +28,7 @@ class ApiServiceKindRepository implements ServiceKindRepository {
             name: '${x['name'] ?? x['nameAr'] ?? ''}',
             imageUrl: x['imageUrl']?.toString(),
             rideServiceType: x['rideServiceType']?.toString(),
+            isDefault: x['isDefault'] == true,
             sortOrder: (x['sortOrder'] as num?)?.toInt() ?? 0,
           );
         })

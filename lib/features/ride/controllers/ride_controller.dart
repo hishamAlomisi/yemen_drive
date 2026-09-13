@@ -104,7 +104,21 @@ class RideController extends GetxController {
     try {
       final values = await serviceKinds.getServices();
       homeServices.assignAll(values);
+      applyAdminDefaultServiceKind();
     } catch (_) {}
+  }
+
+  void applyAdminDefaultServiceKind() {
+    if (!autoStartTransport.value) return;
+    final index = homeServices.indexWhere((item) => item.isDefault && item.id != null);
+    if (index < 0) return;
+    final selected = homeServices[index];
+    homeServiceIndex.value = index;
+    selectedServiceKindId.value = selected.id;
+    serviceType.value = selected.code.toLowerCase() == 'delivery'
+        ? RideServiceType.delivery
+        : RideServiceType.transport;
+    unawaited(loadServiceCatalog(requestedKindId: selected.id));
   }
 
   Future<void> setAutoStartTransport(bool value) async {

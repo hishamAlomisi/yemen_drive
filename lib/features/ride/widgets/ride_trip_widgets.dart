@@ -39,92 +39,92 @@ class DriverCard extends StatelessWidget {
             : 'بيانات المركبة قيد التحميل';
         final rating = offer?.rating ?? 0;
         return AppCard(
-        child: Column(
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                CircleAvatar(
-                  radius: 28,
-                  backgroundColor: AppColors.primary.withValues(alpha: .2),
-                  child: Icon(Icons.person_rounded, size: 34),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+          child: Column(
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  CircleAvatar(
+                    radius: 28,
+                    backgroundColor: AppColors.primary.withValues(alpha: .2),
+                    child: Icon(Icons.person_rounded, size: 34),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          driverName,
+                          style:
+                              Theme.of(context).textTheme.titleMedium?.copyWith(
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                        ),
+                        const SizedBox(height: 3),
+                        Row(
+                          children: <Widget>[
+                            Icon(
+                              Icons.star_rounded,
+                              size: 18,
+                              color: AppColors.primaryDark,
+                            ),
+                            SizedBox(width: 4),
+                            Text(rating > 0 ? rating.toStringAsFixed(1) : '—'),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: <Widget>[
                       Text(
-                        driverName,
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
-                                ),
+                        vehicle,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       const SizedBox(height: 3),
-                      Row(
-                        children: <Widget>[
-                          Icon(
-                            Icons.star_rounded,
-                            size: 18,
-                            color: AppColors.primaryDark,
-                          ),
-                          SizedBox(width: 4),
-                          Text(rating > 0 ? rating.toStringAsFixed(1) : '—'),
-                        ],
-                      ),
+                      const Text(''),
                     ],
                   ),
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    Text(
-                      vehicle,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    const SizedBox(height: 3),
-                    const Text(''),
-                  ],
-                ),
-              ],
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: RideStatusPill(
-                    label: status,
-                    icon: Icons.schedule_rounded,
-                  ),
-                ),
-                if (showActions) ...<Widget>[
-                  const SizedBox(width: AppSpacing.sm),
-                  RideIconButton(
-                    icon: Icons.chat_bubble_outline_rounded,
-                    tooltip: 'محادثة',
-                    onPressed: () => Get.toNamed<void>(RideRoutes.chat),
-                  ),
-                  const SizedBox(width: AppSpacing.xs),
-                  RideIconButton(
-                    icon: Icons.call_outlined,
-                    tooltip: 'اتصال',
-                    onPressed: () async {
-                      final phone = ride.assignedDriverPhone.value;
-                      if (phone.isEmpty ||
-                          !await launchUrl(Uri(scheme: 'tel', path: phone))) {
-                        Get.snackbar(
-                          'تعذر الاتصال',
-                          'رقم السائق غير متاح حاليًا.',
-                        );
-                      }
-                    },
-                  ),
                 ],
-              ],
-            ),
-          ],
-        ),
-      );
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: RideStatusPill(
+                      label: status,
+                      icon: Icons.schedule_rounded,
+                    ),
+                  ),
+                  if (showActions) ...<Widget>[
+                    const SizedBox(width: AppSpacing.sm),
+                    RideIconButton(
+                      icon: Icons.chat_bubble_outline_rounded,
+                      tooltip: 'محادثة',
+                      onPressed: () => Get.toNamed<void>(RideRoutes.chat),
+                    ),
+                    const SizedBox(width: AppSpacing.xs),
+                    RideIconButton(
+                      icon: Icons.call_outlined,
+                      tooltip: 'اتصال',
+                      onPressed: () async {
+                        final phone = ride.assignedDriverPhone.value;
+                        if (phone.isEmpty ||
+                            !await launchUrl(Uri(scheme: 'tel', path: phone))) {
+                          Get.snackbar(
+                            'تعذر الاتصال',
+                            'رقم السائق غير متاح حاليًا.',
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        );
       });
 }
 
@@ -158,52 +158,52 @@ class RouteSummaryCard extends StatelessWidget {
                 ? draft!.destinationAddress.trim()
                 : draft?.destination ?? 'الوجهة المحددة';
     return AppCard(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            Column(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Column(
+            children: <Widget>[
+              Icon(Icons.circle, color: AppColors.primaryDark, size: 13),
+              Container(
+                height: compact ? 31 : 44,
+                width: 2,
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: .18),
+              ),
+              Icon(
+                Icons.location_on_rounded,
+                color: AppColors.secondary,
+                size: 19,
+              ),
+            ],
+          ),
+          const SizedBox(width: AppSpacing.sm),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
-                Icon(Icons.circle, color: AppColors.primaryDark, size: 13),
-                Container(
-                  height: compact ? 31 : 44,
-                  width: 2,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.onSurface.withValues(alpha: .18),
+                Text('من', style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  fromLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
-                Icon(
-                  Icons.location_on_rounded,
-                  color: AppColors.secondary,
-                  size: 19,
+                SizedBox(height: compact ? 10 : 18),
+                Text('إلى', style: Theme.of(context).textTheme.bodySmall),
+                Text(
+                  toLabel,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ],
             ),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  Text('من', style: Theme.of(context).textTheme.bodySmall),
-                  Text(
-                    fromLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  SizedBox(height: compact ? 10 : 18),
-                  Text('إلى', style: Theme.of(context).textTheme.bodySmall),
-                  Text(
-                    toLabel,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
   }
 }
 
@@ -221,36 +221,38 @@ class TripMetricRow extends StatelessWidget {
         final price = ride.acceptedOffer.value?.price ??
             (ride.offeredPrice.value > 0 ? ride.offeredPrice.value : null);
         return Row(
-        children: <Widget>[
-          Expanded(
-            child: _TripMetric(
-              icon: Icons.schedule_rounded,
-              value: durationSeconds == null
-                  ? '—'
-                  : '${(durationSeconds / 60).ceil()} د',
-              label: 'المدة',
+          children: <Widget>[
+            Expanded(
+              child: _TripMetric(
+                icon: Icons.schedule_rounded,
+                value: durationSeconds == null
+                    ? '—'
+                    : '${(durationSeconds / 60).ceil()} د',
+                label: 'المدة',
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: _TripMetric(
-              icon: Icons.route_rounded,
-              value: distanceKm > 0 ? '${distanceKm.toStringAsFixed(1)} كم' : '—',
-              label: 'المسافة',
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: _TripMetric(
+                icon: Icons.route_rounded,
+                value: distanceKm > 0
+                    ? '${distanceKm.toStringAsFixed(1)} كم'
+                    : '—',
+                label: 'المسافة',
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: _TripMetric(
-              icon: Icons.payments_outlined,
-              value: price == null
-                  ? '—'
-                  : '${price.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
-              label: 'التكلفة',
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: _TripMetric(
+                icon: Icons.payments_outlined,
+                value: price == null
+                    ? '—'
+                    : '${price.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                label: 'التكلفة',
+              ),
             ),
-          ),
-        ],
-      );
+          ],
+        );
       });
 }
 
@@ -382,149 +384,150 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
     final theme = Theme.of(context);
     final colors = theme.colorScheme;
     return Obx(() => SingleChildScrollView(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: <Widget>[
-          Center(
-            child: Container(
-              width: 42,
-              height: 4,
-              decoration: BoxDecoration(
-                color: colors.onSurface.withValues(alpha: .18),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: colors.primary.withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Icon(
-                  Icons.health_and_safety_outlined,
-                  color: colors.primary,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'safety_tools'.tr,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.onSurface.withValues(alpha: .18),
+                    borderRadius: BorderRadius.circular(2),
                   ),
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'safety_tools_hint'.tr,
-            style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
-          ),
-          const SizedBox(height: 16),
-          GridView.count(
-            crossAxisCount: 3,
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 6,
-            childAspectRatio: 1.15,
-            children: <Widget>[
-              _SafetySheetAction(
-                icon: Icons.ios_share_rounded,
-                label: 'share_my_trip'.tr,
-                onTap: () {
-                  Get.back<void>();
-                  widget.onShareTrip();
-                },
+              const SizedBox(height: 16),
+              Row(
+                children: <Widget>[
+                  Container(
+                    width: 42,
+                    height: 42,
+                    decoration: BoxDecoration(
+                      color: colors.primary.withValues(alpha: .14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.health_and_safety_outlined,
+                      color: colors.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      'safety_tools'.tr,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-              _SafetySheetAction(
-                icon: Icons.phone_in_talk_rounded,
-                label: 'call_122'.tr,
-                isDanger: true,
-                onTap: widget.onCallEmergency,
+              const SizedBox(height: 8),
+              Text(
+                'safety_tools_hint'.tr,
+                style: theme.textTheme.bodySmall?.copyWith(height: 1.5),
               ),
-              _SafetySheetAction(
-                icon: _recording.isRecording.value
-                    ? Icons.stop_circle_outlined
-                    : Icons.mic_none_rounded,
-                label: _recording.isRecording.value
-                    ? 'stop_audio_recording'.tr
-                    : 'start_audio_recording'.tr,
-                isDanger: _recording.isRecording.value,
-                onTap: () {
-                  if (!_recording.isWorking.value) {
-                    unawaited(_toggleRecording());
-                  }
-                },
+              const SizedBox(height: 16),
+              GridView.count(
+                crossAxisCount: 3,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 6,
+                childAspectRatio: 1.15,
+                children: <Widget>[
+                  _SafetySheetAction(
+                    icon: Icons.ios_share_rounded,
+                    label: 'share_my_trip'.tr,
+                    onTap: () {
+                      Get.back<void>();
+                      widget.onShareTrip();
+                    },
+                  ),
+                  _SafetySheetAction(
+                    icon: Icons.phone_in_talk_rounded,
+                    label: 'call_122'.tr,
+                    isDanger: true,
+                    onTap: widget.onCallEmergency,
+                  ),
+                  _SafetySheetAction(
+                    icon: _recording.isRecording.value
+                        ? Icons.stop_circle_outlined
+                        : Icons.mic_none_rounded,
+                    label: _recording.isRecording.value
+                        ? 'stop_audio_recording'.tr
+                        : 'start_audio_recording'.tr,
+                    isDanger: _recording.isRecording.value,
+                    onTap: () {
+                      if (!_recording.isWorking.value) {
+                        unawaited(_toggleRecording());
+                      }
+                    },
+                  ),
+                  _SafetySheetAction(
+                    icon: Icons.contacts_outlined,
+                    label: 'emergency_contacts'.tr,
+                    onTap: () => Get.snackbar(
+                      'emergency_contacts'.tr,
+                      'emergency_contacts_hint'.tr,
+                    ),
+                  ),
+                  _SafetySheetAction(
+                    icon: Icons.support_agent_rounded,
+                    label: 'support'.tr,
+                    onTap: () {
+                      Get.back<void>();
+                      Get.toNamed<void>(AccountRoutes.help);
+                    },
+                  ),
+                ],
               ),
-              _SafetySheetAction(
-                icon: Icons.contacts_outlined,
-                label: 'emergency_contacts'.tr,
-                onTap: () => Get.snackbar(
-                  'emergency_contacts'.tr,
-                  'emergency_contacts_hint'.tr,
+              const SizedBox(height: 20),
+              Text(
+                'how_we_protect_you'.tr,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
                 ),
               ),
-              _SafetySheetAction(
-                icon: Icons.support_agent_rounded,
-                label: 'support'.tr,
-                onTap: () {
-                  Get.back<void>();
-                  Get.toNamed<void>(AccountRoutes.help);
-                },
+              const SizedBox(height: 10),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Expanded(
+                    child: _SafetyInfoCard(
+                      icon: Icons.shield_outlined,
+                      title: 'proactive_safety_support'.tr,
+                      hint: 'proactive_safety_support_hint'.tr,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _SafetyInfoCard(
+                      icon: Icons.verified_user_outlined,
+                      title: 'driver_verification'.tr,
+                      hint: 'driver_verification_hint'.tr,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              _SafetyInfoCard(
+                icon: Icons.share_location_outlined,
+                title: 'share_my_trip'.tr,
+                hint: 'trip_sharing_hint'.tr,
               ),
             ],
           ),
-          const SizedBox(height: 20),
-          Text(
-            'how_we_protect_you'.tr,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Expanded(
-                child: _SafetyInfoCard(
-                  icon: Icons.shield_outlined,
-                  title: 'proactive_safety_support'.tr,
-                  hint: 'proactive_safety_support_hint'.tr,
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _SafetyInfoCard(
-                  icon: Icons.verified_user_outlined,
-                  title: 'driver_verification'.tr,
-                  hint: 'driver_verification_hint'.tr,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          _SafetyInfoCard(
-            icon: Icons.share_location_outlined,
-            title: 'share_my_trip'.tr,
-            hint: 'trip_sharing_hint'.tr,
-          ),
-        ],
-      ),
-    ));
+        ));
   }
 
   Future<void> _toggleRecording() async {
     if (_recording.isRecording.value) {
       await _recording.stop();
       if (_recording.error.value.isEmpty) {
-        Get.snackbar('stop_audio_recording'.tr, 'تم حفظ تسجيل السلامة على الخادم.');
+        Get.snackbar(
+            'stop_audio_recording'.tr, 'تم حفظ تسجيل السلامة على الخادم.');
       } else {
         Get.snackbar('stop_audio_recording'.tr, _recording.error.value);
       }
@@ -539,8 +542,12 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
           'تستطيع إيقافه في أي وقت.',
         ),
         actions: <Widget>[
-          TextButton(onPressed: () => Get.back<bool>(result: false), child: const Text('إلغاء')),
-          FilledButton(onPressed: () => Get.back<bool>(result: true), child: const Text('أوافق وأبدأ')),
+          TextButton(
+              onPressed: () => Get.back<bool>(result: false),
+              child: const Text('إلغاء')),
+          FilledButton(
+              onPressed: () => Get.back<bool>(result: true),
+              child: const Text('أوافق وأبدأ')),
         ],
       ),
     );
@@ -709,32 +716,40 @@ class PriceSummary extends StatelessWidget {
   const PriceSummary({super.key});
 
   @override
-  Widget build(BuildContext context) => AppCard(
-        child: Column(
-          children: <Widget>[
-            _PriceRow(
-              label: 'أجرة الرحلة',
-              value: '2100 ${AppEnvironment.defaultCurrency}',
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            _PriceRow(
-              label: 'رسوم الخدمة',
-              value: '300 ${AppEnvironment.defaultCurrency}',
-            ),
-            Padding(
-              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-              child: Divider(height: 1),
-            ),
-            _PriceRow(
-              label: 'الإجمالي',
-              value: '2,400 ${AppEnvironment.defaultCurrency}',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-            ),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) {
+    final ride = Get.find<RideController>();
+    final fare = ride.acceptedOffer.value?.price ?? ride.offeredPrice.value;
+    final fee = ride.quote.value?.serviceFee ?? 0;
+    final total = fare + fee;
+    String money(double value) =>
+        '${value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}';
+    return AppCard(
+      child: Column(
+        children: <Widget>[
+          _PriceRow(
+            label: 'أجرة الرحلة',
+            value: money(fare),
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          _PriceRow(
+            label: 'رسوم الخدمة',
+            value: money(fee),
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+            child: Divider(height: 1),
+          ),
+          _PriceRow(
+            label: 'الإجمالي',
+            value: money(total),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TripMetric extends StatelessWidget {

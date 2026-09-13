@@ -67,6 +67,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       minPrice: amount,
       maxPrice: amount,
       priceStep: 100,
+      serviceFee: _number(body['serviceFee']),
       currency: body['currency']?.toString() ?? 'ر.ي',
     );
   }
