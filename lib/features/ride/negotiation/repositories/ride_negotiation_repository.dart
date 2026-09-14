@@ -93,10 +93,17 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         'idempotencyKey': draft.idempotencyKey,
       },
     );
-    final id =
-        result is ApiSuccess ? _map(result.data)['id']?.toString() : null;
+    if (result is ApiFailure) {
+      final problem = result.problem;
+      final details = problem.errors.values.expand((messages) => messages).join(' ');
+      throw FormatException(
+        details.isNotEmpty ? details : (problem.detail ?? problem.title),
+      );
+    }
+    final success = result as ApiSuccess<Object?>;
+    final id = _map(success.data)['id']?.toString();
     if (id == null || id.isEmpty)
-      throw const FormatException('Invalid ride response.');
+      throw const FormatException('لم يُرجع الخادم رقم طلب الرحلة.');
     return id;
   }
 

@@ -2,12 +2,15 @@ import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../features/auth/routes/auth_routes.dart';
+import '../network/api_client.dart';
+import '../network/api_models.dart';
 import '../storage/secure_storage_service.dart';
 
 class AuthSessionService extends GetxService {
-  AuthSessionService(this._storage);
+  AuthSessionService(this._storage, this._apiClient);
 
   final SecureStorageService _storage;
+  final ApiClient _apiClient;
   final RxBool isAuthenticated = false.obs;
   final RxBool rememberLogin = false.obs;
   final RxnInt currentUserId = RxnInt();
@@ -32,7 +35,34 @@ class AuthSessionService extends GetxService {
     isAuthenticated.value = (accessToken?.isNotEmpty ?? false) ||
         (refreshToken?.isNotEmpty ?? false);
     currentUserId.value = _parseUserId(accessToken);
+    if (isAuthenticated.value) {
+      await _validateStoredSession();
+    }
     return this;
+  }
+
+  Future<void> _validateStoredSession() async {
+    // A token-shaped value in encrypted storage is not proof that it is still
+    // accepted by the server. Use the existing protected profile operation as
+    // a lightweight validation request and never log the token itself.
+    final result = await _apiClient.execute<Object?>(
+      model: 'UserModel',
+      operation: 'get',
+      data: const <String, Object?>{},
+    );
+    if (result is ApiSuccess) return;
+
+    final failure = result as ApiFailure<Object?>;
+    // Do not sign a customer out solely because the device is temporarily
+    // offline. Any completed server rejection means the stored session is no
+    // longer usable and must not keep the UI in a false signed-in state.
+    if (failure.problem.code == 'network_error' ||
+        failure.problem.code == 'invalid_response') {
+      return;
+    }
+    await _storage.clear();
+    isAuthenticated.value = false;
+    currentUserId.value = null;
   }
 
   Future<void> activate({

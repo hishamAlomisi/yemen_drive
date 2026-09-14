@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
@@ -55,6 +56,7 @@ class RideController extends GetxController {
   final RxString activeRideStatus = ''.obs;
   final RxString cancellationReason = ''.obs;
   final Rx<NegotiationStatus> negotiationStatus = NegotiationStatus.idle.obs;
+  final RxString quoteError = ''.obs;
   final Rxn<RideQuote> quote = Rxn<RideQuote>();
   final Rxn<RideRequestDraft> currentDraft = Rxn<RideRequestDraft>();
   final Rxn<DriverOffer> acceptedOffer = Rxn<DriverOffer>();
@@ -84,6 +86,7 @@ class RideController extends GetxController {
   bool _isResumingRequest = false;
   bool _hasCheckedForOpenRide = false;
   int _catalogRequestId = 0;
+  int _quoteRequestId = 0;
   DateTime? _lastPassengerLocationPublished;
   bool hasShownTripSharePrompt = false;
 
@@ -196,16 +199,42 @@ class RideController extends GetxController {
 
   void applyAdminDefaultServiceKind() {
     if (!autoStartTransport.value) return;
+    // The catalog and the user's carousel interaction load asynchronously.
+    // Never let a late default-service response overwrite a manual choice.
+    if (selectedServiceKindId.value != null) return;
     final index =
         homeServices.indexWhere((item) => item.isDefault && item.id != null);
     if (index < 0) return;
+    selectHomeService(index);
+  }
+
+  /// Commits the home-carousel choice immediately. The route picker can be
+  /// opened and revisited before the start button is pressed, so delaying this
+  /// state change would otherwise let the previous type's catalog leak into
+  /// the vehicle-selection screen.
+  void selectHomeService(int index) {
+    if (index < 0 || index >= homeServices.length) return;
     final selected = homeServices[index];
+    final newKindId = selected.id;
+    final kindChanged = selectedServiceKindId.value != newKindId;
     homeServiceIndex.value = index;
-    selectedServiceKindId.value = selected.id;
+    selectedServiceKindId.value = newKindId;
     serviceType.value = selected.code.toLowerCase() == 'delivery'
         ? RideServiceType.delivery
         : RideServiceType.transport;
-    unawaited(loadServiceCatalog(requestedKindId: selected.id));
+
+    if (!kindChanged) return;
+    selectedVehicle.value = null;
+    hasSelectedTransport.value = false;
+    catalogVehicles.clear();
+    catalogError.value = '';
+    if (newKindId == null) {
+      _catalogRequestId++;
+      isCatalogLoading.value = false;
+      isUsingCatalogFallback.value = AppEnvironment.useDemoData;
+      return;
+    }
+    unawaited(loadServiceCatalog(requestedKindId: newKindId));
   }
 
   Future<void> setAutoStartTransport(bool value) async {
@@ -258,12 +287,18 @@ class RideController extends GetxController {
           targetKindId != selectedServiceKindId.value) {
         return;
       }
-      if (services.isEmpty) {
+      // The API already filters by serviceKindId. Keep this additional client
+      // guard so a stale or malformed response can never display services
+      // belonging to the previously selected kind.
+      final matchingServices = services
+          .where((service) => service.serviceKindId == targetKindId)
+          .toList(growable: false);
+      if (matchingServices.isEmpty) {
         catalogVehicles.clear();
         isUsingCatalogFallback.value = false;
         catalogError.value = 'لا توجد خدمات متاحة لهذا النوع حاليًا.';
       } else {
-        catalogVehicles.assignAll(services);
+        catalogVehicles.assignAll(matchingServices);
         isUsingCatalogFallback.value = false;
       }
     } catch (_) {
@@ -695,6 +730,21 @@ class RideController extends GetxController {
   }
 
   Future<void> startHomeService() async {
+    // A controller may remain alive after a cancellation or while an open
+    // ride is being restored. Do not let a new booking screen reuse that
+    // ride's id and make the customer believe the new quote was sent.
+    if (_requestId != null) {
+      Get.snackbar(
+        'لديك رحلة مفتوحة',
+        'أكمل الرحلة الحالية أو ألغها قبل إنشاء طلب جديد.',
+      );
+      if (isDriverAssigned.value) {
+        Get.toNamed<void>(RideRoutes.driverLocation);
+      } else {
+        Get.toNamed<void>(RideRoutes.negotiationQuote);
+      }
+      return;
+    }
     final connectivity = Get.find<ConnectivityService>();
     if (!await connectivity.refresh()) {
       Get.snackbar(
@@ -710,8 +760,7 @@ class RideController extends GetxController {
         ? homeServices[homeServiceIndex.value]
         : null;
     if (selected?.id != null) {
-      selectedServiceKindId.value = selected!.id;
-      unawaited(loadServiceCatalog(requestedKindId: selected.id));
+      selectHomeService(homeServiceIndex.value);
       Get.toNamed<void>(RideRoutes.locationPicker);
     } else if (selected != null) {
       Get.snackbar(selected.name, 'هذا النوع سيُتاح قريبًا.');
@@ -780,29 +829,53 @@ class RideController extends GetxController {
       return;
     }
     chooseCatalogVehicle(vehicle);
+    final requestId = ++_quoteRequestId;
+    quote.value = null;
+    quoteError.value = '';
     negotiationStatus.value = NegotiationStatus.quoting;
     Get.toNamed<void>(RideRoutes.negotiationQuote);
 
-    final routeDistance =
-        _routeDistanceKm(location.routePoints, pickupPoint, destinationPoint);
-    routeDistanceKm.value = routeDistance;
-    final result = await _repository.getQuote(
-      serviceKindId: vehicle.serviceKindId!,
-      serviceCatalogItemId: vehicle.serviceCatalogItemId!,
-      pickup: RideCoordinate(
-        latitude: pickupPoint.latitude,
-        longitude: pickupPoint.longitude,
-      ),
-      destination: RideCoordinate(
-        latitude: destinationPoint.latitude,
-        longitude: destinationPoint.longitude,
-      ),
-      distanceKm: routeDistance,
-    );
+    try {
+      final routeDistance =
+          _routeDistanceKm(location.routePoints, pickupPoint, destinationPoint);
+      routeDistanceKm.value = routeDistance;
+      final result = await _repository.getQuote(
+        serviceKindId: vehicle.serviceKindId!,
+        serviceCatalogItemId: vehicle.serviceCatalogItemId!,
+        pickup: RideCoordinate(
+          latitude: pickupPoint.latitude,
+          longitude: pickupPoint.longitude,
+        ),
+        destination: RideCoordinate(
+          latitude: destinationPoint.latitude,
+          longitude: destinationPoint.longitude,
+        ),
+        distanceKm: routeDistance,
+      );
+      if (requestId != _quoteRequestId) return;
+      quote.value = result;
+      offeredPrice.value = result.suggestedPrice;
+      negotiationStatus.value = NegotiationStatus.ready;
+    } on FormatException catch (error) {
+      if (requestId != _quoteRequestId) return;
+      quoteError.value = error.message.toString().isEmpty
+          ? 'تعذر احتساب السعر لهذه الخدمة. تحقق من قاعدة التسعير.'
+          : error.message.toString();
+      negotiationStatus.value = NegotiationStatus.idle;
+    } catch (_) {
+      if (requestId != _quoteRequestId) return;
+      quoteError.value = 'تعذر احتساب السعر الآن. حاول مرة أخرى.';
+      negotiationStatus.value = NegotiationStatus.idle;
+    }
+  }
 
-    quote.value = result;
-    offeredPrice.value = result.suggestedPrice;
-    negotiationStatus.value = NegotiationStatus.ready;
+  /// Stops an unfinished quote when the customer leaves its screen. A delayed
+  /// network result must never revive the spinner or change a previous page.
+  void cancelPendingQuote() {
+    _quoteRequestId++;
+    if (negotiationStatus.value == NegotiationStatus.quoting) {
+      negotiationStatus.value = NegotiationStatus.idle;
+    }
   }
 
   void increasePrice() => _changePrice(1);
@@ -860,6 +933,54 @@ class RideController extends GetxController {
       await selectTransport(selectedTransport.value);
       if (quote.value == null) return;
     }
+    final pickupAddress = location.fromController.text.trim();
+    final destinationAddress = location.toController.text.trim();
+    final draft = RideRequestDraft(
+      customerId: _session.currentUserId.value,
+      pickup: 'موقعي الحالي',
+      destination: 'الوجهة المحددة',
+      pickupCoordinate: RideCoordinate(
+        latitude: pickupPoint.latitude,
+        longitude: pickupPoint.longitude,
+      ),
+      destinationCoordinate: RideCoordinate(
+        latitude: destinationPoint.latitude,
+        longitude: destinationPoint.longitude,
+      ),
+      serviceKindId: selectedVehicle.value?.serviceKindId ??
+          selectedServiceKindId.value ??
+          0,
+      serviceCatalogItemId: selectedVehicle.value?.serviceCatalogItemId ?? 0,
+      offeredPrice: offeredPrice.value,
+      // During development the map provider may supply coordinates before a
+      // human-readable address. The API requires both address fields, so keep
+      // the selected route usable without inventing a real address.
+      pickupAddress:
+          pickupAddress.isEmpty ? 'نقطة الانطلاق المحددة' : pickupAddress,
+      destinationAddress: destinationAddress.isEmpty
+          ? 'الوجهة المحددة'
+          : destinationAddress,
+      destinationAddressName: location.addressNameController.text.trim(),
+      destinationStreet: location.streetController.text.trim(),
+      destinationDetails: location.detailsController.text.trim(),
+      routeDistanceMeters: (routeDistanceKm.value * 1000).round(),
+      idempotencyKey: DateTime.now().microsecondsSinceEpoch.toString(),
+    );
+    currentDraft.value = draft;
+    try {
+      _requestId = await _repository.createRequest(draft);
+    } on FormatException catch (error) {
+      // Keep diagnostic output limited to non-sensitive matching identifiers.
+      debugPrint(
+        'Ride request rejected: kind=${draft.serviceKindId}, '
+        'service=${draft.serviceCatalogItemId}, reason=${error.message}',
+      );
+      currentDraft.value = null;
+      _requestId = null;
+      Get.snackbar('تعذر إرسال الطلب', error.message);
+      return;
+    }
+
     isSearchingForDriver.value = true;
     hasShownTripSharePrompt = false;
     offersExhausted.value = false;
@@ -880,33 +1001,6 @@ class RideController extends GetxController {
     removingOfferIds.clear();
     negotiationStatus.value = NegotiationStatus.searching;
     driverOffers.clear();
-    final draft = RideRequestDraft(
-      customerId: _session.currentUserId.value,
-      pickup: 'موقعي الحالي',
-      destination: 'الوجهة المحددة',
-      pickupCoordinate: RideCoordinate(
-        latitude: pickupPoint.latitude,
-        longitude: pickupPoint.longitude,
-      ),
-      destinationCoordinate: RideCoordinate(
-        latitude: destinationPoint.latitude,
-        longitude: destinationPoint.longitude,
-      ),
-      serviceKindId: selectedVehicle.value?.serviceKindId ??
-          selectedServiceKindId.value ??
-          0,
-      serviceCatalogItemId: selectedVehicle.value?.serviceCatalogItemId ?? 0,
-      offeredPrice: offeredPrice.value,
-      pickupAddress: location.fromController.text.trim(),
-      destinationAddress: location.toController.text.trim(),
-      destinationAddressName: location.addressNameController.text.trim(),
-      destinationStreet: location.streetController.text.trim(),
-      destinationDetails: location.detailsController.text.trim(),
-      routeDistanceMeters: (routeDistanceKm.value * 1000).round(),
-      idempotencyKey: DateTime.now().microsecondsSinceEpoch.toString(),
-    );
-    currentDraft.value = draft;
-    _requestId = await _repository.createRequest(draft);
     await _watchOffers(_requestId!);
   }
 
@@ -1112,6 +1206,15 @@ class RideController extends GetxController {
 
   void cancelRide(String reason) {
     _recipientTimer?.cancel();
+    _offersSubscription?.cancel();
+    _requestId = null;
+    currentDraft.value = null;
+    quote.value = null;
+    driverOffers.clear();
+    requestRecipients.clear();
+    acceptedOffer.value = null;
+    isDriverAssigned.value = false;
+    activeRideStatus.value = '';
     cancellationReason.value = reason;
     isSearchingForDriver.value = false;
     Get.offNamed<void>(RideRoutes.requestThanks);

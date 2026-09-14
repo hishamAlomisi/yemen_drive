@@ -57,8 +57,13 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
       );
 
   @override
-  Widget build(BuildContext context) => Obx(() {
+  Widget build(BuildContext context) => PopScope(
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) controller.cancelPendingQuote();
+        },
+        child: Obx(() {
         final quote = controller.quote.value;
+        final quoteError = controller.quoteError.value;
         return RideMapShell(
           processStep: controller.driverOffers.isEmpty ? 3 : null,
           showRoute: true,
@@ -71,16 +76,41 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
             recipients: controller.requestRecipients.toList(growable: false),
             canSend: quote != null,
             onSend: controller.requestRide,
+            onCancel: controller.cancelDriverSearch,
           ),
           top: const Align(
             alignment: AlignmentDirectional.topStart,
             child: RideBackButton(),
           ),
-          panel: quote == null
+          panel: quote == null && quoteError.isEmpty
               ? const Padding(
                   padding: EdgeInsets.all(AppSpacing.xl),
                   child: Center(child: CircularProgressIndicator()),
                 )
+              : quote == null
+                  ? Padding(
+                      padding: const EdgeInsets.all(AppSpacing.xl),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          const Icon(Icons.receipt_long_outlined, size: 44),
+                          const SizedBox(height: AppSpacing.md),
+                          Text(
+                            quoteError,
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: AppSpacing.md),
+                          AppButton(
+                            label: 'العودة لاختيار الخدمة',
+                            variant: AppButtonVariant.outline,
+                            onPressed: () {
+                              controller.cancelPendingQuote();
+                              Get.back<void>();
+                            },
+                          ),
+                        ],
+                      ),
+                    )
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
@@ -129,7 +159,8 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
                   ],
                 ),
         );
-      });
+      }),
+      );
 
   @override
   void dispose() {
@@ -266,6 +297,7 @@ class _NegotiationSearchFooter extends StatelessWidget {
     required this.recipients,
     required this.canSend,
     required this.onSend,
+    required this.onCancel,
   });
 
   final bool searching;
@@ -273,6 +305,7 @@ class _NegotiationSearchFooter extends StatelessWidget {
   final List<NearbyDriver> recipients;
   final bool canSend;
   final VoidCallback onSend;
+  final VoidCallback onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -344,6 +377,10 @@ class _NegotiationSearchFooter extends StatelessWidget {
             const SizedBox(width: AppSpacing.sm),
             _DriverRecipientsStack(drivers: recipients),
           ],
+          TextButton(
+            onPressed: onCancel,
+            child: const Text('إلغاء البحث'),
+          ),
         ],
       ),
     );

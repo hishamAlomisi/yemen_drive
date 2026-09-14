@@ -709,13 +709,13 @@ class RidePaymentPage extends GetView<PaymentController> {
                       subtitle: 'ادفع للسائق عند الوصول',
                       icon: Icons.payments_outlined,
                     ),
-                    PaymentMethodTile(
-                      id: 'wallet',
-                      title: 'محفظة يمن درايف',
-                      subtitle:
-                          'الرصيد المتاح 3,500 ${AppEnvironment.defaultCurrency}',
-                      icon: Icons.account_balance_wallet_outlined,
-                    ),
+                    Obx(() => PaymentMethodTile(
+                          id: 'wallet',
+                          title: 'محفظة يمن درايف',
+                          subtitle:
+                              'الرصيد المتاح ${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                          icon: Icons.account_balance_wallet_outlined,
+                        )),
                     for (PaymentMethodItem items
                         in AppEnvironment.paymentMethods)
                       PaymentMethodTile(
@@ -738,11 +738,14 @@ class RidePaymentPage extends GetView<PaymentController> {
                 AppSpacing.md,
                 AppSpacing.md,
               ),
-              child: AppButton(
-                label: 'تأكيد ودفع 2,400 ${AppEnvironment.defaultCurrency}',
-                leading: Icon(Icons.lock_outline_rounded),
-                onPressed: controller.pay,
-              ),
+              child: Obx(() => AppButton(
+                    label: controller.isPaying.value
+                        ? 'جارٍ إتمام الدفع...'
+                        : 'تأكيد ودفع ${controller.totalDue.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                    leading: const Icon(Icons.lock_outline_rounded),
+                    onPressed:
+                        controller.isPaying.value ? null : controller.pay,
+                  )),
             ),
           ],
         ),

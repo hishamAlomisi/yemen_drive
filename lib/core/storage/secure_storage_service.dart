@@ -8,11 +8,27 @@ class SecureStorageService extends GetxService {
   static const String _deviceIdKey = 'device_id';
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
-  Future<String?> get accessToken => _storage.read(key: _accessTokenKey);
-  Future<String?> get refreshToken => _storage.read(key: _refreshTokenKey);
+  Future<String?> get accessToken => _readSafely(_accessTokenKey);
+  Future<String?> get refreshToken => _readSafely(_refreshTokenKey);
   Future<bool> get rememberMe async =>
-      await _storage.read(key: _rememberMeKey) == 'true';
-  Future<String?> get deviceId => _storage.read(key: _deviceIdKey);
+      await _readSafely(_rememberMeKey) == 'true';
+  Future<String?> get deviceId => _readSafely(_deviceIdKey);
+
+  Future<String?> _readSafely(String key) async {
+    try {
+      return await _storage.read(key: key);
+    } on Object {
+      // A restored emulator backup or a re-signed debug build can leave
+      // Android Keystore entries that no longer decrypt. They are unusable
+      // credentials, so discard them and let the user sign in again.
+      try {
+        await _storage.deleteAll();
+      } on Object {
+        // The next startup will retry cleanup; never crash while reading auth.
+      }
+      return null;
+    }
+  }
 
   Future<void> saveTokens({
     required String accessToken,

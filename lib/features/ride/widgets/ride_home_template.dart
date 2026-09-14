@@ -523,7 +523,7 @@ class RideHomeHeader extends StatelessWidget {
               elevation: 2,
               borderRadius: BorderRadius.circular(AppRadius.pill),
               child: InkWell(
-                onTap: () => Get.toNamed<void>(RideRoutes.locationPicker),
+                onTap: Get.find<RideController>().startHomeService,
                 borderRadius: BorderRadius.circular(AppRadius.pill),
                 child: const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
@@ -661,8 +661,9 @@ class _ServiceCarouselState extends State<_ServiceCarousel> {
                 setState(() {
                   _page = value;
                 });
-                Get.find<RideController>().homeServiceIndex.value =
-                    value % _services.length;
+                Get.find<RideController>().selectHomeService(
+                  value % _services.length,
+                );
               },
               itemBuilder: (context, index) {
                 final service = _services[index % _services.length];
@@ -673,8 +674,9 @@ class _ServiceCarouselState extends State<_ServiceCarousel> {
                     setState(() {
                       _page = index;
                     });
-                    Get.find<RideController>().homeServiceIndex.value =
-                        index % _services.length;
+                    Get.find<RideController>().selectHomeService(
+                      index % _services.length,
+                    );
                     _pageController.animateToPage(
                       index,
                       duration: const Duration(milliseconds: 280),
