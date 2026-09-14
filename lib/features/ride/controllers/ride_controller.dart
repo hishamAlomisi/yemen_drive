@@ -54,6 +54,7 @@ class RideController extends GetxController {
   final RxBool isSearchingForDriver = false.obs;
   final RxBool isDriverAssigned = false.obs;
   final RxString activeRideStatus = ''.obs;
+  final Rxn<Map<String, Object?>> cashCollectionApproval = Rxn<Map<String, Object?>>();
   final RxString cancellationReason = ''.obs;
   final Rx<NegotiationStatus> negotiationStatus = NegotiationStatus.idle.obs;
   final RxString quoteError = ''.obs;
@@ -1154,6 +1155,10 @@ class RideController extends GetxController {
       if (ride is Map) {
         activeRideStatus.value = '${ride['status'] ?? ''}';
       }
+      final approval = detail['cashCollectionApproval'];
+      cashCollectionApproval.value = approval is Map
+          ? Map<String, Object?>.from(approval)
+          : null;
       final driver = detail['driver'];
       if (driver is Map) {
         assignedDriverName.value = '${driver['name'] ?? ''}'.trim();
@@ -1215,6 +1220,7 @@ class RideController extends GetxController {
     acceptedOffer.value = null;
     isDriverAssigned.value = false;
     activeRideStatus.value = '';
+    cashCollectionApproval.value = null;
     cancellationReason.value = reason;
     isSearchingForDriver.value = false;
     Get.offNamed<void>(RideRoutes.requestThanks);

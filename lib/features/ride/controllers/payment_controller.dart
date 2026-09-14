@@ -130,6 +130,29 @@ class PaymentController extends GetxController {
     }
   }
 
+  Future<bool> decideCashShortfall({required int approvalId, required bool accept}) async {
+    if (isPaying.value) return false;
+    isPaying.value = true;
+    try {
+      final result = await _api.execute<Object?>(
+        model: 'CashCollectionApprovalModel',
+        operation: accept ? 'accept' : 'reject',
+        data: <String, Object?>{'id': approvalId},
+      );
+      if (result is! ApiSuccess) throw const FormatException();
+      await _ride.refreshActiveRide();
+      Get.snackbar(accept ? 'تمت الموافقة' : 'تم الرفض', accept
+          ? 'يمكن للسائق إكمال تسجيل التحصيل الآن.'
+          : 'لن يتم خصم أي مبلغ من محفظتك.');
+      return true;
+    } catch (_) {
+      Get.snackbar('تعذر تنفيذ القرار', 'تحقق من الرصيد والاتصال ثم أعد المحاولة.');
+      return false;
+    } finally {
+      isPaying.value = false;
+    }
+  }
+
   double _number(Object? value) =>
       value is num ? value.toDouble() : double.tryParse('${value ?? ''}') ?? 0;
 

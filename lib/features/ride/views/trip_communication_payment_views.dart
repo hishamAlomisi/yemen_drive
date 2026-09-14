@@ -98,6 +98,8 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         final canProceedToPayment =
             controller.activeRideStatus.value == 'Completed' ||
                 controller.activeRideStatus.value == '6';
+        final cashApproval = controller.cashCollectionApproval.value;
+        final approvalPending = cashApproval != null && '${cashApproval['status']}' == '0';
         final useDevelopmentTrackingFallback = !AppEnvironment.isProduction;
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
@@ -131,12 +133,12 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           showMarker: false,
           panelMaxHeightFactor: .58,
           panelFooter: AppButton(
-            label: canProceedToPayment
-                ? 'متابعة إلى الدفع'
-                : 'بانتظار اكتمال الرحلة',
-            onPressed: canProceedToPayment
-                ? () => Get.toNamed<void>(RideRoutes.payment)
-                : null,
+            label: approvalPending
+                ? 'موافقة مطلوبة لفرق الدفع'
+                : canProceedToPayment ? 'متابعة إلى الدفع' : 'بانتظار اكتمال الرحلة',
+            onPressed: approvalPending
+                ? () => _showCashShortfallDecision(cashApproval)
+                : canProceedToPayment ? () => Get.toNamed<void>(RideRoutes.payment) : null,
           ),
           top: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -164,6 +166,21 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           ),
         );
       });
+
+  Future<void> _showCashShortfallDecision(Map<String, Object?> approval) async {
+    final approvalId = int.tryParse('${approval['id']}');
+    if (approvalId == null) return;
+    final amount = approval['walletDebitAmount'] ?? 0;
+    final payment = Get.find<PaymentController>();
+    await Get.dialog<void>(AlertDialog(
+      title: const Text('موافقة مطلوبة'),
+      content: Text('استلم السائق مبلغاً أقل من الإجمالي. هل توافق على خصم $amount ر.ي من محفظتك لإتمام الدفع؟'),
+      actions: [
+        TextButton(onPressed: () async { await payment.decideCashShortfall(approvalId: approvalId, accept: false); Get.back<void>(); }, child: const Text('رفض')),
+        FilledButton(onPressed: () async { final done = await payment.decideCashShortfall(approvalId: approvalId, accept: true); if (done) Get.back<void>(); }, child: const Text('موافقة')),
+      ],
+    ));
+  }
 }
 
 class _DevelopmentTrackingMap extends StatelessWidget {
