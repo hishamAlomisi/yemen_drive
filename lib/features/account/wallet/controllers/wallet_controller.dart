@@ -10,8 +10,8 @@ class WalletController extends GetxController {
   final TextEditingController amountController = TextEditingController();
   final TextEditingController bankAccountController = TextEditingController();
   final RxList<WalletTransaction> transactions = <WalletTransaction>[].obs;
-  final RxDouble walletBalance = 3500.0.obs;
-  final RxDouble totalSpent = 2000.0.obs;
+  final RxDouble walletBalance = 0.0.obs;
+  final RxDouble totalSpent = 0.0.obs;
   final RxDouble lastAddedAmount = 0.0.obs;
   final RxString amountText = ''.obs;
   final RxString selectedPaymentMethodId = 'visa'.obs;
@@ -27,7 +27,10 @@ class WalletController extends GetxController {
   Future<void> loadTransactions() async {
     isLoading.value = true;
     try {
-      transactions.assignAll(await _repository.transactions());
+      final wallet = await _repository.wallet();
+      transactions.assignAll(wallet.transactions);
+      walletBalance.value = wallet.balance;
+      totalSpent.value = wallet.totalSpent;
     } finally {
       isLoading.value = false;
     }

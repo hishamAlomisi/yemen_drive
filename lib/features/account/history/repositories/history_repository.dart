@@ -5,6 +5,8 @@ import '../../../../core/services/auth_session_service.dart';
 
 abstract interface class HistoryRepository {
   Future<List<RideHistoryItem>> list();
+  Future<void> cancelPaidCashRide(String rideId,
+      {required bool creditCustomerWallet});
 }
 
 class ApiHistoryRepository implements HistoryRepository {
@@ -30,12 +32,39 @@ class ApiHistoryRepository implements HistoryRepository {
             DateTime.now(),
         amount: rawAmount is num ? rawAmount.toDouble() : 0,
         status: _status(item['status']),
+        totalDue: _number(item['totalAmount']) > 0
+            ? _number(item['totalAmount'])
+            : (rawAmount is num ? rawAmount.toDouble() : 0),
+        cancellationFee: _number(item['cancellationFee']),
+        isCashPaid:
+            '${item['paidPaymentProvider'] ?? ''}'.toLowerCase() == 'cash',
         serviceKindName: item['serviceKindNameAr']?.toString(),
         serviceName: item['serviceNameAr']?.toString(),
         driverId: item['driverId']?.toString(),
       );
     }).toList(growable: false);
   }
+
+  @override
+  Future<void> cancelPaidCashRide(
+    String rideId, {
+    required bool creditCustomerWallet,
+  }) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideModel',
+      operation: 'cancel',
+      data: <String, Object?>{
+        'id': rideId,
+        'cashCancellationRefundMethod': creditCustomerWallet ? 2 : 1,
+      },
+    );
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر إلغاء الرحلة النقدية من الخادم.');
+    }
+  }
+
+  double _number(Object? value) =>
+      value is num ? value.toDouble() : double.tryParse('${value ?? ''}') ?? 0;
 
   RideHistoryStatus _status(Object? value) {
     final normalized = '$value'.toLowerCase();

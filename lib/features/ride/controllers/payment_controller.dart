@@ -13,6 +13,8 @@ class PaymentController extends GetxController {
   final RxBool useWalletBalance = false.obs;
   final RxDouble walletBalance = 0.0.obs;
   final RxDouble totalDue = 0.0.obs;
+  final RxDouble cancellationFee = 0.0.obs;
+  final RxBool cashPaymentConfirmed = false.obs;
   final RxBool isPaying = false.obs;
   final RxDouble rating = 0.0.obs;
   final TextEditingController reviewController = TextEditingController();
@@ -44,6 +46,16 @@ class PaymentController extends GetxController {
       // Older development rides can predate the total snapshot. The agreed
       // fare plus its stored fee remains the authoritative display fallback.
       totalDue.value = storedTotal > 0 ? storedTotal : fare + serviceFee;
+      cancellationFee.value = _number(ride['cancellationFee']);
+      final payments = values['payments'];
+      cashPaymentConfirmed.value = payments is List &&
+          payments.any((raw) {
+            if (raw is! Map) return false;
+            final payment = Map<Object?, Object?>.from(raw);
+            final provider = '${payment['provider'] ?? ''}'.toLowerCase();
+            final status = '${payment['status'] ?? ''}'.toLowerCase();
+            return provider == 'cash' && (status == '2' || status == 'paid');
+          });
     }
     final wallet = await _api.execute<Object?>(
       model: 'WalletModel',
@@ -106,13 +118,14 @@ class PaymentController extends GetxController {
       }
       final payload = Map<Object?, Object?>.from(result.data as Map);
       final payments = payload['payments'];
-      final cashCollected = payments is List && payments.any((raw) {
-        if (raw is! Map) return false;
-        final payment = Map<Object?, Object?>.from(raw);
-        final provider = '${payment['provider'] ?? ''}'.toLowerCase();
-        final status = '${payment['status'] ?? ''}'.toLowerCase();
-        return provider == 'cash' && (status == '2' || status == 'paid');
-      });
+      final cashCollected = payments is List &&
+          payments.any((raw) {
+            if (raw is! Map) return false;
+            final payment = Map<Object?, Object?>.from(raw);
+            final provider = '${payment['provider'] ?? ''}'.toLowerCase();
+            final status = '${payment['status'] ?? ''}'.toLowerCase();
+            return provider == 'cash' && (status == '2' || status == 'paid');
+          });
       if (!cashCollected) {
         Get.snackbar(
           'لم يُسجّل التحصيل بعد',
@@ -122,15 +135,58 @@ class PaymentController extends GetxController {
       }
       await loadPaymentSummary();
       Get.snackbar('تم تأكيد الدفع', 'سجّل السائق التحصيل النقدي بنجاح.');
-      Get.offAllNamed<void>(RideRoutes.rideThanks);
+      cashPaymentConfirmed.value = true;
     } catch (_) {
-      Get.snackbar('تعذر التحقق', 'تعذر التحقق من تحصيل السائق، حاول مرة أخرى.');
+      Get.snackbar(
+          'تعذر التحقق', 'تعذر التحقق من تحصيل السائق، حاول مرة أخرى.');
     } finally {
       isPaying.value = false;
     }
   }
 
-  Future<bool> decideCashShortfall({required int approvalId, required bool accept}) async {
+  Future<bool> cancelCashPaidRide({required bool creditCustomerWallet}) async {
+    final rideId = _ride.currentRideId;
+    if (rideId == null || isPaying.value || !cashPaymentConfirmed.value) {
+      return false;
+    }
+    isPaying.value = true;
+    try {
+      final result = await _api.execute<Object?>(
+        model: 'RideModel',
+        operation: 'cancel',
+        data: <String, Object?>{
+          'id': rideId,
+          // The API uses explicit numeric values so the request is stable
+          // without relying on enum-name serialization in Flutter.
+          'cashCancellationRefundMethod': creditCustomerWallet ? 2 : 1,
+        },
+      );
+      if (result is! ApiSuccess) {
+        throw const FormatException('تعذر إلغاء الرحلة النقدية.');
+      }
+      cashPaymentConfirmed.value = false;
+      await loadPaymentSummary();
+      Get.snackbar(
+        'تم إلغاء الرحلة',
+        creditCustomerWallet
+            ? 'أُضيف مبلغ الاسترداد إلى محفظتك بعد خصم رسم الإلغاء.'
+            : 'سُجل استرداد المبلغ من السائق مباشرة.',
+      );
+      Get.offAllNamed<void>(RideRoutes.homeTransport);
+      return true;
+    } catch (_) {
+      Get.snackbar(
+        'تعذر الإلغاء',
+        'تعذر تنفيذ الاسترداد الآن. تحقق من حالة الرحلة وحاول مرة أخرى.',
+      );
+      return false;
+    } finally {
+      isPaying.value = false;
+    }
+  }
+
+  Future<bool> decideCashShortfall(
+      {required int approvalId, required bool accept}) async {
     if (isPaying.value) return false;
     isPaying.value = true;
     try {
@@ -141,12 +197,15 @@ class PaymentController extends GetxController {
       );
       if (result is! ApiSuccess) throw const FormatException();
       await _ride.refreshActiveRide();
-      Get.snackbar(accept ? 'تمت الموافقة' : 'تم الرفض', accept
-          ? 'يمكن للسائق إكمال تسجيل التحصيل الآن.'
-          : 'لن يتم خصم أي مبلغ من محفظتك.');
+      Get.snackbar(
+          accept ? 'تمت الموافقة' : 'تم الرفض',
+          accept
+              ? 'يمكن للسائق إكمال تسجيل التحصيل الآن.'
+              : 'لن يتم خصم أي مبلغ من محفظتك.');
       return true;
     } catch (_) {
-      Get.snackbar('تعذر تنفيذ القرار', 'تحقق من الرصيد والاتصال ثم أعد المحاولة.');
+      Get.snackbar(
+          'تعذر تنفيذ القرار', 'تحقق من الرصيد والاتصال ثم أعد المحاولة.');
       return false;
     } finally {
       isPaying.value = false;

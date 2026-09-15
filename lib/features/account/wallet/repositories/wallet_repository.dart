@@ -4,7 +4,7 @@ import '../../../../core/services/auth_session_service.dart';
 import '../../models/account_models.dart';
 
 abstract interface class WalletRepository {
-  Future<List<WalletTransaction>> transactions();
+  Future<WalletSnapshot> wallet();
   Future<double> addAmount(
       {required double amount,
       required String paymentMethodId,
@@ -17,14 +17,18 @@ class ApiWalletRepository implements WalletRepository {
   final AuthSessionService _session;
 
   @override
-  Future<List<WalletTransaction>> transactions() async {
-    if (!_session.isAuthenticated.value) return const [];
+  Future<WalletSnapshot> wallet() async {
+    if (!_session.isAuthenticated.value) {
+      return const WalletSnapshot(balance: 0, transactions: <WalletTransaction>[]);
+    }
     final result =
         await _client.execute<Object?>(model: 'WalletModel', operation: 'get');
-    if (result is! ApiSuccess || result.data is! Map) return const [];
-    final raw = (result.data as Map)['transactions'];
-    if (raw is! List) return const [];
-    return raw
+    if (result is! ApiSuccess || result.data is! Map) {
+      return const WalletSnapshot(balance: 0, transactions: <WalletTransaction>[]);
+    }
+    final data = result.data as Map;
+    final raw = data['transactions'];
+    final transactions = raw is List ? raw
         .whereType<Map>()
         .map((item) => WalletTransaction(
               id: '${item['id'] ?? ''}',
@@ -32,9 +36,14 @@ class ApiWalletRepository implements WalletRepository {
               date: DateTime.tryParse('${item['createdAtUtc'] ?? ''}') ??
                   DateTime.now(),
               amount: (item['amount'] as num?)?.toDouble() ?? 0,
-              isCredit: item['type'] == 0 || item['isCredit'] == true,
+              isCredit: item['type'] == 0 || item['type'] == 3 || item['type'] == 4 || item['isCredit'] == true,
+              type: (item['type'] as num?)?.toInt() ?? 0,
             ))
-        .toList(growable: false);
+        .toList(growable: false) : const <WalletTransaction>[];
+    return WalletSnapshot(
+      balance: (data['balance'] as num?)?.toDouble() ?? 0,
+      transactions: transactions,
+    );
   }
 
   @override

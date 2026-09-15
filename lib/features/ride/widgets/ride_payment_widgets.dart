@@ -12,6 +12,7 @@ class PaymentMethodTile extends GetView<PaymentController> {
     required this.title,
     required this.subtitle,
     required this.icon,
+    this.imageUrl,
     super.key,
   });
 
@@ -19,6 +20,7 @@ class PaymentMethodTile extends GetView<PaymentController> {
   final String title;
   final String subtitle;
   final IconData icon;
+  final String? imageUrl;
 
   @override
   Widget build(BuildContext context) => Obx(() {
@@ -36,7 +38,7 @@ class PaymentMethodTile extends GetView<PaymentController> {
                   color: AppColors.primary.withValues(alpha: .15),
                   borderRadius: BorderRadius.circular(AppRadius.sm),
                 ),
-                child: Icon(icon, color: AppColors.primaryDark),
+                child: imageUrl == null || imageUrl!.isEmpty ? Icon(icon, color: AppColors.primaryDark) : Image.network(imageUrl!, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(icon, color: AppColors.primaryDark)),
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(

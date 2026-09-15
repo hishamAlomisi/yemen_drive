@@ -8,6 +8,9 @@ class RideHistoryItem {
       required this.date,
       required this.amount,
       required this.status,
+      required this.totalDue,
+      required this.cancellationFee,
+      required this.isCashPaid,
       this.serviceKindName,
       this.serviceName,
       this.driverId});
@@ -17,6 +20,9 @@ class RideHistoryItem {
   final DateTime date;
   final double amount;
   final RideHistoryStatus status;
+  final double totalDue;
+  final double cancellationFee;
+  final bool isCashPaid;
   final String? serviceKindName;
   final String? serviceName;
   final String? driverId;

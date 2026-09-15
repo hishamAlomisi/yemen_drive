@@ -132,6 +132,7 @@ class AccountListTile extends StatelessWidget {
   const AccountListTile({
     required this.title,
     required this.icon,
+    this.imageUrl,
     this.subtitle,
     this.trailing,
     this.onTap,
@@ -143,6 +144,7 @@ class AccountListTile extends StatelessWidget {
   final String title;
   final String? subtitle;
   final IconData icon;
+  final String? imageUrl;
   final Widget? trailing;
   final VoidCallback? onTap;
   final Color? iconColor;
@@ -204,6 +206,7 @@ class AccountChoiceTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     required this.icon,
+    this.imageUrl,
     required this.selected,
     required this.onTap,
     super.key,
@@ -212,6 +215,7 @@ class AccountChoiceTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final IconData icon;
+  final String? imageUrl;
   final bool selected;
   final VoidCallback onTap;
 
@@ -221,7 +225,7 @@ class AccountChoiceTile extends StatelessWidget {
         borderColor: selected ? AppColors.primary : null,
         child: Row(
           children: <Widget>[
-            Icon(icon, color: selected ? AppColors.primaryDark : null),
+            _ChoiceLogo(imageUrl: imageUrl, icon: icon, selected: selected),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: Column(
@@ -241,6 +245,15 @@ class AccountChoiceTile extends StatelessWidget {
           ],
         ),
       );
+}
+
+class _ChoiceLogo extends StatelessWidget {
+  const _ChoiceLogo({required this.imageUrl, required this.icon, required this.selected});
+  final String? imageUrl; final IconData icon; final bool selected;
+  @override Widget build(BuildContext context) {
+    if (imageUrl == null || imageUrl!.isEmpty) return Icon(icon, color: selected ? AppColors.primaryDark : null);
+    return SizedBox(width: 32, height: 32, child: Image.network(imageUrl!, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(icon, color: selected ? AppColors.primaryDark : null)));
+  }
 }
 
 class AccountMetricCard extends StatelessWidget {

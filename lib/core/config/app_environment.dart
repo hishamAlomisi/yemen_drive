@@ -1,3 +1,7 @@
+import 'package:flutter/material.dart';
+
+import '../network/api_client.dart';
+import '../network/api_models.dart';
 import '../../features/account/models/account_models.dart';
 
 class AppEnvironment {
@@ -19,6 +23,22 @@ class AppEnvironment {
   static bool get isConfigured => _isConfigured;
   static bool get isProduction => flavor == 'prod';
   static List<PaymentMethodItem> paymentMethods = <PaymentMethodItem>[];
+
+  static Future<void> loadPaymentMethods(ApiClient client) async {
+    final result = await client.execute<Object?>(model: 'PaymentMethodModel', operation: 'list');
+    if (result is! ApiSuccess || result.data is! List) return;
+    paymentMethods = (result.data as List).whereType<Map<Object?, Object?>>().where((raw) => raw['isActive'] == true).map((raw) {
+      final kind = (raw['kind'] as num?)?.toInt() ?? 0;
+      return PaymentMethodItem(
+        id: '${raw['code'] ?? raw['id']}', label: '${raw['nameAr'] ?? ''}',
+        subtitle: '${raw['descriptionAr'] ?? ''}', kind: kind,
+        imageUrl: '${raw['imageUrl'] ?? ''}'.trim().isEmpty ? null : '${raw['imageUrl']}',
+        availableForRidePayment: raw['isAvailableForRidePayment'] == true,
+        availableForWalletTopUp: raw['isAvailableForWalletTopUp'] == true,
+        icon: kind == 1 ? Icons.credit_card_rounded : kind == 2 ? Icons.account_balance_rounded : Icons.account_balance_wallet_rounded,
+      );
+    }).toList(growable: false);
+  }
 
   static void configure({
     required String flavor,

@@ -99,7 +99,8 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
             controller.activeRideStatus.value == 'Completed' ||
                 controller.activeRideStatus.value == '6';
         final cashApproval = controller.cashCollectionApproval.value;
-        final approvalPending = cashApproval != null && '${cashApproval['status']}' == '0';
+        final approvalPending =
+            cashApproval != null && '${cashApproval['status']}' == '0';
         final useDevelopmentTrackingFallback = !AppEnvironment.isProduction;
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
@@ -135,10 +136,14 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           panelFooter: AppButton(
             label: approvalPending
                 ? 'موافقة مطلوبة لفرق الدفع'
-                : canProceedToPayment ? 'متابعة إلى الدفع' : 'بانتظار اكتمال الرحلة',
+                : canProceedToPayment
+                    ? 'متابعة إلى الدفع'
+                    : 'بانتظار اكتمال الرحلة',
             onPressed: approvalPending
                 ? () => _showCashShortfallDecision(cashApproval)
-                : canProceedToPayment ? () => Get.toNamed<void>(RideRoutes.payment) : null,
+                : canProceedToPayment
+                    ? () => Get.toNamed<void>(RideRoutes.payment)
+                    : null,
           ),
           top: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -174,10 +179,23 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
     final payment = Get.find<PaymentController>();
     await Get.dialog<void>(AlertDialog(
       title: const Text('موافقة مطلوبة'),
-      content: Text('استلم السائق مبلغاً أقل من الإجمالي. هل توافق على خصم $amount ر.ي من محفظتك لإتمام الدفع؟'),
+      content: Text(
+          'استلم السائق مبلغاً أقل من الإجمالي. هل توافق على خصم $amount ر.ي من محفظتك لإتمام الدفع؟'),
       actions: [
-        TextButton(onPressed: () async { await payment.decideCashShortfall(approvalId: approvalId, accept: false); Get.back<void>(); }, child: const Text('رفض')),
-        FilledButton(onPressed: () async { final done = await payment.decideCashShortfall(approvalId: approvalId, accept: true); if (done) Get.back<void>(); }, child: const Text('موافقة')),
+        TextButton(
+            onPressed: () async {
+              await payment.decideCashShortfall(
+                  approvalId: approvalId, accept: false);
+              Get.back<void>();
+            },
+            child: const Text('رفض')),
+        FilledButton(
+            onPressed: () async {
+              final done = await payment.decideCashShortfall(
+                  approvalId: approvalId, accept: true);
+              if (done) Get.back<void>();
+            },
+            child: const Text('موافقة')),
       ],
     ));
   }
@@ -672,6 +690,43 @@ class ActiveCallPage extends StatelessWidget {
 class RidePaymentPage extends GetView<PaymentController> {
   const RidePaymentPage({super.key});
 
+  Future<void> _showCashCancellationOptions() async {
+    final refundAmount =
+        (controller.totalDue.value - controller.cancellationFee.value)
+            .clamp(0, double.infinity);
+    await Get.dialog<void>(
+      AlertDialog(
+        title: const Text('إلغاء رحلة مدفوعة نقداً'),
+        content: Text(
+          'بعد خصم رسم الإلغاء، مبلغ الاسترداد المتوقع هو '
+          '${refundAmount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}.\n\n'
+          'اختر فقط الخيار الذي يطابق ما حدث فعلياً:',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: Get.back<void>,
+            child: const Text('العودة'),
+          ),
+          OutlinedButton(
+            onPressed: () async {
+              Get.back<void>();
+              await controller.cancelCashPaidRide(creditCustomerWallet: false);
+            },
+            child: const Text('استعدته من السائق'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Get.back<void>();
+              await controller.cancelCashPaidRide(creditCustomerWallet: true);
+            },
+            child: const Text('أضفه إلى محفظتي'),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) => RidePageFrame(
         title: 'طريقة الدفع',
@@ -733,13 +788,14 @@ class RidePaymentPage extends GetView<PaymentController> {
                               'الرصيد المتاح ${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
                           icon: Icons.account_balance_wallet_outlined,
                         )),
-                    for (PaymentMethodItem items
-                        in AppEnvironment.paymentMethods)
+                    for (PaymentMethodItem items in AppEnvironment.paymentMethods
+                        .where((method) => method.availableForRidePayment))
                       PaymentMethodTile(
                         id: items.id,
                         title: items.label,
                         subtitle: items.subtitle,
                         icon: items.icon,
+                        imageUrl: items.imageUrl,
                       ),
                   ],
                 ),
@@ -758,12 +814,34 @@ class RidePaymentPage extends GetView<PaymentController> {
               child: Obx(() => AppButton(
                     label: controller.isPaying.value
                         ? 'جارٍ إتمام الدفع...'
-                        : 'تأكيد ودفع ${controller.totalDue.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                        : controller.cashPaymentConfirmed.value
+                            ? 'إنهاء الرحلة'
+                            : 'تأكيد ودفع ${controller.totalDue.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
                     leading: const Icon(Icons.lock_outline_rounded),
-                    onPressed:
-                        controller.isPaying.value ? null : controller.pay,
+                    onPressed: controller.isPaying.value
+                        ? null
+                        : controller.cashPaymentConfirmed.value
+                            ? () => Get.offAllNamed<void>(RideRoutes.rideThanks)
+                            : controller.pay,
                   )),
             ),
+            Obx(() => controller.cashPaymentConfirmed.value
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md,
+                      0,
+                      AppSpacing.md,
+                      AppSpacing.md,
+                    ),
+                    child: AppButton(
+                      label: 'إلغاء الرحلة واسترداد المبلغ',
+                      variant: AppButtonVariant.danger,
+                      onPressed: controller.isPaying.value
+                          ? null
+                          : _showCashCancellationOptions,
+                    ),
+                  )
+                : const SizedBox.shrink()),
           ],
         ),
       );

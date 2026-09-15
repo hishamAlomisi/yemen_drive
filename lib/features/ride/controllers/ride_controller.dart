@@ -123,24 +123,48 @@ class RideController extends GetxController {
       if (rideId == null || rideId.isEmpty || status == null) return;
 
       _restoreRideSnapshot(rideId, ride);
-      if (status <= 2) {
-        negotiationStatus.value = NegotiationStatus.searching;
-        isSearchingForDriver.value = true;
-        offersExhausted.value = false;
-        offersStreamDone.value = false;
-        await _watchOffers(rideId);
-        if (!isClosed) Get.offAllNamed<void>(RideRoutes.negotiationQuote);
-        return;
-      }
-
-      negotiationStatus.value = NegotiationStatus.accepted;
-      isDriverAssigned.value = true;
-      await refreshActiveRide();
-      startRealTracking();
-      if (!isClosed) Get.offAllNamed<void>(RideRoutes.driverLocation);
+      await _continueRestoredRide(rideId, status);
     } catch (_) {
       // Opening the home screen remains available when the network is offline.
     }
+  }
+
+  /// Opens a non-final server ride from the history screen. This keeps a
+  /// customer from being stranded with a pending driver offer after leaving
+  /// or restarting the application.
+  Future<void> resumeOpenRide(String rideId) async {
+    final detail = await _repository.getRideDetail(rideId);
+    final rawRide = detail['ride'];
+    if (rawRide is! Map) {
+      throw const FormatException('تعذر استعادة بيانات الرحلة.');
+    }
+    final ride = Map<String, Object?>.from(rawRide);
+    final status = _asInt(ride['status']);
+    if (status == null || status >= 6) {
+      throw const FormatException('هذه الرحلة لم تعد قابلة للاستئناف.');
+    }
+    _restoreRideSnapshot(rideId, ride);
+    await _continueRestoredRide(rideId, status);
+  }
+
+  Future<void> _continueRestoredRide(String rideId, int status) async {
+    if (status <= 2) {
+      negotiationStatus.value = NegotiationStatus.searching;
+      isSearchingForDriver.value = true;
+      offersExhausted.value = false;
+      offersStreamDone.value = false;
+      driverOffers.clear();
+      receivedOffersCount.value = 0;
+      await _watchOffers(rideId);
+      if (!isClosed) Get.offAllNamed<void>(RideRoutes.negotiationQuote);
+      return;
+    }
+
+    negotiationStatus.value = NegotiationStatus.accepted;
+    isDriverAssigned.value = true;
+    await refreshActiveRide();
+    startRealTracking();
+    if (!isClosed) Get.offAllNamed<void>(RideRoutes.driverLocation);
   }
 
   void _restoreRideSnapshot(String rideId, Map<String, Object?> ride) {

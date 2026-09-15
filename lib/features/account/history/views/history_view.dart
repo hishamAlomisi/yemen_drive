@@ -10,6 +10,7 @@ import '../../../../../shared/widgets/app_states.dart';
 import '../../account_routes.dart';
 import '../../models/account_models.dart';
 import '../../widgets/account_widgets.dart';
+import '../../../ride/controllers/ride_controller.dart';
 import '../controllers/history_controller.dart';
 
 class HistoryPage extends GetView<HistoryController> {
@@ -116,8 +117,51 @@ class _HistoryRideCard extends StatelessWidget {
 
   final RideHistoryItem ride;
 
+  Future<void> _showCashCancellationOptions(
+    BuildContext context,
+    HistoryController controller,
+  ) async {
+    final refundAmount =
+        (ride.totalDue - ride.cancellationFee).clamp(0, double.infinity);
+    await Get.dialog<void>(
+      AlertDialog(
+        title: const Text('إلغاء رحلة مدفوعة نقداً'),
+        content: Text(
+          'مبلغ الاسترداد المتوقع بعد رسم الإلغاء: '
+          '${refundAmount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}.\n\n'
+          'اختر فقط ما حدث فعلياً مع السائق.',
+        ),
+        actions: <Widget>[
+          TextButton(onPressed: Get.back<void>, child: const Text('العودة')),
+          OutlinedButton(
+            onPressed: () async {
+              Get.back<void>();
+              await controller.cancelPaidCashRide(
+                ride,
+                creditCustomerWallet: false,
+              );
+            },
+            child: const Text('استعدته من السائق'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              Get.back<void>();
+              await controller.cancelPaidCashRide(
+                ride,
+                creditCustomerWallet: true,
+              );
+            },
+            child: const Text('أضفه إلى محفظتي'),
+          ),
+        ],
+      ),
+      barrierDismissible: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final controller = Get.find<HistoryController>();
     final statusColor = switch (ride.status) {
       RideHistoryStatus.upcoming => AppColors.primaryDark,
       RideHistoryStatus.completed => AppColors.success,
@@ -175,6 +219,42 @@ class _HistoryRideCard extends StatelessWidget {
                 ),
             ],
           ),
+          if (ride.status == RideHistoryStatus.upcoming)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.sm),
+              child: AppButton(
+                label: 'استئناف الرحلة',
+                size: AppButtonSize.small,
+                variant: AppButtonVariant.outline,
+                onPressed: () async {
+                  try {
+                    await Get.find<RideController>().resumeOpenRide(ride.id);
+                  } catch (_) {
+                    Get.snackbar(
+                      'تعذر استئناف الرحلة',
+                      'حدّث سجل الرحلات وتحقق من حالة الطلب ثم أعد المحاولة.',
+                    );
+                  }
+                },
+              ),
+            ),
+          if (ride.status == RideHistoryStatus.completed && ride.isCashPaid)
+            Obx(() {
+              final isCancelling = controller.cancellingRideId.value == ride.id;
+              return Padding(
+                padding: const EdgeInsets.only(top: AppSpacing.sm),
+                child: AppButton(
+                  label: isCancelling
+                      ? 'جارٍ الإلغاء...'
+                      : 'إلغاء الرحلة واسترداد النقد',
+                  size: AppButtonSize.small,
+                  variant: AppButtonVariant.danger,
+                  onPressed: isCancelling
+                      ? null
+                      : () => _showCashCancellationOptions(context, controller),
+                ),
+              );
+            }),
         ],
       ),
     );

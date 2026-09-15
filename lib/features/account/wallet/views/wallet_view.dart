@@ -191,7 +191,7 @@ class AddAmountPage extends GetView<WalletController> {
             const SizedBox(height: AppSpacing.sm),
             Obx(
               () => Column(
-                children: AppEnvironment.paymentMethods
+                children: AppEnvironment.paymentMethods.where((method) => method.availableForWalletTopUp)
                     .map(
                       (method) => Padding(
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -199,6 +199,7 @@ class AddAmountPage extends GetView<WalletController> {
                           title: method.label,
                           subtitle: method.subtitle,
                           icon: method.icon,
+                          imageUrl: method.imageUrl,
                           selected: controller.selectedPaymentMethodId.value ==
                               method.id,
                           onTap: () =>
@@ -227,9 +228,7 @@ class AddAmountPage extends GetView<WalletController> {
       await Get.toNamed<void>(AccountRoutes.bank);
       return;
     }
-    if (await controller.addAmount()) {
-      await Get.toNamed<void>(AccountRoutes.walletSuccess);
-    }
+    Get.snackbar('طلب الشحن', 'اخترت وسيلة الشحن. ستفتح خطوة الإكمال الآمنة عند تنفيذ ربط المزود الخارجي.');
   }
 }
 
