@@ -773,12 +773,20 @@ class RidePaymentPage extends GetView<PaymentController> {
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    const PaymentMethodTile(
-                      id: 'cash',
-                      title: 'نقداً',
-                      subtitle: 'ادفع للسائق عند الوصول',
-                      icon: Icons.payments_outlined,
-                    ),
+                    Obx(() => controller.cashPaymentConfirmed.value
+                        ? const SizedBox.shrink()
+                        : PaymentMethodTile(
+                            id: 'cash',
+                            title: 'نقداً',
+                            subtitle: controller.cashRequestStatus.value == 0
+                                ? 'بانتظار تأكيد السائق للاستلام'
+                                : controller.cashRequestStatus.value == 1
+                                    ? 'أكد السائق؛ يجري تسجيل التحصيل'
+                                    : controller.cashRequestStatus.value == 2
+                                        ? 'لم يؤكد السائق الاستلام؛ اختر وسيلة أخرى'
+                                        : 'يرسل طلب تأكيد إلى السائق',
+                            icon: Icons.payments_outlined,
+                          )),
                     Obx(() => PaymentMethodTile(
                           id: 'wallet',
                           title: 'محفظة يمن درايف',
@@ -820,7 +828,7 @@ class RidePaymentPage extends GetView<PaymentController> {
                     onPressed: controller.isPaying.value
                         ? null
                         : controller.cashPaymentConfirmed.value
-                            ? () => Get.offAllNamed<void>(RideRoutes.rideThanks)
+                            ? controller.finishCollectedCashRide
                             : controller.pay,
                   )),
             ),

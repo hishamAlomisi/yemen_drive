@@ -15,6 +15,7 @@ class PaymentController extends GetxController {
   final RxDouble totalDue = 0.0.obs;
   final RxDouble cancellationFee = 0.0.obs;
   final RxBool cashPaymentConfirmed = false.obs;
+  final RxInt cashRequestStatus = (-1).obs;
   final RxBool isPaying = false.obs;
   final RxDouble rating = 0.0.obs;
   final TextEditingController reviewController = TextEditingController();
@@ -56,6 +57,21 @@ class PaymentController extends GetxController {
             final status = '${payment['status'] ?? ''}'.toLowerCase();
             return provider == 'cash' && (status == '2' || status == 'paid');
           });
+      if (!cashPaymentConfirmed.value) {
+        final cashRequest = await _api.execute<Object?>(
+          model: 'CashPaymentRequestModel',
+          operation: 'get',
+          data: <String, Object?>{'rideId': rideId},
+        );
+        if (cashRequest is ApiSuccess && cashRequest.data is Map) {
+          cashRequestStatus.value =
+              int.tryParse('${(cashRequest.data as Map)['status']}') ?? -1;
+        } else {
+          cashRequestStatus.value = -1;
+        }
+      } else {
+        cashRequestStatus.value = -1;
+      }
     }
     final wallet = await _api.execute<Object?>(
       model: 'WalletModel',
@@ -69,7 +85,7 @@ class PaymentController extends GetxController {
 
   Future<void> pay() async {
     if (selectedMethod.value == 'cash') {
-      await _confirmCashCollection();
+      await _requestCashConfirmation();
       return;
     }
     if (selectedMethod.value != 'wallet') {
@@ -103,45 +119,42 @@ class PaymentController extends GetxController {
     }
   }
 
-  Future<void> _confirmCashCollection() async {
+  Future<void> _requestCashConfirmation() async {
     final rideId = _ride.currentRideId;
     if (rideId == null || isPaying.value) return;
+    if (cashRequestStatus.value == 0 || cashRequestStatus.value == 1) {
+      Get.snackbar('بانتظار السائق', 'تم إرسال طلب الدفع النقدي إلى السائق.');
+      return;
+    }
     isPaying.value = true;
     try {
       final result = await _api.execute<Object?>(
-        model: 'RideModel',
-        operation: 'get',
-        data: <String, Object?>{'id': rideId},
+        model: 'CashPaymentRequestModel',
+        operation: 'add',
+        data: <String, Object?>{
+          'rideId': rideId,
+          'idempotencyKey': 'cash-request-$rideId-${DateTime.now().microsecondsSinceEpoch}',
+        },
       );
-      if (result is! ApiSuccess || result.data is! Map) {
-        throw const FormatException('تعذر التحقق من تحصيل السائق.');
-      }
-      final payload = Map<Object?, Object?>.from(result.data as Map);
-      final payments = payload['payments'];
-      final cashCollected = payments is List &&
-          payments.any((raw) {
-            if (raw is! Map) return false;
-            final payment = Map<Object?, Object?>.from(raw);
-            final provider = '${payment['provider'] ?? ''}'.toLowerCase();
-            final status = '${payment['status'] ?? ''}'.toLowerCase();
-            return provider == 'cash' && (status == '2' || status == 'paid');
-          });
-      if (!cashCollected) {
-        Get.snackbar(
-          'لم يُسجّل التحصيل بعد',
-          'لم يؤكد السائق استلام المبلغ النقدي. اطلب منه تسجيل التحصيل أولاً.',
-        );
-        return;
-      }
+      if (result is! ApiSuccess || result.data is! Map) throw const FormatException();
+      cashRequestStatus.value = int.tryParse('${(result.data as Map)['status']}') ?? 0;
       await loadPaymentSummary();
-      Get.snackbar('تم تأكيد الدفع', 'سجّل السائق التحصيل النقدي بنجاح.');
-      cashPaymentConfirmed.value = true;
+      Get.snackbar('أُرسل طلب التأكيد', 'سيصل السائق طلباً لتأكيد استلام المبلغ النقدي.');
     } catch (_) {
-      Get.snackbar(
-          'تعذر التحقق', 'تعذر التحقق من تحصيل السائق، حاول مرة أخرى.');
+      Get.snackbar('تعذر إرسال الطلب', 'تعذر طلب تأكيد الدفع النقدي من السائق.');
     } finally {
       isPaying.value = false;
     }
+  }
+
+  Future<void> finishCollectedCashRide() async {
+    if (!cashPaymentConfirmed.value) return;
+    await loadPaymentSummary();
+    if (!cashPaymentConfirmed.value) {
+      Get.snackbar('لم يكتمل التحصيل', 'لم يسجل السائق التحصيل النقدي بعد.');
+      return;
+    }
+    Get.offAllNamed<void>(RideRoutes.rideThanks);
   }
 
   Future<bool> cancelCashPaidRide({required bool creditCustomerWallet}) async {
