@@ -31,6 +31,7 @@ class DriverLocationPage extends StatefulWidget {
 
 class _DriverLocationPageState extends State<DriverLocationPage> {
   final RideController controller = Get.find<RideController>();
+  bool _isSubmittingCashShortfallDecision = false;
 
   @override
   void initState() {
@@ -85,7 +86,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           },
           onCancel: () {
             Get.back<void>();
-            controller.cancelActiveRide('إلغاء الرحلة أثناء توجه السائق');
+            Get.toNamed<void>(RideRoutes.rideCancel);
           },
         ),
         barrierDismissible: false,
@@ -101,7 +102,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         final cashApproval = controller.cashCollectionApproval.value;
         final approvalPending =
             cashApproval != null && '${cashApproval['status']}' == '0';
-        final useDevelopmentTrackingFallback = !AppEnvironment.isProduction;
+        final useDevelopmentTrackingFallback = AppEnvironment.useDemoData;
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
           'DriverEnRoute' || '4' => 'السائق في الطريق',
@@ -117,16 +118,21 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                   initialTarget:
                       location.pickup.value ?? const LatLng(15.3694, 44.1910),
                   markers: <Marker>{
+                    // The pickup marker is the customer's personal marker.
+                    // Do not add a second generic passenger pin during live
+                    // tracking, otherwise the destination becomes unclear.
                     ...location.markers,
                     ...controller.trackingMarkers,
                   },
-                  followTarget: controller.trackedDriver.value == null
-                      ? null
-                      : LatLng(
-                          controller.trackedDriver.value!.location.latitude,
-                          controller.trackedDriver.value!.location.longitude,
-                        ),
-                  polylines: location.polylines,
+                  polylines: controller.trackingPolylines.isNotEmpty
+                      ? controller.trackingPolylines
+                      : location.polylines,
+                  // Keep both the moving driver and the customer's pickup in
+                  // view. Following the driver alone previously hid the live
+                  // route and the pickup marker on longer approaches.
+                  focusBounds: controller.trackingFocusBounds ??
+                      location.selectedRouteBounds,
+                  focusBoundsPadding: 104,
                   showDemoMarker: false,
                   showDemoRoute: false,
                 ),
@@ -173,6 +179,9 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       });
 
   Future<void> _showCashShortfallDecision(Map<String, Object?> approval) async {
+    if (_isSubmittingCashShortfallDecision || (Get.isDialogOpen ?? false)) {
+      return;
+    }
     final approvalId = int.tryParse('${approval['id']}');
     if (approvalId == null) return;
     final amount = approval['walletDebitAmount'] ?? 0;
@@ -184,20 +193,46 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       actions: [
         TextButton(
             onPressed: () async {
-              await payment.decideCashShortfall(
-                  approvalId: approvalId, accept: false);
-              Get.back<void>();
+              await _submitCashShortfallDecision(
+                payment: payment,
+                approvalId: approvalId,
+                accept: false,
+              );
             },
             child: const Text('رفض')),
         FilledButton(
             onPressed: () async {
-              final done = await payment.decideCashShortfall(
-                  approvalId: approvalId, accept: true);
-              if (done) Get.back<void>();
+              await _submitCashShortfallDecision(
+                payment: payment,
+                approvalId: approvalId,
+                accept: true,
+              );
             },
             child: const Text('موافقة')),
       ],
     ));
+  }
+
+  Future<void> _submitCashShortfallDecision({
+    required PaymentController payment,
+    required int approvalId,
+    required bool accept,
+  }) async {
+    if (_isSubmittingCashShortfallDecision) return;
+    _isSubmittingCashShortfallDecision = true;
+
+    // Close the prompt before awaiting the network request. This prevents a
+    // customer from submitting the same financial decision more than once.
+    if (Get.isDialogOpen ?? false) Get.back<void>();
+    try {
+      final completed = await payment.decideCashShortfall(
+        approvalId: approvalId,
+        accept: accept,
+      );
+      if (completed) await controller.refreshActiveRide();
+    } finally {
+      _isSubmittingCashShortfallDecision = false;
+    }
   }
 }
 
@@ -690,43 +725,6 @@ class ActiveCallPage extends StatelessWidget {
 class RidePaymentPage extends GetView<PaymentController> {
   const RidePaymentPage({super.key});
 
-  Future<void> _showCashCancellationOptions() async {
-    final refundAmount =
-        (controller.totalDue.value - controller.cancellationFee.value)
-            .clamp(0, double.infinity);
-    await Get.dialog<void>(
-      AlertDialog(
-        title: const Text('إلغاء رحلة مدفوعة نقداً'),
-        content: Text(
-          'بعد خصم رسم الإلغاء، مبلغ الاسترداد المتوقع هو '
-          '${refundAmount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}.\n\n'
-          'اختر فقط الخيار الذي يطابق ما حدث فعلياً:',
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: Get.back<void>,
-            child: const Text('العودة'),
-          ),
-          OutlinedButton(
-            onPressed: () async {
-              Get.back<void>();
-              await controller.cancelCashPaidRide(creditCustomerWallet: false);
-            },
-            child: const Text('استعدته من السائق'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Get.back<void>();
-              await controller.cancelCashPaidRide(creditCustomerWallet: true);
-            },
-            child: const Text('أضفه إلى محفظتي'),
-          ),
-        ],
-      ),
-      barrierDismissible: false,
-    );
-  }
-
   @override
   Widget build(BuildContext context) => RidePageFrame(
         title: 'طريقة الدفع',
@@ -788,7 +786,8 @@ class RidePaymentPage extends GetView<PaymentController> {
                               'الرصيد المتاح ${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
                           icon: Icons.account_balance_wallet_outlined,
                         )),
-                    for (PaymentMethodItem items in AppEnvironment.paymentMethods
+                    for (PaymentMethodItem items in AppEnvironment
+                        .paymentMethods
                         .where((method) => method.availableForRidePayment))
                       PaymentMethodTile(
                         id: items.id,
@@ -825,23 +824,6 @@ class RidePaymentPage extends GetView<PaymentController> {
                             : controller.pay,
                   )),
             ),
-            Obx(() => controller.cashPaymentConfirmed.value
-                ? Padding(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.md,
-                      0,
-                      AppSpacing.md,
-                      AppSpacing.md,
-                    ),
-                    child: AppButton(
-                      label: 'إلغاء الرحلة واسترداد المبلغ',
-                      variant: AppButtonVariant.danger,
-                      onPressed: controller.isPaying.value
-                          ? null
-                          : _showCashCancellationOptions,
-                    ),
-                  )
-                : const SizedBox.shrink()),
           ],
         ),
       );

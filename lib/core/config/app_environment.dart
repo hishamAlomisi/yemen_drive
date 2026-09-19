@@ -11,12 +11,9 @@ class AppEnvironment {
   static late final String baseUrl;
   static String defaultCurrency = 'ر.ي';
   static bool useDemoData = true;
+  // Used only by the web build. Android reads the restricted Maps SDK key
+  // from the native manifest placeholder in local.properties.
   static String googleMapsApiKey = '';
-  static String googleRoutesApiKey = '';
-  static String googleGeocodingApiKey = '';
-  static String googlePlacesApiKey = '';
-  static String androidPackageName = 'com.example.yemen_drive';
-  static String androidCertSha1 = '';
   static String signalRHubUrl = '';
   static bool _isConfigured = false;
 
@@ -25,17 +22,29 @@ class AppEnvironment {
   static List<PaymentMethodItem> paymentMethods = <PaymentMethodItem>[];
 
   static Future<void> loadPaymentMethods(ApiClient client) async {
-    final result = await client.execute<Object?>(model: 'PaymentMethodModel', operation: 'list');
+    final result = await client.execute<Object?>(
+        model: 'PaymentMethodModel', operation: 'list');
     if (result is! ApiSuccess || result.data is! List) return;
-    paymentMethods = (result.data as List).whereType<Map<Object?, Object?>>().where((raw) => raw['isActive'] == true).map((raw) {
+    paymentMethods = (result.data as List)
+        .whereType<Map<Object?, Object?>>()
+        .where((raw) => raw['isActive'] == true)
+        .map((raw) {
       final kind = (raw['kind'] as num?)?.toInt() ?? 0;
       return PaymentMethodItem(
-        id: '${raw['code'] ?? raw['id']}', label: '${raw['nameAr'] ?? ''}',
-        subtitle: '${raw['descriptionAr'] ?? ''}', kind: kind,
-        imageUrl: '${raw['imageUrl'] ?? ''}'.trim().isEmpty ? null : '${raw['imageUrl']}',
+        id: '${raw['code'] ?? raw['id']}',
+        label: '${raw['nameAr'] ?? ''}',
+        subtitle: '${raw['descriptionAr'] ?? ''}',
+        kind: kind,
+        imageUrl: '${raw['imageUrl'] ?? ''}'.trim().isEmpty
+            ? null
+            : '${raw['imageUrl']}',
         availableForRidePayment: raw['isAvailableForRidePayment'] == true,
         availableForWalletTopUp: raw['isAvailableForWalletTopUp'] == true,
-        icon: kind == 1 ? Icons.credit_card_rounded : kind == 2 ? Icons.account_balance_rounded : Icons.account_balance_wallet_rounded,
+        icon: kind == 1
+            ? Icons.credit_card_rounded
+            : kind == 2
+                ? Icons.account_balance_rounded
+                : Icons.account_balance_wallet_rounded,
       );
     }).toList(growable: false);
   }
@@ -45,11 +54,6 @@ class AppEnvironment {
     required String baseUrl,
     bool useDemoData = true,
     String googleMapsApiKey = '',
-    String googleRoutesApiKey = '',
-    String googleGeocodingApiKey = '',
-    String googlePlacesApiKey = '',
-    String androidPackageName = 'com.example.yemen_drive',
-    String androidCertSha1 = '',
     String signalRHubUrl = '',
   }) {
     AppEnvironment.flavor = flavor;
@@ -58,15 +62,6 @@ class AppEnvironment {
         : baseUrl;
     AppEnvironment.useDemoData = useDemoData;
     AppEnvironment.googleMapsApiKey = googleMapsApiKey;
-    AppEnvironment.googleRoutesApiKey =
-        googleRoutesApiKey.isEmpty ? googleMapsApiKey : googleRoutesApiKey;
-    AppEnvironment.googleGeocodingApiKey = googleGeocodingApiKey.isEmpty
-        ? googleMapsApiKey
-        : googleGeocodingApiKey;
-    AppEnvironment.googlePlacesApiKey =
-        googlePlacesApiKey.isEmpty ? googleMapsApiKey : googlePlacesApiKey;
-    AppEnvironment.androidPackageName = androidPackageName;
-    AppEnvironment.androidCertSha1 = androidCertSha1.replaceAll(':', '');
     AppEnvironment.signalRHubUrl = signalRHubUrl.isEmpty
         ? _defaultSignalRHubUrl(AppEnvironment.baseUrl)
         : signalRHubUrl;

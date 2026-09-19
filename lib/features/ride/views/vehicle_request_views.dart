@@ -367,7 +367,7 @@ class RideCancelPage extends GetView<RideController> {
             label: 'تأكيد الإلغاء',
             variant: AppButtonVariant.danger,
             isDisabled: controller.cancellationReason.value.isEmpty,
-            onPressed: () => controller.cancelRide(
+            onPressed: () => controller.cancelActiveRide(
               controller.cancellationReason.value,
             ),
           ),

@@ -4,7 +4,6 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
-import '../../../core/config/app_environment.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/app_google_map.dart';
@@ -89,8 +88,8 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         await controller.ensureInitialPickupLocation();
         if (!mounted) return;
         if (rideController.nearbyDrivers.isEmpty) {
-          if (AppEnvironment.useDemoData)
-            rideController.loadDemoNearbyDrivers();
+          await rideController.loadNearbyDrivers(
+              center: controller.pickup.value);
         }
       },
     );
@@ -388,10 +387,13 @@ class LocationConfirmPage extends GetView<LocationController> {
     final rideController = Get.find<RideController>();
     return RideMapShell(
       processStep: 2,
+      showRoute: true,
       map: Obx(
         () => AppGoogleMap(
           markers: controller.markers,
           polylines: controller.polylines,
+          focusBounds: controller.selectedRouteBounds,
+          focusBoundsPadding: 104,
           onMapCreated: (mapController) {
             controller.onMapCreated(mapController);
             controller.focusRoute();

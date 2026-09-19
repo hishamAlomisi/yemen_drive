@@ -22,6 +22,8 @@ class RouteFieldsCard extends GetView<LocationController> {
     this.onToChanged,
     this.onFromTap,
     this.onToTap,
+    this.onClearFrom,
+    this.onClearTo,
     this.compact = false,
     this.cardColor,
     this.cardBorderColor,
@@ -37,6 +39,8 @@ class RouteFieldsCard extends GetView<LocationController> {
   final ValueChanged<String>? onToChanged;
   final VoidCallback? onFromTap;
   final VoidCallback? onToTap;
+  final VoidCallback? onClearFrom;
+  final VoidCallback? onClearTo;
   final bool compact;
   final Color? cardColor;
   final Color? cardBorderColor;
@@ -72,6 +76,12 @@ class RouteFieldsCard extends GetView<LocationController> {
                           ? null
                           : () => controller.startSearch(field: 0)),
                   prefixIcon: Icon(Icons.my_location_rounded, size: 19),
+                  // In the Arabic (RTL) interface the suffix is rendered on
+                  // the left, which keeps the map-point icon on the right.
+                  suffixIcon: _ClearLocationFieldButton(
+                    textController: controller.fromController,
+                    onPressed: onClearFrom,
+                  ),
                 ),
                 SizedBox(height: compact ? 6 : AppSpacing.sm),
                 AppTextField(
@@ -87,6 +97,10 @@ class RouteFieldsCard extends GetView<LocationController> {
                           ? null
                           : () => controller.startSearch(field: 1)),
                   prefixIcon: Icon(Icons.location_on_outlined, size: 20),
+                  suffixIcon: _ClearLocationFieldButton(
+                    textController: controller.toController,
+                    onPressed: onClearTo,
+                  ),
                 ),
               ],
             ),
@@ -106,6 +120,32 @@ class RouteFieldsCard extends GetView<LocationController> {
         ),
       ),
       child: content,
+    );
+  }
+}
+
+class _ClearLocationFieldButton extends StatelessWidget {
+  const _ClearLocationFieldButton({
+    required this.textController,
+    required this.onPressed,
+  });
+
+  final TextEditingController textController;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    if (onPressed == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: textController,
+      builder: (context, value, _) {
+        if (value.text.isEmpty) return const SizedBox.shrink();
+        return IconButton(
+          tooltip: 'مسح والبحث من جديد',
+          icon: const Icon(Icons.close_rounded, size: 19),
+          onPressed: onPressed,
+        );
+      },
     );
   }
 }
@@ -166,6 +206,17 @@ class _InteractiveRouteFieldsOverlayState
     _controller.searchResults.clear();
     _query = '';
     _showSuggestions();
+    setState(() {});
+  }
+
+  void _clearAndFocus(int field) {
+    _debounce?.cancel();
+    _query = '';
+    _controller.clearRouteField(field);
+    final focus = field == 0 ? _fromFocus : _toFocus;
+    FocusScope.of(context).requestFocus(focus);
+    _showSuggestions();
+    _suggestionsOverlay?.markNeedsBuild();
     setState(() {});
   }
 
@@ -365,6 +416,8 @@ class _InteractiveRouteFieldsOverlayState
           toFocusNode: _toFocus,
           onFromTap: () => _activate(0),
           onToTap: () => _activate(1),
+          onClearFrom: () => _clearAndFocus(0),
+          onClearTo: () => _clearAndFocus(1),
           onFromChanged: (value) => _search(0, value),
           onToChanged: (value) => _search(1, value),
         ),

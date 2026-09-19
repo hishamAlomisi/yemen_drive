@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:get/get.dart';
 
 import '../../../app/theme/app_spacing.dart';
+import '../../../app/theme/app_colors.dart';
 import '../../../core/responsive/app_responsive.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
@@ -90,6 +91,12 @@ class RideMapShell extends StatelessWidget {
                 ),
               ),
             ),
+          ),
+        if (showRoute && Get.isRegistered<LocationController>())
+          _RouteMapGuide(
+            topOffset: (processBar != null || processStep != null)
+                ? processBarTop + 72
+                : 12,
           ),
         if (!showPanel)
           const SizedBox.shrink()
@@ -393,11 +400,120 @@ class _DefaultRideMap extends StatelessWidget {
       () => AppGoogleMap(
         markers: showMarker || showRoute ? controller.markers : const {},
         polylines: showRoute ? controller.polylines : const {},
+        focusBounds: showRoute ? controller.selectedRouteBounds : null,
+        focusBoundsPadding: 104,
         showDemoMarker: showMarker,
         showDemoRoute: showRoute,
       ),
     );
   }
+}
+
+class _RouteMapGuide extends StatelessWidget {
+  const _RouteMapGuide({required this.topOffset});
+
+  final double topOffset;
+
+  @override
+  Widget build(BuildContext context) {
+    final location = Get.find<LocationController>();
+    return PositionedDirectional(
+      top: MediaQuery.paddingOf(context).top + topOffset,
+      end: 16,
+      child: SafeArea(
+        bottom: false,
+        child: Obx(() {
+          if (!location.hasCompleteRoute) return const SizedBox.shrink();
+          final kilometers = location.routeDistanceMeters.value / 1000;
+          return ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 230),
+            child: Material(
+              color:
+                  Theme.of(context).colorScheme.surface.withValues(alpha: .94),
+              elevation: 5,
+              shadowColor: Colors.black26,
+              borderRadius: BorderRadius.circular(14),
+              clipBehavior: Clip.antiAlias,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    _GuidePlaceRow(
+                      icon: Icons.trip_origin_rounded,
+                      color: AppColors.primaryDark,
+                      label: location.fromController.text.trim().isEmpty
+                          ? 'نقطة الانطلاق'
+                          : location.fromController.text.trim(),
+                    ),
+                    Padding(
+                      padding: const EdgeInsetsDirectional.only(start: 10),
+                      child: Row(
+                        children: <Widget>[
+                          Container(
+                            width: 2,
+                            height: 12,
+                            color: Theme.of(context)
+                                .dividerColor
+                                .withValues(alpha: .55),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            kilometers > 0
+                                ? '${kilometers.toStringAsFixed(1)} كم'
+                                : 'جار حساب المسافة',
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    _GuidePlaceRow(
+                      icon: Icons.location_on_rounded,
+                      color: AppColors.secondary,
+                      label: location.toController.text.trim().isEmpty
+                          ? 'الوجهة'
+                          : location.toController.text.trim(),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _GuidePlaceRow extends StatelessWidget {
+  const _GuidePlaceRow({
+    required this.icon,
+    required this.color,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Row(
+        children: <Widget>[
+          Icon(icon, color: color, size: 15),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+          ),
+        ],
+      );
 }
 
 class RidePanelHandle extends StatelessWidget {

@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart'
+    show Icons, TextPainter, TextSpan, TextStyle;
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
@@ -20,11 +22,15 @@ import '../models/ride_models.dart';
 import '../models/service_kind_models.dart';
 import '../ride_routes.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
+import '../location_selection/repositories/route_repository.dart';
 
 class RideController extends GetxController {
   RideController(this._repository, this._session,
-      [this._catalogRepository, ServiceKindRepository? serviceKinds])
-      : _serviceKinds = serviceKinds;
+      [this._catalogRepository,
+      ServiceKindRepository? serviceKinds,
+      RouteRepository? routeRepository])
+      : _serviceKinds = serviceKinds,
+        _routeRepository = routeRepository;
 
   // Render at 3x and display as a balanced 28x36 logical marker.
   static const int _driverMarkerWidth = 84;
@@ -37,6 +43,7 @@ class RideController extends GetxController {
   final AuthSessionService _session;
   final ServiceCatalogRepository? _catalogRepository;
   final ServiceKindRepository? _serviceKinds;
+  final RouteRepository? _routeRepository;
   final Rx<RideServiceType> serviceType = RideServiceType.transport.obs;
   final RxnInt selectedServiceKindId = RxnInt();
   final Rx<RideVehicleType> selectedTransport = RideVehicleType.car.obs;
@@ -54,7 +61,8 @@ class RideController extends GetxController {
   final RxBool isSearchingForDriver = false.obs;
   final RxBool isDriverAssigned = false.obs;
   final RxString activeRideStatus = ''.obs;
-  final Rxn<Map<String, Object?>> cashCollectionApproval = Rxn<Map<String, Object?>>();
+  final Rxn<Map<String, Object?>> cashCollectionApproval =
+      Rxn<Map<String, Object?>>();
   final RxString cancellationReason = ''.obs;
   final Rx<NegotiationStatus> negotiationStatus = NegotiationStatus.idle.obs;
   final RxString quoteError = ''.obs;
@@ -76,9 +84,14 @@ class RideController extends GetxController {
   final RxList<NearbyDriver> requestRecipients = <NearbyDriver>[].obs;
   final Rxn<NearbyDriver> selectedNearbyDriver = Rxn<NearbyDriver>();
   final Rxn<BitmapDescriptor> _nearbyDriverIcon = Rxn<BitmapDescriptor>();
+  final RxMap<String, BitmapDescriptor> _nearbyDriverPhotoIcons =
+      <String, BitmapDescriptor>{}.obs;
+  final Rxn<BitmapDescriptor> _approachingCarIcon = Rxn<BitmapDescriptor>();
+  final Rxn<BitmapDescriptor> _inTripDirectionIcon = Rxn<BitmapDescriptor>();
   final Rxn<DriverTrackingSnapshot> trackedDriver =
       Rxn<DriverTrackingSnapshot>();
   final Rxn<RideCoordinate> trackedPassenger = Rxn<RideCoordinate>();
+  final RxList<LatLng> trackingRoutePoints = <LatLng>[].obs;
   StreamSubscription<DriverOffer>? _offersSubscription;
   Timer? _trackingTimer;
   Timer? _recipientTimer;
@@ -88,7 +101,12 @@ class RideController extends GetxController {
   bool _hasCheckedForOpenRide = false;
   int _catalogRequestId = 0;
   int _quoteRequestId = 0;
+  int _nearbyDriversRequestId = 0;
   DateTime? _lastPassengerLocationPublished;
+  RideCoordinate? _lastTrackingRouteOrigin;
+  RideCoordinate? _lastTrackingRouteDestination;
+  DateTime? _lastTrackingRouteRequestedAt;
+  int _trackingRouteRequestId = 0;
   bool hasShownTripSharePrompt = false;
 
   String? get currentRideId => _requestId;
@@ -101,6 +119,7 @@ class RideController extends GetxController {
     }
     unawaited(loadServiceCatalog());
     unawaited(_loadHomeServices());
+    unawaited(_loadTrackingIcons());
   }
 
   @override
@@ -183,8 +202,10 @@ class RideController extends GetxController {
     );
     currentDraft.value = RideRequestDraft(
       customerId: _session.currentUserId.value,
-      pickup: '${ride['pickupAddress'] ?? 'نقطة الانطلاق'}',
-      destination: '${ride['destinationAddress'] ?? 'الوجهة'}',
+      pickup:
+          '${ride['pickupDisplayName'] ?? ride['pickupAddress'] ?? 'نقطة الانطلاق'}',
+      destination:
+          '${ride['destinationDisplayName'] ?? ride['destinationAddress'] ?? 'الوجهة'}',
       pickupCoordinate: pickup,
       destinationCoordinate: destination,
       serviceKindId: _asInt(ride['serviceKindId']) ?? 0,
@@ -200,8 +221,9 @@ class RideController extends GetxController {
     location.destination.value = destinationPoint;
     location.routePoints.assignAll(<LatLng>[pickupPoint, destinationPoint]);
     location.fromController.text =
-        '${ride['pickupAddress'] ?? 'نقطة الانطلاق'}';
-    location.toController.text = '${ride['destinationAddress'] ?? 'الوجهة'}';
+        '${ride['pickupDisplayName'] ?? ride['pickupAddress'] ?? 'نقطة الانطلاق'}';
+    location.toController.text =
+        '${ride['destinationDisplayName'] ?? ride['destinationAddress'] ?? 'الوجهة'}';
     quote.value = RideQuote(
       suggestedPrice: price,
       minPrice: price,
@@ -359,14 +381,24 @@ class RideController extends GetxController {
                 driver.location.longitude,
               ),
               anchor: const Offset(.5, 1),
+              // A driver marker is an interactive object, not a map point
+              // that may be used as the customer's pickup/destination.
+              consumeTapEvents: true,
               onTap: () => onTap(driver),
-              icon: _nearbyDriverIcon.value ??
+              icon: _nearbyDriverPhotoIcons[driver.id] ??
+                  _nearbyDriverIcon.value ??
                   BitmapDescriptor.defaultMarkerWithHue(
                     BitmapDescriptor.hueAzure,
                   ),
             ),
           )
           .toSet();
+
+  bool get _isTripInProgress =>
+      activeRideStatus.value == 'InProgress' || activeRideStatus.value == '5';
+
+  double _carRotationForHeading(double? heading) =>
+      ((heading ?? 0) - 90 + 360) % 360;
 
   Set<Marker> get trackingMarkers => <Marker>{
         if (trackedDriver.value != null)
@@ -376,26 +408,156 @@ class RideController extends GetxController {
               trackedDriver.value!.location.latitude,
               trackedDriver.value!.location.longitude,
             ),
-            rotation: trackedDriver.value!.heading ?? 0,
+            // Material's car glyph faces east at zero rotation. Compensate
+            // once here so a GPS heading of 0° (north) renders upright, then
+            // keep the vehicle aligned with every real-world bearing.
+            rotation: _isTripInProgress
+                ? (trackedDriver.value!.heading ?? 0)
+                : _carRotationForHeading(trackedDriver.value!.heading),
             flat: true,
-            infoWindow: const InfoWindow(title: 'السائق'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueAzure,
+            anchor: const Offset(.5, .5),
+            infoWindow: InfoWindow(
+              title:
+                  _isTripInProgress ? 'الرحلة في الطريق' : 'السائق في الطريق',
             ),
-          ),
-        if (trackedPassenger.value != null)
-          Marker(
-            markerId: const MarkerId('tracked-passenger'),
-            position: LatLng(
-              trackedPassenger.value!.latitude,
-              trackedPassenger.value!.longitude,
-            ),
-            infoWindow: const InfoWindow(title: 'موقعي الحالي'),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueOrange,
-            ),
+            // An approaching car and an active-trip direction marker are
+            // intentionally distinct. A profile pin is useful when choosing
+            // a driver, but is less clear than a directional vehicle while
+            // following a live route.
+            icon: (_isTripInProgress
+                    ? _inTripDirectionIcon.value
+                    : _approachingCarIcon.value) ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                  BitmapDescriptor.hueAzure,
+                ),
           ),
       };
+
+  /// Removes the already travelled part of the server route. The current
+  /// driver position is always the first point, so a delayed route refresh
+  /// never makes the blue line appear behind the moving vehicle.
+  List<LatLng> get remainingTrackingRoutePoints {
+    final driver = trackedDriver.value;
+    if (driver == null || trackingRoutePoints.length < 2) {
+      return trackingRoutePoints.toList(growable: false);
+    }
+    final current = LatLng(driver.location.latitude, driver.location.longitude);
+    var nearestIndex = 0;
+    var nearestMeters = double.infinity;
+    for (var index = 0; index < trackingRoutePoints.length; index++) {
+      final point = trackingRoutePoints[index];
+      final meters = Geolocator.distanceBetween(
+        current.latitude,
+        current.longitude,
+        point.latitude,
+        point.longitude,
+      );
+      if (meters < nearestMeters) {
+        nearestMeters = meters;
+        nearestIndex = index;
+      }
+    }
+    // Keep at least one route point in front of the driver. Its final point
+    // remains the pickup before the trip and the destination during it.
+    final nextIndex =
+        math.min(nearestIndex + 1, trackingRoutePoints.length - 1);
+    return <LatLng>[current, ...trackingRoutePoints.skip(nextIndex)];
+  }
+
+  /// Frames the current live route rather than the customer trip route. While
+  /// the driver is on the way this means driver -> pickup; after the trip
+  /// starts it becomes driver -> destination. The driver and target are both
+  /// included even when the route provider has not returned its polyline yet.
+  LatLngBounds? get trackingFocusBounds {
+    final driver = trackedDriver.value;
+    if (driver == null) return null;
+    final location = Get.find<LocationController>();
+    final target =
+        _isTripInProgress ? location.destination.value : location.pickup.value;
+    if (target == null) return null;
+
+    final points = <LatLng>[
+      LatLng(driver.location.latitude, driver.location.longitude),
+      ...remainingTrackingRoutePoints,
+      target,
+    ];
+    var south = points.first.latitude;
+    var north = south;
+    var west = points.first.longitude;
+    var east = west;
+    for (final point in points.skip(1)) {
+      south = math.min(south, point.latitude);
+      north = math.max(north, point.latitude);
+      west = math.min(west, point.longitude);
+      east = math.max(east, point.longitude);
+    }
+
+    // Google Maps rejects bounds whose two corners are identical. A tiny
+    // padding keeps the camera stable when the driver is already at pickup.
+    if ((north - south).abs() < .00001) {
+      south -= .00001;
+      north += .00001;
+    }
+    if ((east - west).abs() < .00001) {
+      west -= .00001;
+      east += .00001;
+    }
+    return LatLngBounds(
+      southwest: LatLng(south, west),
+      northeast: LatLng(north, east),
+    );
+  }
+
+  Set<Polyline> get trackingPolylines {
+    final points = remainingTrackingRoutePoints;
+    if (points.length < 2) return const <Polyline>{};
+    return <Polyline>{
+      Polyline(
+        polylineId: const PolylineId('assigned-driver-route'),
+        points: points,
+        width: 6,
+        color: const ui.Color(0xFF1A73E8),
+        startCap: Cap.roundCap,
+        endCap: Cap.roundCap,
+        jointType: JointType.round,
+      ),
+    };
+  }
+
+  Future<void> loadNearbyDrivers({LatLng? center}) async {
+    final location = Get.find<LocationController>();
+    final origin = center ?? location.pickup.value;
+    if (origin == null) {
+      nearbyDrivers.clear();
+      return;
+    }
+    if (AppEnvironment.useDemoData) {
+      loadDemoNearbyDrivers(center: origin);
+      return;
+    }
+    final requestId = ++_nearbyDriversRequestId;
+    try {
+      final selected = selectedVehicle.value;
+      final drivers = await _repository.getNearbyDrivers(
+        pickup: RideCoordinate(
+          latitude: origin.latitude,
+          longitude: origin.longitude,
+        ),
+        serviceKindId: selected?.serviceKindId ?? selectedServiceKindId.value,
+        serviceCatalogItemId: selected?.serviceCatalogItemId,
+      );
+      if (requestId != _nearbyDriversRequestId) return;
+      nearbyDrivers.assignAll(drivers);
+      unawaited(_loadDemoDriverIcon());
+      for (final driver in drivers) {
+        unawaited(_loadDriverPhotoMarker(driver));
+      }
+    } catch (_) {
+      // Do not retain markers belonging to an old pickup after the server
+      // query fails. A later pickup change or return to this screen retries.
+      if (requestId == _nearbyDriversRequestId) nearbyDrivers.clear();
+    }
+  }
 
   void loadDemoNearbyDrivers({LatLng? center}) {
     _loadDemoDriverIcon();
@@ -550,8 +712,188 @@ class RideController extends GetxController {
       final bytes = await rootBundle.load(
         'assets/images/branding/yemen_drive_logo.png',
       );
+      final icon = await _buildDriverMarkerIcon(bytes.buffer.asUint8List());
+      if (icon != null) _nearbyDriverIcon.value = icon;
+    } catch (_) {}
+  }
+
+  Future<void> _loadDriverPhotoMarker(NearbyDriver driver) async {
+    await _loadDriverPhotoMarkerById(driver.id, driver.photoUrl);
+  }
+
+  Future<void> _loadTrackingIcons() async {
+    _approachingCarIcon.value =
+        await _buildTrackingMarkerIcon(isTripInProgress: false);
+    _inTripDirectionIcon.value =
+        await _buildTrackingMarkerIcon(isTripInProgress: true);
+  }
+
+  /// Both icons point north in their source canvas. Google Maps applies the
+  /// driver's live heading through [Marker.rotation], so the same icon is
+  /// correctly oriented in every direction without a new bitmap per update.
+  Future<BitmapDescriptor?> _buildTrackingMarkerIcon({
+    required bool isTripInProgress,
+  }) async {
+    try {
+      const logicalSize = 52.0;
+      const pixelRatio = 3.0;
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      final paint = ui.Paint()..isAntiAlias = true;
+      canvas.scale(pixelRatio, pixelRatio);
+      const center = ui.Offset(logicalSize / 2, logicalSize / 2);
+
+      if (isTripInProgress) {
+        // Layered glow, shadow and a crisp Material navigation glyph make
+        // this visually close to a modern turn-by-turn navigation marker.
+        canvas.drawCircle(
+          center,
+          25,
+          paint..color = const ui.Color(0x241A73E8),
+        );
+        canvas.drawCircle(
+          center.translate(0, 2.5),
+          20.5,
+          paint..color = const ui.Color(0x38000000),
+        );
+        canvas.drawCircle(
+          center,
+          20,
+          paint
+            ..shader = ui.Gradient.radial(
+              center.translate(-5, -6),
+              30,
+              const <ui.Color>[
+                ui.Color(0xFF79C7FF),
+                ui.Color(0xFF1A73E8),
+                ui.Color(0xFF0B4FA4),
+              ],
+              const <double>[0, .62, 1],
+            ),
+        );
+        paint.shader = null;
+        canvas.drawCircle(
+          center,
+          15.2,
+          paint..color = const ui.Color(0xFFFFFFFF),
+        );
+        _paintMaterialIcon(
+          canvas,
+          iconCodePoint: Icons.navigation_rounded.codePoint,
+          fontFamily: Icons.navigation_rounded.fontFamily,
+          fontPackage: Icons.navigation_rounded.fontPackage,
+          center: center.translate(.5, .5),
+          size: 25,
+          color: const ui.Color(0xFF1478E9),
+        );
+      } else {
+        // The Material car is compact and recognisable even at map scale.
+        // A soft cyan halo and a white circular plate separate it clearly
+        // from the route without becoming another oversized pin.
+        canvas.drawCircle(
+          center,
+          24,
+          paint..color = const ui.Color(0x1E00B8FF),
+        );
+        canvas.drawCircle(
+          center.translate(0, 2),
+          18.5,
+          paint..color = const ui.Color(0x35000000),
+        );
+        canvas.drawCircle(
+          center,
+          18,
+          paint..color = const ui.Color(0xFFFFFFFF),
+        );
+        canvas.drawCircle(
+          center,
+          16.2,
+          paint
+            ..style = ui.PaintingStyle.stroke
+            ..strokeWidth = 2
+            ..color = const ui.Color(0xFF32A9F4),
+        );
+        paint.style = ui.PaintingStyle.fill;
+        // The car glyph faces east by design. Its GPS-bearing compensation is
+        // applied at Marker.rotation, where it remains correct while moving.
+        _paintMaterialIcon(
+          canvas,
+          iconCodePoint: Icons.directions_car_filled_rounded.codePoint,
+          fontFamily: Icons.directions_car_filled_rounded.fontFamily,
+          fontPackage: Icons.directions_car_filled_rounded.fontPackage,
+          center: center,
+          size: 25,
+          color: const ui.Color(0xFF126EBD),
+        );
+      }
+      final image = await recorder.endRecording().toImage(
+            (logicalSize * pixelRatio).round(),
+            (logicalSize * pixelRatio).round(),
+          );
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (data == null) return null;
+      return BitmapDescriptor.bytes(
+        Uint8List.sublistView(data),
+        imagePixelRatio: pixelRatio,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _paintMaterialIcon(
+    ui.Canvas canvas, {
+    required int iconCodePoint,
+    required String? fontFamily,
+    required String? fontPackage,
+    required ui.Offset center,
+    required double size,
+    required ui.Color color,
+  }) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: String.fromCharCode(iconCodePoint),
+        style: TextStyle(
+          fontFamily: fontFamily,
+          package: fontPackage,
+          fontSize: size,
+          foreground: ui.Paint()
+            ..isAntiAlias = true
+            ..color = color,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+    )..layout();
+    painter.paint(
+      canvas,
+      ui.Offset(center.dx - painter.width / 2, center.dy - painter.height / 2),
+    );
+  }
+
+  Future<void> _loadDriverPhotoMarkerById(
+    String driverId,
+    String photoUrl,
+  ) async {
+    final normalizedId = driverId.trim();
+    final normalizedPhotoUrl = photoUrl.trim();
+    if (normalizedId.isEmpty ||
+        normalizedPhotoUrl.isEmpty ||
+        _nearbyDriverPhotoIcons.containsKey(normalizedId)) return;
+    try {
+      final uri = Uri.tryParse(normalizedPhotoUrl);
+      if (uri == null || !uri.hasScheme) return;
+      final bytes = await NetworkAssetBundle(uri).load('');
+      final icon = await _buildDriverMarkerIcon(bytes.buffer.asUint8List());
+      if (icon != null) _nearbyDriverPhotoIcons[normalizedId] = icon;
+    } catch (_) {
+      // A missing profile image must not hide the driver marker.
+    }
+  }
+
+  Future<BitmapDescriptor?> _buildDriverMarkerIcon(Uint8List imageBytes) async {
+    try {
       final codec = await ui.instantiateImageCodec(
-        bytes.buffer.asUint8List(),
+        imageBytes,
         targetWidth: 48,
         targetHeight: 48,
       );
@@ -613,12 +955,13 @@ class RideController extends GetxController {
           );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       if (data != null) {
-        _nearbyDriverIcon.value = BitmapDescriptor.bytes(
+        return BitmapDescriptor.bytes(
           Uint8List.sublistView(data),
           imagePixelRatio: _driverMarkerPixelRatio,
         );
       }
     } catch (_) {}
+    return null;
   }
 
   ui.Path _driverMarkerPath(ui.Offset offset) => ui.Path()
@@ -861,8 +1204,13 @@ class RideController extends GetxController {
     Get.toNamed<void>(RideRoutes.negotiationQuote);
 
     try {
-      final routeDistance =
-          _routeDistanceKm(location.routePoints, pickupPoint, destinationPoint);
+      final routeDistance = location.routeDistanceMeters.value > 0
+          ? location.routeDistanceMeters.value / 1000
+          : _routeDistanceKm(
+              location.routePoints,
+              pickupPoint,
+              destinationPoint,
+            );
       routeDistanceKm.value = routeDistance;
       final result = await _repository.getQuote(
         serviceKindId: vehicle.serviceKindId!,
@@ -876,6 +1224,9 @@ class RideController extends GetxController {
           longitude: destinationPoint.longitude,
         ),
         distanceKm: routeDistance,
+        durationMinutes: location.routeDurationSeconds.value > 0
+            ? location.routeDurationSeconds.value / 60
+            : 0,
       );
       if (requestId != _quoteRequestId) return;
       quote.value = result;
@@ -962,8 +1313,14 @@ class RideController extends GetxController {
     final destinationAddress = location.toController.text.trim();
     final draft = RideRequestDraft(
       customerId: _session.currentUserId.value,
-      pickup: 'موقعي الحالي',
-      destination: 'الوجهة المحددة',
+      pickup: location.pickupArea.value.trim().isEmpty
+          ? 'منطقة الانطلاق المحددة'
+          : location.pickupArea.value.trim(),
+      destination: location.destinationArea.value.trim().isNotEmpty
+          ? location.destinationArea.value.trim()
+          : (location.addressNameController.text.trim().isEmpty
+              ? 'منطقة الوجهة المحددة'
+              : location.addressNameController.text.trim()),
       pickupCoordinate: RideCoordinate(
         latitude: pickupPoint.latitude,
         longitude: pickupPoint.longitude,
@@ -982,13 +1339,15 @@ class RideController extends GetxController {
       // the selected route usable without inventing a real address.
       pickupAddress:
           pickupAddress.isEmpty ? 'نقطة الانطلاق المحددة' : pickupAddress,
-      destinationAddress: destinationAddress.isEmpty
-          ? 'الوجهة المحددة'
-          : destinationAddress,
+      destinationAddress:
+          destinationAddress.isEmpty ? 'الوجهة المحددة' : destinationAddress,
       destinationAddressName: location.addressNameController.text.trim(),
       destinationStreet: location.streetController.text.trim(),
       destinationDetails: location.detailsController.text.trim(),
       routeDistanceMeters: (routeDistanceKm.value * 1000).round(),
+      routeDurationSeconds: location.routeDurationSeconds.value > 0
+          ? location.routeDurationSeconds.value
+          : null,
       idempotencyKey: DateTime.now().microsecondsSinceEpoch.toString(),
     );
     currentDraft.value = draft;
@@ -1131,18 +1490,28 @@ class RideController extends GetxController {
 
   Future<void> cancelDriverSearch() async {
     final requestId = _requestId;
-    if (requestId != null) await _repository.cancelRequest(requestId);
+    const reason = 'ألغى المستخدم البحث عن سائق';
+    if (requestId != null) await _repository.requestCancellation(requestId, reason);
     offersExhausted.value = false;
     driverOffers.clear();
     requestRecipients.clear();
     _recipientTimer?.cancel();
     isSearchingForDriver.value = false;
-    cancelRide('ألغى المستخدم البحث عن سائق');
+    cancelRide(reason);
   }
 
   Future<void> cancelActiveRide(String reason) async {
     final requestId = _requestId;
-    if (requestId != null) await _repository.cancelRequest(requestId);
+    if (requestId == null || reason.trim().length < 3) {
+      Get.snackbar('سبب الإلغاء مطلوب', 'حدد سبباً واضحاً قبل إرسال طلب الإلغاء.');
+      return;
+    }
+    try {
+      await _repository.requestCancellation(requestId, reason.trim());
+    } catch (_) {
+      Get.snackbar('تعذر إرسال الطلب', 'لم يُرسل طلب الإلغاء. تحقق من الاتصال ثم حاول مرة أخرى.');
+      return;
+    }
     _trackingTimer?.cancel();
     await _passengerPositionSubscription?.cancel();
     trackedDriver.value = null;
@@ -1180,13 +1549,20 @@ class RideController extends GetxController {
         activeRideStatus.value = '${ride['status'] ?? ''}';
       }
       final approval = detail['cashCollectionApproval'];
-      cashCollectionApproval.value = approval is Map
-          ? Map<String, Object?>.from(approval)
-          : null;
+      cashCollectionApproval.value =
+          approval is Map ? Map<String, Object?>.from(approval) : null;
       final driver = detail['driver'];
       if (driver is Map) {
-        assignedDriverName.value = '${driver['name'] ?? ''}'.trim();
-        assignedDriverPhone.value = '${driver['phoneNumber'] ?? ''}'.trim();
+        final driverValues = Map<Object?, Object?>.from(driver);
+        assignedDriverName.value = '${driverValues['name'] ?? ''}'.trim();
+        assignedDriverPhone.value =
+            '${driverValues['phoneNumber'] ?? ''}'.trim();
+        final driverId =
+            '${driverValues['id'] ?? driverValues['driverId'] ?? ''}'.trim();
+        final photoUrl = '${driverValues['photoUrl'] ?? ''}'.trim();
+        if (driverId.isNotEmpty && photoUrl.isNotEmpty) {
+          unawaited(_loadDriverPhotoMarkerById(driverId, photoUrl));
+        }
       }
       final location = detail['driverLocation'];
       if (location is Map) {
@@ -1201,10 +1577,66 @@ class RideController extends GetxController {
             updatedAt: DateTime.tryParse('${values['observedAtUtc'] ?? ''}') ??
                 DateTime.now(),
           );
+          unawaited(_refreshAssignedDriverRoute());
         }
       }
     } catch (_) {
       // Keep the last confirmed marker visible during a transient network failure.
+    }
+  }
+
+  Future<void> _refreshAssignedDriverRoute() async {
+    final routeRepository = _routeRepository;
+    final driver = trackedDriver.value;
+    final location = Get.find<LocationController>();
+    if (routeRepository == null || driver == null) return;
+
+    final status = activeRideStatus.value;
+    final target = status == 'InProgress' || status == '5'
+        ? location.destination.value
+        : location.pickup.value;
+    if (target == null) return;
+
+    final origin = driver.location;
+    final targetCoordinate = RideCoordinate(
+      latitude: target.latitude,
+      longitude: target.longitude,
+    );
+    final requestedRecently = _lastTrackingRouteRequestedAt != null &&
+        DateTime.now().difference(_lastTrackingRouteRequestedAt!) <
+            const Duration(seconds: 45);
+    final originChanged = _lastTrackingRouteOrigin == null ||
+        Geolocator.distanceBetween(
+              _lastTrackingRouteOrigin!.latitude,
+              _lastTrackingRouteOrigin!.longitude,
+              origin.latitude,
+              origin.longitude,
+            ) >=
+            30;
+    final targetChanged = _lastTrackingRouteDestination == null ||
+        Geolocator.distanceBetween(
+              _lastTrackingRouteDestination!.latitude,
+              _lastTrackingRouteDestination!.longitude,
+              targetCoordinate.latitude,
+              targetCoordinate.longitude,
+            ) >=
+            10;
+    if (!originChanged && !targetChanged && requestedRecently) return;
+
+    _lastTrackingRouteOrigin = origin;
+    _lastTrackingRouteDestination = targetCoordinate;
+    _lastTrackingRouteRequestedAt = DateTime.now();
+    final requestId = ++_trackingRouteRequestId;
+    try {
+      final route = await routeRepository.getDrivingRoute(
+        origin: LatLng(origin.latitude, origin.longitude),
+        destination: target,
+      );
+      if (requestId == _trackingRouteRequestId) {
+        trackingRoutePoints.assignAll(route.points);
+      }
+    } catch (_) {
+      // Retain the last confirmed route during a temporary maps failure.
     }
   }
 
@@ -1243,6 +1675,11 @@ class RideController extends GetxController {
     requestRecipients.clear();
     acceptedOffer.value = null;
     isDriverAssigned.value = false;
+    trackingRoutePoints.clear();
+    _lastTrackingRouteOrigin = null;
+    _lastTrackingRouteDestination = null;
+    _lastTrackingRouteRequestedAt = null;
+    _trackingRouteRequestId++;
     activeRideStatus.value = '';
     cashCollectionApproval.value = null;
     cancellationReason.value = reason;

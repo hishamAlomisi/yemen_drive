@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -40,9 +41,7 @@ class RideHomeTemplate extends GetView<RideController> {
           await location.ensureInitialPickupLocation();
           if (location.pickup.value != null &&
               controller.nearbyDrivers.isEmpty) {
-            if (AppEnvironment.useDemoData) {
-              controller.loadDemoNearbyDrivers(center: location.pickup.value);
-            }
+            await controller.loadNearbyDrivers(center: location.pickup.value);
           }
         },
       );
@@ -114,8 +113,19 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
   GoogleMapController? _mapController;
   OverlayEntry? _driverCardOverlay;
   Offset? _markerPosition;
+  DateTime? _lastDriverMarkerTapAt;
+
+  @override
+  void didUpdateWidget(covariant NearbyDriversMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final updatedPickup = widget.followTarget;
+    if (updatedPickup != null && updatedPickup != oldWidget.followTarget) {
+      unawaited(_rideController.loadNearbyDrivers(center: updatedPickup));
+    }
+  }
 
   void _selectDriverFromThisMap(NearbyDriver driver) {
+    _lastDriverMarkerTapAt = DateTime.now();
     if (_activeCardOwner != this) {
       _activeCardOwner?._dismissDriverCard(clearSelection: false);
       _activeCardOwner = this;
@@ -125,6 +135,61 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
     _rideController.selectNearbyDriver(driver);
     _updateCardPosition();
   }
+
+  void _handleMapTap(LatLng point) {
+    // Some Android map renderers can still forward a marker press as a map
+    // press. Protect both event orders: consume a recent marker press, and
+    // treat a coordinate over a driver marker as that driver's interaction.
+    final markerTapAt = _lastDriverMarkerTapAt;
+    if (markerTapAt != null &&
+        DateTime.now().difference(markerTapAt) <
+            const Duration(milliseconds: 750)) {
+      return;
+    }
+    final selectedDriver = _driverAt(point);
+    if (selectedDriver != null) {
+      _selectDriverFromThisMap(selectedDriver);
+      return;
+    }
+    _dismissDriverCard();
+    widget.onTap?.call(point);
+  }
+
+  NearbyDriver? _driverAt(LatLng point) {
+    for (final driver in _rideController.nearbyDrivers) {
+      if (_distanceMeters(
+            point.latitude,
+            point.longitude,
+            driver.location.latitude,
+            driver.location.longitude,
+          ) <=
+          22) {
+        return driver;
+      }
+    }
+    return null;
+  }
+
+  double _distanceMeters(
+    double firstLatitude,
+    double firstLongitude,
+    double secondLatitude,
+    double secondLongitude,
+  ) {
+    const earthRadiusMeters = 6371000.0;
+    final latitudeDelta = _radians(secondLatitude - firstLatitude);
+    final longitudeDelta = _radians(secondLongitude - firstLongitude);
+    final firstLatitudeRadians = _radians(firstLatitude);
+    final secondLatitudeRadians = _radians(secondLatitude);
+    final a = math.sin(latitudeDelta / 2) * math.sin(latitudeDelta / 2) +
+        math.cos(firstLatitudeRadians) *
+            math.cos(secondLatitudeRadians) *
+            math.sin(longitudeDelta / 2) *
+            math.sin(longitudeDelta / 2);
+    return earthRadiusMeters * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a));
+  }
+
+  double _radians(double value) => value * math.pi / 180;
 
   void _dismissDriverCard({bool clearSelection = true}) {
     _markerPosition = null;
@@ -245,10 +310,7 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
               _updateCardPosition();
             },
             onCameraIdle: _updateCardPosition,
-            onTap: (point) {
-              _dismissDriverCard();
-              widget.onTap?.call(point);
-            },
+            onTap: _handleMapTap,
           ),
         ),
       );

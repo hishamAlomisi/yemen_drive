@@ -17,9 +17,14 @@ abstract interface class RideNegotiationRepository {
   Stream<DriverOffer> watchOffers(String requestId);
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
-  Future<void> cancelRequest(String requestId);
+  Future<void> requestCancellation(String requestId, String reason);
   Future<Map<String, Object?>?> findLatestOpenRide();
   Future<Map<String, Object?>> getRideDetail(String requestId);
+  Future<List<NearbyDriver>> getNearbyDrivers({
+    required RideCoordinate pickup,
+    int? serviceKindId,
+    int? serviceCatalogItemId,
+  });
   Future<void> publishPassengerLocation(
     String requestId,
     RideCoordinate location, {
@@ -95,7 +100,8 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     );
     if (result is ApiFailure) {
       final problem = result.problem;
-      final details = problem.errors.values.expand((messages) => messages).join(' ');
+      final details =
+          problem.errors.values.expand((messages) => messages).join(' ');
       throw FormatException(
         details.isNotEmpty ? details : (problem.detail ?? problem.title),
       );
@@ -210,11 +216,14 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<void> cancelRequest(String requestId) async {
+  Future<void> requestCancellation(String requestId, String reason) async {
     final result = await _client.execute<Object?>(
-        model: 'RideModel', operation: 'cancel', data: {'id': requestId});
+      model: 'RideCancellationRequestModel',
+      operation: 'add',
+      data: <String, Object?>{'rideId': requestId, 'reason': reason},
+    );
     if (result is! ApiSuccess) {
-      throw const FormatException('تعذر إلغاء طلب الرحلة من الخادم.');
+      throw const FormatException('تعذر إرسال طلب الإلغاء إلى الخادم.');
     }
   }
 
@@ -249,6 +258,33 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
+  Future<List<NearbyDriver>> getNearbyDrivers({
+    required RideCoordinate pickup,
+    int? serviceKindId,
+    int? serviceCatalogItemId,
+  }) async {
+    final result = await _client.execute<Object?>(
+      model: 'NearbyDriverModel',
+      operation: 'list',
+      data: <String, Object?>{
+        'pickupLatitude': pickup.latitude,
+        'pickupLongitude': pickup.longitude,
+        if (serviceKindId != null) 'serviceKindId': serviceKindId,
+        if (serviceCatalogItemId != null)
+          'serviceCatalogItemId': serviceCatalogItemId,
+      },
+    );
+    if (result is! ApiSuccess || result.data is! List) {
+      throw const FormatException('تعذر جلب السائقين القريبين من الخادم.');
+    }
+    return (result.data as List)
+        .whereType<Map<Object?, Object?>>()
+        .map(_nearbyDriver)
+        .whereType<NearbyDriver>()
+        .toList(growable: false);
+  }
+
+  @override
   Future<void> publishPassengerLocation(
     String requestId,
     RideCoordinate location, {
@@ -276,6 +312,41 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
 
   static double _number(Object? value) =>
       value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+  static NearbyDriver? _nearbyDriver(Map<Object?, Object?> data) {
+    final id = data['driverId']?.toString().trim() ?? '';
+    final latitude = _number(data['latitude']);
+    final longitude = _number(data['longitude']);
+    if (id.isEmpty || latitude == 0 || longitude == 0) return null;
+    return NearbyDriver(
+      id: id,
+      name: data['name']?.toString().trim().isNotEmpty == true
+          ? data['name']!.toString().trim()
+          : 'سائق يمن درايف',
+      location: RideCoordinate(latitude: latitude, longitude: longitude),
+      photoUrl: data['photoUrl']?.toString().trim() ?? '',
+      vehicleType: _vehicleType(data['serviceCode']?.toString()),
+      rating: _number(data['rating']),
+      vehicleModel: data['vehicleModel']?.toString().trim() ?? '',
+      plateNumber: data['plateNumber']?.toString().trim() ?? '',
+      completedTrips: _number(data['completedTrips']).round(),
+      heading: _numberOrNull(data['bearing']),
+      isAvailable: true,
+    );
+  }
+
+  static double? _numberOrNull(Object? value) =>
+      value == null ? null : _number(value);
+
+  static RideVehicleType _vehicleType(String? serviceCode) {
+    final normalized = serviceCode?.trim().toLowerCase() ?? '';
+    if (normalized.contains('taxi')) return RideVehicleType.taxi;
+    if (normalized.contains('bike') || normalized.contains('motor')) {
+      return RideVehicleType.bike;
+    }
+    if (normalized.contains('cycle')) return RideVehicleType.cycle;
+    return RideVehicleType.car;
+  }
 
   static double _distance(RideCoordinate a, RideCoordinate b) {
     final dx = (a.latitude - b.latitude).abs();

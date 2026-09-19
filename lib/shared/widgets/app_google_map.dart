@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -13,6 +15,8 @@ class AppGoogleMap extends StatefulWidget {
     this.initialTarget = const LatLng(15.3694, 44.1910),
     this.initialZoom = 14,
     this.followTarget,
+    this.focusBounds,
+    this.focusBoundsPadding = 72,
     this.markers = const <Marker>{},
     this.polylines = const <Polyline>{},
     this.myLocationEnabled = false,
@@ -34,6 +38,12 @@ class AppGoogleMap extends StatefulWidget {
   final LatLng initialTarget;
   final double initialZoom;
   final LatLng? followTarget;
+
+  /// Optional bounds used to frame a selected trip route after the native map
+  /// has a real size. This is intentionally separate from [followTarget]:
+  /// tracking may follow a moving driver after the initial route focus.
+  final LatLngBounds? focusBounds;
+  final double focusBoundsPadding;
   final Set<Marker> markers;
   final Set<Polyline> polylines;
   final bool myLocationEnabled;
@@ -55,22 +65,25 @@ class AppGoogleMap extends StatefulWidget {
 class _AppGoogleMapState extends State<AppGoogleMap> {
   bool _isLoading = true;
   GoogleMapController? _controller;
+  LatLngBounds? _lastFocusedBounds;
 
   @override
   void didUpdateWidget(covariant AppGoogleMap oldWidget) {
     super.didUpdateWidget(oldWidget);
     final target = widget.followTarget;
     if (target != null && target != oldWidget.followTarget) {
-      _controller?.animateCamera(CameraUpdate.newLatLng(target));
+      unawaited(_animateTo(target));
+    }
+    if (!_sameBounds(widget.focusBounds, oldWidget.focusBounds)) {
+      unawaited(_focusBounds());
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    // MEmu's graphics driver cannot create the EGL configuration required by
-    // Google Maps. Keep map interaction usable for development flows without
-    // instantiating the native map; production always uses the live map.
-    final useDevelopmentBackdrop = !kIsWeb && !AppEnvironment.isProduction;
+    // The backdrop is an explicit demo-mode fallback only. Development builds
+    // with a configured Android Maps key must exercise the real native map.
+    final useDevelopmentBackdrop = !kIsWeb && AppEnvironment.useDemoData;
     if (useDevelopmentBackdrop) {
       return SizedBox(
         width: widget.width,
@@ -131,6 +144,9 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
                 controller.setMapStyle(style);
               }
               widget.onMapCreated?.call(controller);
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (mounted) unawaited(_focusBounds());
+              });
               if (mounted) setState(() => _isLoading = false);
             },
             onCameraMove: widget.onCameraMove,
@@ -162,6 +178,48 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
     );
   }
 
+  Future<void> _focusBounds() async {
+    if (!mounted) return;
+    final controller = _controller;
+    final bounds = widget.focusBounds;
+    if (controller == null ||
+        bounds == null ||
+        _sameBounds(bounds, _lastFocusedBounds)) {
+      return;
+    }
+    _lastFocusedBounds = bounds;
+    try {
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, widget.focusBoundsPadding),
+      );
+    } catch (_) {
+      // Native maps can reject a bounds update during their first layout
+      // frame. The next widget update or an explicit recenter will retry it.
+      _lastFocusedBounds = null;
+    }
+  }
+
+  Future<void> _animateTo(LatLng target) async {
+    if (!mounted) return;
+    final controller = _controller;
+    if (controller == null) return;
+    try {
+      await controller.animateCamera(CameraUpdate.newLatLng(target));
+    } catch (_) {
+      // The native map can be recreated while a tracking update is in flight.
+      // It is safe to skip this one update and use the next driver location.
+    }
+  }
+
+  bool _sameBounds(LatLngBounds? first, LatLngBounds? second) {
+    if (identical(first, second)) return true;
+    if (first == null || second == null) return false;
+    return first.southwest.latitude == second.southwest.latitude &&
+        first.southwest.longitude == second.southwest.longitude &&
+        first.northeast.latitude == second.northeast.latitude &&
+        first.northeast.longitude == second.northeast.longitude;
+  }
+
   LatLng _developmentTargetForTap(Offset position, Size size) {
     final safeWidth = size.width <= 0 ? 1 : size.width;
     final safeHeight = size.height <= 0 ? 1 : size.height;
@@ -177,6 +235,7 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
   @override
   void dispose() {
     _controller?.dispose();
+    _controller = null;
     super.dispose();
   }
 }

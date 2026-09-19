@@ -117,51 +117,8 @@ class _HistoryRideCard extends StatelessWidget {
 
   final RideHistoryItem ride;
 
-  Future<void> _showCashCancellationOptions(
-    BuildContext context,
-    HistoryController controller,
-  ) async {
-    final refundAmount =
-        (ride.totalDue - ride.cancellationFee).clamp(0, double.infinity);
-    await Get.dialog<void>(
-      AlertDialog(
-        title: const Text('إلغاء رحلة مدفوعة نقداً'),
-        content: Text(
-          'مبلغ الاسترداد المتوقع بعد رسم الإلغاء: '
-          '${refundAmount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}.\n\n'
-          'اختر فقط ما حدث فعلياً مع السائق.',
-        ),
-        actions: <Widget>[
-          TextButton(onPressed: Get.back<void>, child: const Text('العودة')),
-          OutlinedButton(
-            onPressed: () async {
-              Get.back<void>();
-              await controller.cancelPaidCashRide(
-                ride,
-                creditCustomerWallet: false,
-              );
-            },
-            child: const Text('استعدته من السائق'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Get.back<void>();
-              await controller.cancelPaidCashRide(
-                ride,
-                creditCustomerWallet: true,
-              );
-            },
-            child: const Text('أضفه إلى محفظتي'),
-          ),
-        ],
-      ),
-      barrierDismissible: false,
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final controller = Get.find<HistoryController>();
     final statusColor = switch (ride.status) {
       RideHistoryStatus.upcoming => AppColors.primaryDark,
       RideHistoryStatus.completed => AppColors.success,
@@ -238,23 +195,6 @@ class _HistoryRideCard extends StatelessWidget {
                 },
               ),
             ),
-          if (ride.status == RideHistoryStatus.completed && ride.isCashPaid)
-            Obx(() {
-              final isCancelling = controller.cancellingRideId.value == ride.id;
-              return Padding(
-                padding: const EdgeInsets.only(top: AppSpacing.sm),
-                child: AppButton(
-                  label: isCancelling
-                      ? 'جارٍ الإلغاء...'
-                      : 'إلغاء الرحلة واسترداد النقد',
-                  size: AppButtonSize.small,
-                  variant: AppButtonVariant.danger,
-                  onPressed: isCancelling
-                      ? null
-                      : () => _showCashCancellationOptions(context, controller),
-                ),
-              );
-            }),
         ],
       ),
     );

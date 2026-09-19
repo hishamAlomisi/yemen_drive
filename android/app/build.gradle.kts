@@ -34,8 +34,14 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["GOOGLE_MAPS_API_KEY"] =
-            localProperties.getProperty("GOOGLE_MAPS_API_KEY", "")
+    // local.properties normally uses an unquoted value. Be tolerant of
+    // quoted values as well, so quote characters are never sent to Google.
+    val googleMapsApiKey = localProperties
+        .getProperty("GOOGLE_MAPS_API_KEY", "")
+        .trim()
+        .removeSurrounding("\"")
+        .removeSurrounding("'")
+    manifestPlaceholders["GOOGLE_MAPS_API_KEY"] = googleMapsApiKey
     }
 
     buildTypes {

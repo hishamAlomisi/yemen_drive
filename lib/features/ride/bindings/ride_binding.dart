@@ -17,6 +17,12 @@ import '../vehicle_selection/repositories/service_catalog_repository.dart';
 class RideBinding extends Bindings {
   @override
   void dependencies() {
+    if (!Get.isRegistered<RouteRepository>()) {
+      Get.put<RouteRepository>(
+        ApiRoutesRepository(Get.find<ApiClient>()),
+        permanent: true,
+      );
+    }
     if (!Get.isRegistered<RideNegotiationRepository>()) {
       Get.put<RideNegotiationRepository>(
         ApiRideNegotiationRepository(Get.find<ApiClient>()),
@@ -46,17 +52,15 @@ class RideBinding extends Bindings {
           Get.isRegistered<ServiceKindRepository>()
               ? Get.find<ServiceKindRepository>()
               : null,
+          Get.find<RouteRepository>(),
         ),
         permanent: true,
       );
     }
     if (!Get.isRegistered<LocationController>()) {
-      if (!Get.isRegistered<RouteRepository>()) {
-        Get.put<RouteRepository>(GoogleRoutesRepository(), permanent: true);
-      }
       if (!Get.isRegistered<LocationSearchRepository>()) {
         Get.put<LocationSearchRepository>(
-          GoogleLocationSearchRepository(),
+          ApiLocationSearchRepository(Get.find<ApiClient>()),
           permanent: true,
         );
       }
