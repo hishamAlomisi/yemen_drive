@@ -61,6 +61,8 @@ class RideController extends GetxController {
   final RxBool isSearchingForDriver = false.obs;
   final RxBool isDriverAssigned = false.obs;
   final RxString activeRideStatus = ''.obs;
+  final RxBool activeRidePaymentCompleted = false.obs;
+  final RxBool customerPaymentEnabled = false.obs;
   final Rxn<Map<String, Object?>> cashCollectionApproval =
       Rxn<Map<String, Object?>>();
   final RxString cancellationReason = ''.obs;
@@ -1298,6 +1300,15 @@ class RideController extends GetxController {
     )) {
       return;
     }
+    // "إلغاء البحث" pauses offer collection; it does not cancel the server
+    // ride. Reuse that open request when the customer starts searching again
+    // instead of creating a duplicate ride.
+    if (_requestId != null &&
+        !isSearchingForDriver.value &&
+        negotiationStatus.value == NegotiationStatus.searching) {
+      await retryDriverSearch();
+      return;
+    }
     final location = Get.find<LocationController>();
     final pickupPoint = location.pickup.value;
     final destinationPoint = location.destination.value;
@@ -1313,14 +1324,20 @@ class RideController extends GetxController {
     final destinationAddress = location.toController.text.trim();
     final draft = RideRequestDraft(
       customerId: _session.currentUserId.value,
-      pickup: location.pickupArea.value.trim().isEmpty
-          ? 'منطقة الانطلاق المحددة'
-          : location.pickupArea.value.trim(),
-      destination: location.destinationArea.value.trim().isNotEmpty
-          ? location.destinationArea.value.trim()
-          : (location.addressNameController.text.trim().isEmpty
-              ? 'منطقة الوجهة المحددة'
-              : location.addressNameController.text.trim()),
+      pickup: location.pickupIsCurrentLocation.value
+          ? 'موقعي الحالي'
+          : (pickupAddress.isNotEmpty
+              ? pickupAddress
+              : location.pickupArea.value.trim().isEmpty
+                  ? 'منطقة الانطلاق المحددة'
+                  : location.pickupArea.value.trim()),
+      destination: location.addressNameController.text.trim().isNotEmpty
+          ? location.addressNameController.text.trim()
+          : (location.streetController.text.trim().isNotEmpty
+              ? location.streetController.text.trim()
+              : location.destinationArea.value.trim().isEmpty
+                  ? 'منطقة الوجهة المحددة'
+                  : location.destinationArea.value.trim()),
       pickupCoordinate: RideCoordinate(
         latitude: pickupPoint.latitude,
         longitude: pickupPoint.longitude,
@@ -1339,8 +1356,11 @@ class RideController extends GetxController {
       // the selected route usable without inventing a real address.
       pickupAddress:
           pickupAddress.isEmpty ? 'نقطة الانطلاق المحددة' : pickupAddress,
-      destinationAddress:
-          destinationAddress.isEmpty ? 'الوجهة المحددة' : destinationAddress,
+      destinationAddress: destinationAddress.isEmpty
+          ? (location.streetController.text.trim().isEmpty
+              ? 'الوجهة المحددة'
+              : location.streetController.text.trim())
+          : destinationAddress,
       destinationAddressName: location.addressNameController.text.trim(),
       destinationStreet: location.streetController.text.trim(),
       destinationDetails: location.detailsController.text.trim(),
@@ -1489,27 +1509,32 @@ class RideController extends GetxController {
   }
 
   Future<void> cancelDriverSearch() async {
-    final requestId = _requestId;
-    const reason = 'ألغى المستخدم البحث عن سائق';
-    if (requestId != null) await _repository.requestCancellation(requestId, reason);
+    // This action only pauses the search UI. The ride remains open so the
+    // customer can press the button again and continue searching on the same
+    // request without creating or cancelling a trip.
     offersExhausted.value = false;
+    offersStreamDone.value = false;
     driverOffers.clear();
     requestRecipients.clear();
     _recipientTimer?.cancel();
+    await _offersSubscription?.cancel();
+    _offersSubscription = null;
     isSearchingForDriver.value = false;
-    cancelRide(reason);
+    negotiationStatus.value = NegotiationStatus.searching;
   }
 
   Future<void> cancelActiveRide(String reason) async {
     final requestId = _requestId;
     if (requestId == null || reason.trim().length < 3) {
-      Get.snackbar('سبب الإلغاء مطلوب', 'حدد سبباً واضحاً قبل إرسال طلب الإلغاء.');
+      Get.snackbar(
+          'سبب الإلغاء مطلوب', 'حدد سبباً واضحاً قبل إرسال طلب الإلغاء.');
       return;
     }
     try {
       await _repository.requestCancellation(requestId, reason.trim());
     } catch (_) {
-      Get.snackbar('تعذر إرسال الطلب', 'لم يُرسل طلب الإلغاء. تحقق من الاتصال ثم حاول مرة أخرى.');
+      Get.snackbar('تعذر إرسال الطلب',
+          'لم يُرسل طلب الإلغاء. تحقق من الاتصال ثم حاول مرة أخرى.');
       return;
     }
     _trackingTimer?.cancel();
@@ -1547,7 +1572,16 @@ class RideController extends GetxController {
       final ride = detail['ride'];
       if (ride is Map) {
         activeRideStatus.value = '${ride['status'] ?? ''}';
+        customerPaymentEnabled.value = ride['customerPaymentEnabled'] == true;
       }
+      final payments = detail['payments'];
+      activeRidePaymentCompleted.value = detail['paymentCompleted'] == true ||
+          (payments is List && payments.any((raw) {
+            if (raw is! Map) return false;
+            final payment = Map<Object?, Object?>.from(raw);
+            final status = '${payment['status'] ?? ''}'.toLowerCase();
+            return status == '2' || status == 'paid';
+          }));
       final approval = detail['cashCollectionApproval'];
       cashCollectionApproval.value =
           approval is Map ? Map<String, Object?>.from(approval) : null;
@@ -1668,23 +1702,54 @@ class RideController extends GetxController {
   void cancelRide(String reason) {
     _recipientTimer?.cancel();
     _offersSubscription?.cancel();
+    // Cancellation is a terminal booking state. Clear the same transient
+    // booking data used by "start a new ride" so the next booking cannot
+    // reuse the cancelled route, vehicle, offer, or payment state.
+    prepareNewRide();
+    cancellationReason.value = reason;
+    Get.offNamed<void>(RideRoutes.requestThanks);
+  }
+
+  void prepareNewRide() {
+    _recipientTimer?.cancel();
+    _offersSubscription?.cancel();
     _requestId = null;
     currentDraft.value = null;
     quote.value = null;
+    acceptedOffer.value = null;
     driverOffers.clear();
     requestRecipients.clear();
-    acceptedOffer.value = null;
+    nearbyDrivers.clear();
     isDriverAssigned.value = false;
+    assignedDriverName.value = '';
+    assignedDriverPhone.value = '';
+    offeredPrice.value = 0;
+    routeDistanceKm.value = 0;
+    activeRideStatus.value = '';
+    activeRidePaymentCompleted.value = false;
+    customerPaymentEnabled.value = false;
+    cashCollectionApproval.value = null;
+    cancellationReason.value = '';
+    isSearchingForDriver.value = false;
     trackingRoutePoints.clear();
+    trackedDriver.value = null;
+    trackedPassenger.value = null;
     _lastTrackingRouteOrigin = null;
     _lastTrackingRouteDestination = null;
     _lastTrackingRouteRequestedAt = null;
     _trackingRouteRequestId++;
-    activeRideStatus.value = '';
-    cashCollectionApproval.value = null;
-    cancellationReason.value = reason;
-    isSearchingForDriver.value = false;
-    Get.offNamed<void>(RideRoutes.requestThanks);
+    selectedVehicle.value = null;
+    hasSelectedTransport.value = false;
+    selectedServiceKindId.value = null;
+    homeServiceIndex.value = -1;
+    serviceType.value = RideServiceType.transport;
+    catalogVehicles.clear();
+    catalogError.value = '';
+    if (Get.isRegistered<LocationController>()) {
+      Get.find<LocationController>().resetForNewRide();
+    }
+    // Keep only the administration-selected default service when enabled.
+    applyAdminDefaultServiceKind();
   }
 
   void updateBottomNavigation(int index) {

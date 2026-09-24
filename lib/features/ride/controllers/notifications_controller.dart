@@ -13,6 +13,7 @@ class NotificationsController extends GetxController {
   final ApiClient _client;
   final AuthSessionService _session;
   final RxList<RideNotificationItem> items = <RideNotificationItem>[].obs;
+  int get unreadCount => items.where((item) => !item.isRead).length;
   Timer? _refreshTimer;
 
   @override
@@ -39,7 +40,9 @@ class NotificationsController extends GetxController {
         id: '${raw['id'] ?? ''}',
         title: '${raw['title'] ?? ''}',
         body: '${raw['body'] ?? ''}',
-        timeLabel: stamp == null ? '' : '${stamp.hour.toString().padLeft(2, '0')}:${stamp.minute.toString().padLeft(2, '0')}',
+        timeLabel: stamp == null
+            ? ''
+            : '${stamp.hour.toString().padLeft(2, '0')}:${stamp.minute.toString().padLeft(2, '0')}',
         kind: '${raw['type'] ?? 'system'}',
         isRead: raw['isRead'] == true,
       );

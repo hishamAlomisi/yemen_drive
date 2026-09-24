@@ -14,6 +14,7 @@ import '../../../shared/widgets/directional_arrow.dart';
 import '../../account/account_routes.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/ride_controller.dart';
+import '../controllers/notifications_controller.dart';
 import '../models/ride_models.dart';
 import '../models/service_kind_models.dart';
 import '../ride_routes.dart';
@@ -580,40 +581,57 @@ class RideHomeHeader extends StatelessWidget {
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
-            child: Material(
-              color: Theme.of(context).colorScheme.surface,
-              elevation: 2,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              child: InkWell(
-                onTap: Get.find<RideController>().startHomeService,
+            child: Obx(() {
+              final location = Get.find<LocationController>();
+              final available = location.serviceAreaAvailable.value;
+              final unavailable = available == false;
+              return Material(
+                color: unavailable
+                    ? Colors.orange.shade50
+                    : Theme.of(context).colorScheme.surface,
+                elevation: 2,
                 borderRadius: BorderRadius.circular(AppRadius.pill),
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(Icons.my_location_rounded, size: 19),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'موقعي الحالي · صنعاء',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontWeight: FontWeight.w700),
+                child: InkWell(
+                  // This is an informational availability banner, not an
+                  // interactive location picker.
+                  onTap: null,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
+                    child: Row(
+                      children: <Widget>[
+                        Icon(
+                            unavailable
+                                ? Icons.close_rounded
+                                : Icons.check_circle_outline_rounded,
+                            size: 19,
+                            color: unavailable ? Colors.deepOrange : null),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '${location.serviceCountryName.value} - ${location.serviceCityName.value} · ${unavailable ? 'الخدمة غير متوفرة' : 'الخدمة متوفرة'}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontWeight: FontWeight.w700),
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            }),
           ),
           const SizedBox(width: AppSpacing.sm),
-          RideIconButton(
-            icon: Icons.notifications_none_rounded,
-            tooltip: 'الإشعارات',
-            badge: true,
-            onPressed: () => Get.toNamed<void>(RideRoutes.notifications),
-          ),
+          Obx(() {
+            final notifications = Get.find<NotificationsController>();
+            return RideIconButton(
+              icon: Icons.notifications_none_rounded,
+              tooltip: 'الإشعارات',
+              badgeCount: notifications.unreadCount,
+              onPressed: () => Get.toNamed<void>(RideRoutes.notifications),
+            );
+          }),
         ],
       );
 }
@@ -685,74 +703,78 @@ class _ServiceCarouselState extends State<_ServiceCarousel> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    if (_services.isEmpty) {
-      return const SizedBox(
-        height: 164,
-        child: Center(child: CircularProgressIndicator()),
-      );
-    }
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark
-        ? const Color(0xFF555B80).withValues(alpha: .94)
-        : Colors.white.withValues(alpha: .92);
-    final cardBorderColor = isDark
-        ? Colors.white.withValues(alpha: .09)
-        : Colors.black.withValues(alpha: .07);
-    return SizedBox(
-      height: 164,
-      child: Stack(
-        children: <Widget>[
-          Positioned(
-            top: 28,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: cardColor,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: cardBorderColor),
+  Widget build(BuildContext context) => Obx(() {
+        // [homeServices] is filled asynchronously from the API.  This widget
+        // used to render its initial empty state only, so newly returned types
+        // never replaced the loader until the whole screen was reopened.
+        final services = _services;
+        if (services.isEmpty) {
+          return const SizedBox(
+            height: 164,
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+        final cardColor = isDark
+            ? const Color(0xFF555B80).withValues(alpha: .94)
+            : Colors.white.withValues(alpha: .92);
+        final cardBorderColor = isDark
+            ? Colors.white.withValues(alpha: .09)
+            : Colors.black.withValues(alpha: .07);
+        return SizedBox(
+          height: 164,
+          child: Stack(
+            children: <Widget>[
+              Positioned(
+                top: 28,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: cardColor,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: cardBorderColor),
+                  ),
+                ),
               ),
-            ),
-          ),
-          Positioned.fill(
-            child: PageView.builder(
-              controller: _pageController,
-              onPageChanged: (value) {
-                setState(() {
-                  _page = value;
-                });
-                Get.find<RideController>().selectHomeService(
-                  value % _services.length,
-                );
-              },
-              itemBuilder: (context, index) {
-                final service = _services[index % _services.length];
-                return _ServiceLensItem(
-                  service: service,
-                  selected: index == _page,
-                  onTap: () {
+              Positioned.fill(
+                child: PageView.builder(
+                  controller: _pageController,
+                  onPageChanged: (value) {
                     setState(() {
-                      _page = index;
+                      _page = value;
                     });
                     Get.find<RideController>().selectHomeService(
-                      index % _services.length,
-                    );
-                    _pageController.animateToPage(
-                      index,
-                      duration: const Duration(milliseconds: 280),
-                      curve: Curves.easeOutCubic,
+                      value % services.length,
                     );
                   },
-                );
-              },
-            ),
+                  itemBuilder: (context, index) {
+                    final service = services[index % services.length];
+                    return _ServiceLensItem(
+                      service: service,
+                      selected: index == _page,
+                      onTap: () {
+                        setState(() {
+                          _page = index;
+                        });
+                        Get.find<RideController>().selectHomeService(
+                          index % services.length,
+                        );
+                        _pageController.animateToPage(
+                          index,
+                          duration: const Duration(milliseconds: 280),
+                          curve: Curves.easeOutCubic,
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        );
+      });
 }
 
 class _HomeStartButton extends StatelessWidget {
@@ -834,6 +856,13 @@ class _ServiceImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = url ?? '';
+    if (value.isEmpty) {
+      return Icon(
+        Icons.local_taxi_rounded,
+        color: Theme.of(context).colorScheme.primary,
+        size: 48,
+      );
+    }
     final remote = value.startsWith('http://') || value.startsWith('https://');
     return remote
         ? Image.network(value,

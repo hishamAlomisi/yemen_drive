@@ -123,6 +123,7 @@ class RideIconButton extends StatelessWidget {
     this.backgroundColor,
     this.foregroundColor,
     this.badge = false,
+    this.badgeCount,
     this.iconWidget,
     super.key,
   });
@@ -133,6 +134,7 @@ class RideIconButton extends StatelessWidget {
   final Color? backgroundColor;
   final Color? foregroundColor;
   final bool badge;
+  final int? badgeCount;
   final Widget? iconWidget;
 
   @override
@@ -150,7 +152,7 @@ class RideIconButton extends StatelessWidget {
               icon: iconWidget ?? Icon(icon),
             ),
           ),
-          if (badge)
+          if (badge || (badgeCount ?? 0) > 0)
             PositionedDirectional(
               top: 2,
               start: 2,
@@ -159,7 +161,22 @@ class RideIconButton extends StatelessWidget {
                   color: AppColors.secondary,
                   shape: BoxShape.circle,
                 ),
-                child: SizedBox(width: 9, height: 9),
+                child: badgeCount != null && badgeCount! > 0
+                    ? ConstrainedBox(
+                        constraints:
+                            const BoxConstraints(minWidth: 18, minHeight: 18),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Center(
+                              child: Text(
+                                  '${badgeCount! > 99 ? '99+' : badgeCount}',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800))),
+                        ),
+                      )
+                    : const SizedBox(width: 9, height: 9),
               ),
             ),
         ],

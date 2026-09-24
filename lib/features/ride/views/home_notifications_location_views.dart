@@ -271,7 +271,15 @@ class _LocationPickerOverlayState extends State<_LocationPickerOverlay> {
                     ? Theme.of(context).colorScheme.onPrimary
                     : Theme.of(context).disabledColor,
                 onPressed: widget.controller.canContinueLocationFlow
-                    ? widget.controller.openAddressDetails
+                    ? () {
+                        if (widget.controller.serviceAreaAvailable.value ==
+                            false) {
+                          Get.snackbar('الخدمة غير متوفرة',
+                              'الخدمة غير متوفرة في منطقتك حالياً.');
+                          return;
+                        }
+                        widget.controller.openAddressDetails();
+                      }
                     : () {},
               ),
             ),

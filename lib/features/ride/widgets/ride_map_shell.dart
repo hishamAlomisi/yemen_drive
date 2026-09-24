@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:get/get.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../../app/theme/app_spacing.dart';
 import '../../../app/theme/app_colors.dart';
+import '../../../app/theme/app_spacing.dart';
 import '../../../core/responsive/app_responsive.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
@@ -25,6 +28,7 @@ class RideMapShell extends StatelessWidget {
     this.bottomNavigationBar,
     this.showRoute = false,
     this.showMarker = true,
+    this.showPassengerSearchRadar = false,
     this.fitPanelToContent = false,
     this.panelMaxHeightFactor = .58,
     this.panelHorizontalMargin = 0,
@@ -49,6 +53,7 @@ class RideMapShell extends StatelessWidget {
   final bool showPanel;
   final bool showRoute;
   final bool showMarker;
+  final bool showPassengerSearchRadar;
   final bool fitPanelToContent;
   final double panelMaxHeightFactor;
   final double panelHorizontalMargin;
@@ -66,6 +71,7 @@ class RideMapShell extends StatelessWidget {
             _DefaultRideMap(
               showMarker: showMarker,
               showRoute: showRoute,
+              showPassengerSearchRadar: showPassengerSearchRadar,
             ),
         if (overlay != null) Positioned.fill(child: overlay!),
         if (top != null)
@@ -381,31 +387,118 @@ class _SizeReporterRenderObject extends RenderProxyBox {
   }
 }
 
-class _DefaultRideMap extends StatelessWidget {
-  const _DefaultRideMap({required this.showMarker, required this.showRoute});
+class _DefaultRideMap extends StatefulWidget {
+  const _DefaultRideMap({
+    required this.showMarker,
+    required this.showRoute,
+    required this.showPassengerSearchRadar,
+  });
 
   final bool showMarker;
   final bool showRoute;
+  final bool showPassengerSearchRadar;
+
+  @override
+  State<_DefaultRideMap> createState() => _DefaultRideMapState();
+}
+
+class _DefaultRideMapState extends State<_DefaultRideMap> {
+  static const Duration _radarCycle = Duration(milliseconds: 2100);
+  static const int _waveCount = 3;
+  static const double _minimumRadiusMeters = 110;
+  static const double _maximumRadiusMeters = 760;
+
+  Timer? _radarTimer;
+  DateTime _radarStartedAt = DateTime.now();
+  double _radarPhase = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _setRadarActive(widget.showPassengerSearchRadar);
+  }
+
+  @override
+  void didUpdateWidget(covariant _DefaultRideMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.showPassengerSearchRadar != widget.showPassengerSearchRadar) {
+      _setRadarActive(widget.showPassengerSearchRadar);
+    }
+  }
+
+  void _setRadarActive(bool active) {
+    _radarTimer?.cancel();
+    _radarTimer = null;
+    if (!active) {
+      _radarPhase = 0;
+      return;
+    }
+    _radarStartedAt = DateTime.now();
+    _radarTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+      if (!mounted) return;
+      final elapsed = DateTime.now().difference(_radarStartedAt);
+      final nextPhase = (elapsed.inMicroseconds % _radarCycle.inMicroseconds) /
+          _radarCycle.inMicroseconds;
+      setState(() => _radarPhase = nextPhase);
+    });
+  }
+
+  Set<Circle> _radarCircles(LatLng center, Color color) {
+    if (!widget.showPassengerSearchRadar) return const <Circle>{};
+    return <Circle>{
+      for (var index = 0; index < _waveCount; index++)
+        _radarCircle(center, color, index),
+    };
+  }
+
+  Circle _radarCircle(LatLng center, Color color, int index) {
+    final progress = (_radarPhase + index / _waveCount) % 1;
+    final fade = 1 - progress;
+    final radius = _minimumRadiusMeters +
+        (_maximumRadiusMeters - _minimumRadiusMeters) * progress;
+    return Circle(
+      circleId: CircleId('passenger-search-radar-$index'),
+      center: center,
+      radius: radius,
+      strokeColor: color.withValues(alpha: .22 * fade),
+      strokeWidth: 2,
+      fillColor: color.withValues(alpha: .035 * fade),
+      consumeTapEvents: false,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     if (!Get.isRegistered<LocationController>()) {
       return AppGoogleMap(
-        showDemoMarker: showMarker,
-        showDemoRoute: showRoute,
+        showDemoMarker: widget.showMarker,
+        showDemoRoute: widget.showRoute,
       );
     }
     final controller = Get.find<LocationController>();
-    return Obx(
-      () => AppGoogleMap(
-        markers: showMarker || showRoute ? controller.markers : const {},
-        polylines: showRoute ? controller.polylines : const {},
-        focusBounds: showRoute ? controller.selectedRouteBounds : null,
+    return Obx(() {
+      final pickup = controller.pickup.value;
+      final radarColor = Theme.of(context).colorScheme.primary;
+      return AppGoogleMap(
+        markers: widget.showMarker || widget.showRoute
+            ? controller.markers
+            : const <Marker>{},
+        polylines: widget.showRoute ? controller.polylines : const <Polyline>{},
+        circles: pickup == null
+            ? const <Circle>{}
+            : _radarCircles(pickup, radarColor),
+        focusBounds: widget.showRoute ? controller.selectedRouteBounds : null,
         focusBoundsPadding: 104,
-        showDemoMarker: showMarker,
-        showDemoRoute: showRoute,
-      ),
-    );
+        showDemoMarker: widget.showMarker,
+        showDemoRoute: widget.showRoute,
+      );
+    });
+  }
+
+  @override
+  void dispose() {
+    _radarTimer?.cancel();
+    super.dispose();
   }
 }
 

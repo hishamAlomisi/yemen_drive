@@ -315,9 +315,13 @@ class _InteractiveRouteFieldsOverlayState
               final isSearching = _controller.isSearching.value;
               final searchFailed = _controller.searchFailed.value;
               final results = _controller.searchResults.toList();
+              final savedPlaces = _controller.filteredSavedPlaces(_query);
               final hasQuery = _query.length >= 2;
-              final showEmpty =
-                  hasQuery && results.isEmpty && !isSearching && !searchFailed;
+              final showEmpty = hasQuery &&
+                  results.isEmpty &&
+                  savedPlaces.isEmpty &&
+                  !isSearching &&
+                  !searchFailed;
               return Material(
                 color: Theme.of(context).colorScheme.surface,
                 elevation: 18,
@@ -333,13 +337,13 @@ class _InteractiveRouteFieldsOverlayState
                     ),
                     shrinkWrap: true,
                     children: <Widget>[
-                      ..._controller.recentPlaces.map(
+                      ...savedPlaces.map(
                         (place) => RecentPlaceTile(
                           place: place,
                           onTap: () => _selectRecent(place),
                         ),
                       ),
-                      if (_controller.recentPlaces.isNotEmpty &&
+                      if (savedPlaces.isNotEmpty &&
                           (results.isNotEmpty || isSearching))
                         const Divider(height: 1),
                       if (isSearching)
@@ -561,7 +565,10 @@ class _LocationPickerSearchOverlayState
             if (_controller.searchFailed.value) {
               return const SizedBox.shrink();
             }
-            if (_controller.searchResults.isEmpty && _query.length >= 2) {
+            final savedPlaces = _controller.filteredSavedPlaces(_query);
+            if (_controller.searchResults.isEmpty &&
+                savedPlaces.isEmpty &&
+                _query.length >= 2) {
               return AppCard(
                 child: Row(
                   children: <Widget>[
@@ -572,7 +579,7 @@ class _LocationPickerSearchOverlayState
                 ),
               );
             }
-            if (_controller.searchResults.isEmpty) {
+            if (_controller.searchResults.isEmpty && savedPlaces.isEmpty) {
               return const SizedBox.shrink();
             }
             return AppCard(
@@ -585,10 +592,26 @@ class _LocationPickerSearchOverlayState
                     vertical: 6,
                   ),
                   shrinkWrap: true,
-                  itemCount: _controller.searchResults.length,
+                  itemCount:
+                      savedPlaces.length + _controller.searchResults.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, index) {
-                    final result = _controller.searchResults[index];
+                    if (index < savedPlaces.length) {
+                      final place = savedPlaces[index];
+                      return RecentPlaceTile(
+                        place: place,
+                        onTap: () async {
+                          _debounce?.cancel();
+                          _searchController.clear();
+                          _query = '';
+                          _searchFocusNode.unfocus();
+                          setState(() {});
+                          await _controller.selectPlace(place);
+                        },
+                      );
+                    }
+                    final result =
+                        _controller.searchResults[index - savedPlaces.length];
                     return ListTile(
                       dense: true,
                       contentPadding: const EdgeInsets.symmetric(

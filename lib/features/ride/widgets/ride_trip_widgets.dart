@@ -147,16 +147,20 @@ class RouteSummaryCard extends StatelessWidget {
         : null;
     final fromLabel = from?.trim().isNotEmpty == true
         ? from!.trim()
-        : draft?.pickupAddress.trim().isNotEmpty == true
-            ? draft!.pickupAddress.trim()
-            : draft?.pickup ?? 'نقطة الانطلاق';
+        : draft?.pickup.trim().isNotEmpty == true
+            ? draft!.pickup.trim()
+            : draft?.pickupAddress.trim().isNotEmpty == true
+                ? draft!.pickupAddress.trim()
+                : 'نقطة الانطلاق';
     final toLabel = to?.trim().isNotEmpty == true
         ? to!.trim()
-        : draft?.destinationAddressName.trim().isNotEmpty == true
-            ? draft!.destinationAddressName.trim()
-            : draft?.destinationAddress.trim().isNotEmpty == true
-                ? draft!.destinationAddress.trim()
-                : draft?.destination ?? 'الوجهة المحددة';
+        : draft?.destination.trim().isNotEmpty == true
+            ? draft!.destination.trim()
+            : draft?.destinationAddressName.trim().isNotEmpty == true
+                ? draft!.destinationAddressName.trim()
+                : draft?.destinationAddress.trim().isNotEmpty == true
+                    ? draft!.destinationAddress.trim()
+                    : 'الوجهة المحددة';
     return AppCard(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -356,9 +360,26 @@ class TripEmergencyActions extends StatelessWidget {
   static final Uri _emergencyNumber = Uri(scheme: 'tel', path: '122');
 
   Future<void> _callEmergency() async {
-    if (!await launchUrl(_emergencyNumber)) {
-      Get.snackbar('call_122'.tr, 'call_failed'.tr);
+    try {
+      final launched = await launchUrl(
+        _emergencyNumber,
+        mode: LaunchMode.externalApplication,
+      );
+      if (launched) return;
+    } on Object {
+      // Some emulators have no phone app capable of handling tel: links.
     }
+
+    await Get.dialog<void>(AlertDialog(
+      title: Text('call_122'.tr),
+      content: const Text(
+        'تعذر فتح تطبيق الاتصال على هذا الجهاز. رقم الطوارئ هو 122؛ '
+        'استخدم هاتفاً يدعم الاتصال إذا كانت هناك حالة طارئة.',
+      ),
+      actions: <Widget>[
+        TextButton(onPressed: Get.back<void>, child: Text('إغلاق')),
+      ],
+    ));
   }
 }
 
@@ -452,6 +473,12 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
                     onTap: widget.onCallEmergency,
                   ),
                   _SafetySheetAction(
+                    icon: Icons.sos_rounded,
+                    label: 'طلب مساعدة',
+                    isDanger: true,
+                    onTap: () => unawaited(_raiseSafetyAlert()),
+                  ),
+                  _SafetySheetAction(
                     icon: _recording.isRecording.value
                         ? Icons.stop_circle_outlined
                         : Icons.mic_none_rounded,
@@ -468,10 +495,7 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
                   _SafetySheetAction(
                     icon: Icons.contacts_outlined,
                     label: 'emergency_contacts'.tr,
-                    onTap: () => Get.snackbar(
-                      'emergency_contacts'.tr,
-                      'emergency_contacts_hint'.tr,
-                    ),
+                    onTap: () => _showEmergencyContactDialog(),
                   ),
                   _SafetySheetAction(
                     icon: Icons.support_agent_rounded,
@@ -560,6 +584,150 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
           : _recording.error.value,
     );
   }
+
+  Future<void> _raiseSafetyAlert() async {
+    final accepted = await Get.dialog<bool>(
+      AlertDialog(
+        title: const Text('إرسال بلاغ سلامة'),
+        content: const Text(
+            'سيصل بلاغ فوري إلى فريق السلامة مع آخر موقع مسجل للرحلة. اتصل بالطوارئ مباشرة إذا كنت في خطر عاجل.'),
+        actions: <Widget>[
+          TextButton(
+              onPressed: () => Get.back<bool>(result: false),
+              child: const Text('إلغاء')),
+          FilledButton(
+              onPressed: () => Get.back<bool>(result: true),
+              child: const Text('إرسال البلاغ')),
+        ],
+      ),
+    );
+    if (accepted != true) return;
+    final sent = await _recording.raiseSafetyAlert();
+    Get.snackbar(
+      sent ? 'تم إرسال بلاغ السلامة' : 'تعذر إرسال البلاغ',
+      sent ? 'استلمت الإدارة البلاغ وستراجعه فوراً.' : _recording.error.value,
+    );
+  }
+
+  Future<void> _showEmergencyContactDialog() async {
+    final saved = await Get.dialog<bool>(
+      _EmergencyContactDialog(controller: _recording),
+    );
+    if (saved == true)
+      Get.snackbar('جهات الطوارئ', 'تم حفظ جهة الطوارئ بنجاح.');
+  }
+}
+
+class _EmergencyContactDialog extends StatefulWidget {
+  const _EmergencyContactDialog({required this.controller});
+
+  final SafetyRecordingController controller;
+
+  @override
+  State<_EmergencyContactDialog> createState() =>
+      _EmergencyContactDialogState();
+}
+
+class _EmergencyContactDialogState extends State<_EmergencyContactDialog> {
+  final TextEditingController _name = TextEditingController();
+  final TextEditingController _phone = TextEditingController();
+  final TextEditingController _relationship = TextEditingController();
+  bool _saving = false;
+  String? _error;
+
+  Future<void> _save() async {
+    if (_saving) return;
+    if (_name.text.trim().isEmpty || _phone.text.trim().isEmpty) {
+      setState(() => _error = 'أدخل اسم جهة الطوارئ ورقم الجوال.');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final saved = await widget.controller.addEmergencyContact(
+      _name.text,
+      _phone.text,
+      _relationship.text,
+    );
+    if (!mounted) return;
+    if (saved) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _error = widget.controller.error.value.isNotEmpty
+          ? widget.controller.error.value
+          : 'تعذر حفظ جهة الطوارئ. حاول مرة أخرى.';
+    });
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _relationship.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('إضافة جهة طوارئ'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              TextField(
+                controller: _name,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'الاسم'),
+              ),
+              TextField(
+                controller: _phone,
+                keyboardType: TextInputType.phone,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'رقم الجوال'),
+              ),
+              TextField(
+                controller: _relationship,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                  labelText: 'صلة القرابة أو الوصف (اختياري)',
+                ),
+              ),
+              if (_error case final error?) ...<Widget>[
+                const SizedBox(height: 10),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Text(
+                    error,
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: _saving ? null : _save,
+            child: _saving
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Text('حفظ'),
+          ),
+        ],
+      );
 }
 
 class _SafetySheetAction extends StatelessWidget {

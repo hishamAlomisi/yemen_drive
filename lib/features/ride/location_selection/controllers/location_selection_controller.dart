@@ -18,7 +18,10 @@ import '../repositories/route_repository.dart';
 
 class LocationController extends GetxController {
   LocationController(
-      this._routeRepository, this._searchRepository, this._client);
+    this._routeRepository,
+    this._searchRepository,
+    this._client,
+  );
 
   final RouteRepository _routeRepository;
   final LocationSearchRepository _searchRepository;
@@ -33,6 +36,10 @@ class LocationController extends GetxController {
   final Rxn<LatLng> destination = Rxn<LatLng>();
   final RxString pickupArea = ''.obs;
   final RxString destinationArea = ''.obs;
+  final RxBool pickupIsCurrentLocation = false.obs;
+  final RxnBool serviceAreaAvailable = RxnBool();
+  final RxString serviceCountryName = 'اليمن'.obs;
+  final RxString serviceCityName = 'صنعاء'.obs;
   final RxBool isLocating = false.obs;
   final RxBool locationPermissionBlocked = false.obs;
   bool _initialLocationRequested = false;
@@ -57,6 +64,25 @@ class LocationController extends GetxController {
   final Rxn<BitmapDescriptor> _personalPickupMarkerIcon =
       Rxn<BitmapDescriptor>();
 
+  void resetForNewRide() {
+    pickup.value = null;
+    destination.value = null;
+    pickupArea.value = '';
+    destinationArea.value = '';
+    pickupIsCurrentLocation.value = false;
+    confirmedDestination.value = '';
+    routePoints.clear();
+    routeDistanceMeters.value = 0;
+    routeDurationSeconds.value = 0;
+    fromController.text = 'موقعي الحالي';
+    toController.clear();
+    _clearDestinationAddressFields();
+    searchResults.clear();
+    isSearching.value = false;
+    isRouteLoading.value = false;
+    activeField.value = 0;
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -71,16 +97,20 @@ class LocationController extends GetxController {
       data: const {},
     );
     if (result is! ApiSuccess || result.data is! List) return;
-    recentPlaces.assignAll((result.data as List)
-        .whereType<Map<String, dynamic>>()
-        .map((item) => RecentPlace(
+    recentPlaces.assignAll(
+      (result.data as List)
+          .whereType<Map<String, dynamic>>()
+          .map(
+            (item) => RecentPlace(
               title: '${item['label'] ?? 'مكان محفوظ'}',
               address: '${item['address'] ?? ''}',
               kind: '${item['kind'] ?? 'place'}',
               latitude: (item['latitude'] as num?)?.toDouble() ?? 0,
               longitude: (item['longitude'] as num?)?.toDouble() ?? 0,
-            ))
-        .toList(growable: false));
+            ),
+          )
+          .toList(growable: false),
+    );
   }
 
   /// Customer photos are not stored by the current profile model yet. Until
@@ -278,6 +308,7 @@ class LocationController extends GetxController {
     Future<void>? routeRequest;
     if (activeField.value == 0 || pickup.value == null) {
       pickup.value = point;
+      pickupIsCurrentLocation.value = false;
       routePoints.clear();
       routeDistanceMeters.value = 0;
       routeDurationSeconds.value = 0;
@@ -326,6 +357,7 @@ class LocationController extends GetxController {
       FocusManager.instance.primaryFocus?.unfocus();
       cancelSearch();
       pickup.value = point;
+      pickupIsCurrentLocation.value = true;
       routePoints.clear();
       routeDistanceMeters.value = 0;
       routeDurationSeconds.value = 0;
@@ -389,6 +421,28 @@ class LocationController extends GetxController {
     }
   }
 
+  /// Saved places are part of the same search experience as Google places.
+  /// Keep them first because they are the customer's own named locations.
+  List<RecentPlace> filteredSavedPlaces(String query) {
+    final needle = _normalizeSearchText(query);
+    if (needle.isEmpty) return recentPlaces.toList(growable: false);
+    return recentPlaces.where((place) {
+      final searchable = _normalizeSearchText(
+        '${place.title} ${place.address}',
+      );
+      return searchable.contains(needle);
+    }).toList(growable: false);
+  }
+
+  String _normalizeSearchText(String value) => value
+      .trim()
+      .toLowerCase()
+      .replaceAll(RegExp('[ًٌٍَُِّْـ]'), '')
+      .replaceAll('أ', 'ا')
+      .replaceAll('إ', 'ا')
+      .replaceAll('آ', 'ا')
+      .replaceAll('ى', 'ي');
+
   void cancelSearch() {
     _searchRequestId++;
     searchResults.clear();
@@ -410,6 +464,7 @@ class LocationController extends GetxController {
 
     if (field == 0) {
       pickup.value = null;
+      pickupIsCurrentLocation.value = false;
       pickupArea.value = '';
       fromController.clear();
       return;
@@ -429,6 +484,7 @@ class LocationController extends GetxController {
     if (activeField.value == 0 && !await _ensureLocationPermission()) return;
     if (activeField.value == 0) {
       pickup.value = result.location;
+      pickupIsCurrentLocation.value = false;
       fromController.text = result.formattedAddress.isEmpty
           ? result.title
           : result.formattedAddress;
@@ -497,11 +553,29 @@ class LocationController extends GetxController {
         if (displayName.isNotEmpty) fromController.text = displayName;
         if (result.area.trim().isNotEmpty) {
           pickupArea.value = result.area.trim();
+          serviceCityName.value = result.area.trim();
+          await checkServiceAvailability(result.area.trim());
         }
       }
     } catch (_) {
       // The selected coordinate remains valid even if its display area is not
       // available yet. Route selection must not be blocked by reverse geocoding.
+    }
+  }
+
+  Future<void> checkServiceAvailability(String city) async {
+    try {
+      final response = await _client.execute<Object?>(
+        model: 'ServiceAreaModel',
+        operation: 'report',
+        data: {'countryCode': 'YE', 'cityNameAr': city},
+      );
+      if (response is ApiSuccess && response.data is Map) {
+        serviceAreaAvailable.value =
+            (response.data as Map)['available'] == true;
+      }
+    } catch (_) {
+      serviceAreaAvailable.value = null;
     }
   }
 
@@ -513,6 +587,7 @@ class LocationController extends GetxController {
     final point = LatLng(place.latitude, place.longitude);
     if (activeField.value == 0) {
       pickup.value = point;
+      pickupIsCurrentLocation.value = false;
       routePoints.clear();
       routeDistanceMeters.value = 0;
       routeDurationSeconds.value = 0;

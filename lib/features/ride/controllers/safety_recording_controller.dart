@@ -108,6 +108,37 @@ class SafetyRecordingController extends GetxController {
     }
   }
 
+  Future<String?> createLiveShareLink() async {
+    final rideId = int.tryParse(_ride.currentRideId ?? '');
+    if (rideId == null) { error.value = 'لا توجد رحلة نشطة لمشاركتها.'; return null; }
+    try {
+      final result = await _api.execute<Object?>(model: 'RideSafetyShareModel', operation: 'add', data: <String, Object?>{'rideId': rideId});
+      if (result is! ApiSuccess<Object?> || result.data is! Map) { error.value = _failureMessage(result); return null; }
+      final path = '${(result.data as Map)['linkPath'] ?? ''}';
+      if (path.isEmpty) { error.value = 'تعذر إنشاء رابط مشاركة الرحلة.'; return null; }
+      final base = Uri.parse(_api.dio.options.baseUrl);
+      return '${base.scheme}://${base.authority}$path';
+    } on Object { error.value = 'تعذر إنشاء رابط مشاركة الرحلة.'; return null; }
+  }
+
+  Future<bool> raiseSafetyAlert() async {
+    final rideId = int.tryParse(_ride.currentRideId ?? '');
+    if (rideId == null) { error.value = 'لا توجد رحلة نشطة لإرسال بلاغ السلامة.'; return false; }
+    try {
+      final result = await _api.execute<Object?>(model: 'SafetyIncidentModel', operation: 'add', data: <String, Object?>{'rideId': rideId});
+      if (result is ApiSuccess<Object?>) return true;
+      error.value = _failureMessage(result); return false;
+    } on Object { error.value = 'تعذر إرسال بلاغ السلامة. اتصل بالطوارئ إذا كنت في خطر مباشر.'; return false; }
+  }
+
+  Future<bool> addEmergencyContact(String name, String phone, String relationship) async {
+    try {
+      final result = await _api.execute<Object?>(model: 'EmergencyContactModel', operation: 'add', data: <String, Object?>{'name': name.trim(), 'phoneNumber': phone.trim(), 'relationship': relationship.trim()});
+      if (result is ApiSuccess<Object?>) return true;
+      error.value = _failureMessage(result); return false;
+    } on Object { error.value = 'تعذر حفظ جهة الطوارئ.'; return false; }
+  }
+
   void _onAudio(Uint8List bytes) {
     if (!isRecording.value) return;
     _buffer.add(bytes);

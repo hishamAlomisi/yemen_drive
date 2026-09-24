@@ -19,6 +19,7 @@ class AppGoogleMap extends StatefulWidget {
     this.focusBoundsPadding = 72,
     this.markers = const <Marker>{},
     this.polylines = const <Polyline>{},
+    this.circles = const <Circle>{},
     this.myLocationEnabled = false,
     this.zoomControlsEnabled = false,
     this.compassEnabled = true,
@@ -46,6 +47,7 @@ class AppGoogleMap extends StatefulWidget {
   final double focusBoundsPadding;
   final Set<Marker> markers;
   final Set<Polyline> polylines;
+  final Set<Circle> circles;
   final bool myLocationEnabled;
   final bool zoomControlsEnabled;
   final bool compassEnabled;
@@ -133,6 +135,7 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
             ),
             markers: widget.markers,
             polylines: widget.polylines,
+            circles: widget.circles,
             myLocationEnabled: widget.myLocationEnabled,
             myLocationButtonEnabled: widget.myLocationEnabled,
             zoomControlsEnabled: widget.zoomControlsEnabled,

@@ -62,104 +62,107 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
           if (didPop) controller.cancelPendingQuote();
         },
         child: Obx(() {
-        final quote = controller.quote.value;
-        final quoteError = controller.quoteError.value;
-        return RideMapShell(
-          processStep: controller.driverOffers.isEmpty ? 3 : null,
-          showRoute: true,
-          showMarker: false,
-          fitPanelToContent: true,
-          foregroundOverlay: const _FloatingDriverOffers(),
-          panelFooter: _NegotiationSearchFooter(
-            searching: controller.isSearchingForDriver.value,
-            offersCount: controller.receivedOffersCount.value,
-            recipients: controller.requestRecipients.toList(growable: false),
-            canSend: quote != null,
-            onSend: controller.requestRide,
-            onCancel: controller.cancelDriverSearch,
-          ),
-          top: const Align(
-            alignment: AlignmentDirectional.topStart,
-            child: RideBackButton(),
-          ),
-          panel: quote == null && quoteError.isEmpty
-              ? const Padding(
-                  padding: EdgeInsets.all(AppSpacing.xl),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              : quote == null
-                  ? Padding(
-                      padding: const EdgeInsets.all(AppSpacing.xl),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          const Icon(Icons.receipt_long_outlined, size: 44),
-                          const SizedBox(height: AppSpacing.md),
-                          Text(
-                            quoteError,
-                            textAlign: TextAlign.center,
-                          ),
-                          const SizedBox(height: AppSpacing.md),
-                          AppButton(
-                            label: 'العودة لاختيار الخدمة',
-                            variant: AppButtonVariant.outline,
-                            onPressed: () {
-                              controller.cancelPendingQuote();
-                              Get.back<void>();
-                            },
-                          ),
-                        ],
-                      ),
-                    )
-              : Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    const RidePanelHandle(),
-                    RideSectionHeader(
-                      title: 'suggest_trip_price'.tr,
-                      subtitle: 'driver_offer_hint'.tr,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    Row(
-                      children: <Widget>[
-                        IconButton.filledTonal(
-                          onPressed: controller.isSearchingForDriver.value
-                              ? null
-                              : controller.decreasePrice,
-                          icon: const Icon(Icons.remove),
-                          tooltip: 'decrease_price'.tr,
+          final quote = controller.quote.value;
+          final quoteError = controller.quoteError.value;
+          return RideMapShell(
+            processStep: controller.driverOffers.isEmpty ? 3 : null,
+            showRoute: true,
+            showMarker: false,
+            showPassengerSearchRadar: controller.isSearchingForDriver.value,
+            fitPanelToContent: true,
+            foregroundOverlay: const _FloatingDriverOffers(),
+            panelFooter: _NegotiationSearchFooter(
+              searching: controller.isSearchingForDriver.value,
+              offersCount: controller.receivedOffersCount.value,
+              recipients: controller.requestRecipients.toList(growable: false),
+              canSend: quote != null,
+              onSend: controller.requestRide,
+              onCancel: controller.cancelDriverSearch,
+            ),
+            top: const Align(
+              alignment: AlignmentDirectional.topStart,
+              child: RideBackButton(),
+            ),
+            panel: quote == null && quoteError.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.all(AppSpacing.xl),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : quote == null
+                    ? Padding(
+                        padding: const EdgeInsets.all(AppSpacing.xl),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: <Widget>[
+                            const Icon(Icons.receipt_long_outlined, size: 44),
+                            const SizedBox(height: AppSpacing.md),
+                            Text(
+                              quoteError,
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: AppSpacing.md),
+                            AppButton(
+                              label: 'العودة لاختيار الخدمة',
+                              variant: AppButtonVariant.outline,
+                              onPressed: () {
+                                controller.cancelPendingQuote();
+                                Get.back<void>();
+                              },
+                            ),
+                          ],
                         ),
-                        Expanded(
-                          child: Column(
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: <Widget>[
+                          const RidePanelHandle(),
+                          RideSectionHeader(
+                            title: 'suggest_trip_price'.tr,
+                            subtitle: 'driver_offer_hint'.tr,
+                          ),
+                          const SizedBox(height: AppSpacing.lg),
+                          Row(
                             children: <Widget>[
-                              Text(
-                                '${controller.offeredPrice.value.toStringAsFixed(0)} ${quote.currency}',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .headlineMedium
-                                    ?.copyWith(fontWeight: FontWeight.w900),
+                              IconButton.filledTonal(
+                                onPressed: controller.isSearchingForDriver.value
+                                    ? null
+                                    : controller.decreasePrice,
+                                icon: const Icon(Icons.remove),
+                                tooltip: 'decrease_price'.tr,
                               ),
-                              Text(
-                                'الحد المتاح ${quote.minPrice.toStringAsFixed(0)} - ${quote.maxPrice.toStringAsFixed(0)} ${quote.currency}',
+                              Expanded(
+                                child: Column(
+                                  children: <Widget>[
+                                    Text(
+                                      '${controller.offeredPrice.value.toStringAsFixed(0)} ${quote.currency}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .headlineMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                    ),
+                                    Text(
+                                      'الحد المتاح ${quote.minPrice.toStringAsFixed(0)} - ${quote.maxPrice.toStringAsFixed(0)} ${quote.currency}',
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              IconButton.filled(
+                                onPressed: controller.isSearchingForDriver.value
+                                    ? null
+                                    : controller.increasePrice,
+                                icon: const Icon(Icons.add),
+                                tooltip: 'increase_price'.tr,
                               ),
                             ],
                           ),
-                        ),
-                        IconButton.filled(
-                          onPressed: controller.isSearchingForDriver.value
-                              ? null
-                              : controller.increasePrice,
-                          icon: const Icon(Icons.add),
-                          tooltip: 'increase_price'.tr,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    RouteSummaryCard(compact: true),
-                  ],
-                ),
-        );
-      }),
+                          const SizedBox(height: AppSpacing.lg),
+                          RouteSummaryCard(compact: true),
+                        ],
+                      ),
+          );
+        }),
       );
 
   @override

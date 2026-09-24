@@ -15,6 +15,7 @@ import '../controllers/chat_controller.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/ride_controller.dart';
+import '../controllers/safety_recording_controller.dart';
 import '../models/ride_models.dart';
 import '../ride_routes.dart';
 import '../widgets/ride_common_widgets.dart';
@@ -60,15 +61,34 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
             ? draft!.destinationAddress.trim()
             : 'الوجهة المحددة';
     final driver = controller.acceptedOffer.value?.driverName ?? 'driver'.tr;
-    final message = 'shared_trip_message'.trParams(<String, String>{
+    final safety = Get.find<SafetyRecordingController>();
+    final shareUrl = await safety.createLiveShareLink();
+    if (shareUrl == null) {
+      Get.snackbar('مشاركة الرحلة', safety.error.value);
+      return;
+    }
+    final message = '${'shared_trip_message'.trParams(<String, String>{
       'destination': destination,
       'driver': driver,
-    });
+    })}\n$shareUrl';
     await SharePlus.instance.share(ShareParams(text: message));
     if (Get.isDialogOpen ?? false) Get.back<void>();
   }
 
-  Future<void> _showCancelDecision() => Get.dialog<void>(
+  Future<void> _showCancelDecision() {
+    final status = controller.activeRideStatus.value;
+    if (status == 'Completed' || status == '6') {
+      Get.snackbar(
+        'لا يمكن إلغاء الرحلة',
+        'اكتملت الرحلة، ولا يمكن إلغاءها أو طلب استرداد مبلغها.',
+        snackPosition: SnackPosition.TOP,
+      );
+      return Future<void>.value();
+    }
+    if (status == 'DriverEnRoute' || status == '4') {
+      return Get.toNamed<void>(RideRoutes.rideCancel) ?? Future<void>.value();
+    }
+    return Get.dialog<void>(
         _RideCancelDecisionDialog(
           offer: controller.acceptedOffer.value,
           onWait: Get.back<void>,
@@ -92,16 +112,32 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         barrierDismissible: false,
         barrierColor: Colors.black.withValues(alpha: .52),
       );
+  }
 
   @override
   Widget build(BuildContext context) => Obx(() {
         final location = Get.find<LocationController>();
         final canProceedToPayment =
             controller.activeRideStatus.value == 'Completed' ||
-                controller.activeRideStatus.value == '6';
+                controller.activeRideStatus.value == '6' ||
+                controller.customerPaymentEnabled.value;
+        final paymentReadyForReview =
+            (controller.activeRideStatus.value == 'Completed' ||
+                controller.activeRideStatus.value == '6') &&
+            controller.activeRidePaymentCompleted.value;
         final cashApproval = controller.cashCollectionApproval.value;
         final approvalPending =
             cashApproval != null && '${cashApproval['status']}' == '0';
+        final lockBackNavigation = <String>{
+          'DriverAssigned',
+          'DriverEnRoute',
+          'InProgress',
+          'Completed',
+          '3',
+          '4',
+          '5',
+          '6',
+        }.contains(controller.activeRideStatus.value);
         final useDevelopmentTrackingFallback = AppEnvironment.useDemoData;
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
@@ -110,7 +146,9 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           'Completed' || '6' => 'تم الوصول',
           _ => 'جاري تحديث حالة الرحلة',
         };
-        return RideMapShell(
+        return PopScope<void>(
+          canPop: !lockBackNavigation,
+          child: RideMapShell(
           processStep: 4,
           map: useDevelopmentTrackingFallback
               ? const _DevelopmentTrackingMap()
@@ -142,11 +180,15 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           panelFooter: AppButton(
             label: approvalPending
                 ? 'موافقة مطلوبة لفرق الدفع'
+                : paymentReadyForReview
+                    ? 'متابعة إلى التقييم'
                 : canProceedToPayment
                     ? 'متابعة إلى الدفع'
                     : 'بانتظار اكتمال الرحلة',
             onPressed: approvalPending
                 ? () => _showCashShortfallDecision(cashApproval)
+                : paymentReadyForReview
+                    ? () => Get.toNamed<void>(RideRoutes.review)
                 : canProceedToPayment
                     ? () => Get.toNamed<void>(RideRoutes.payment)
                     : null,
@@ -154,7 +196,9 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           top: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
-              const RideBackButton(),
+              lockBackNavigation
+                  ? const SizedBox(width: 48)
+                  : const RideBackButton(),
               RideStatusPill(
                 label: statusLabel,
                 icon: Icons.local_taxi_rounded,
@@ -174,6 +218,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                 onCancelRide: _showCancelDecision,
               ),
             ],
+          ),
           ),
         );
       });
@@ -757,9 +802,11 @@ class RidePaymentPage extends GetView<PaymentController> {
                           contentPadding: EdgeInsets.zero,
                           value: controller.useWalletBalance.value,
                           activeColor: AppColors.primaryDark,
-                          onChanged: (value) {
-                            controller.useWalletBalance.value = value;
-                          },
+                          onChanged: controller.cashPaymentConfirmed.value
+                              ? null
+                              : (value) {
+                                  controller.useWalletBalance.value = value;
+                                },
                           title: const Text(
                             'استخدام رصيد المحفظة أولاً',
                             style: TextStyle(
@@ -774,7 +821,22 @@ class RidePaymentPage extends GetView<PaymentController> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     Obx(() => controller.cashPaymentConfirmed.value
-                        ? const SizedBox.shrink()
+                        ? AppCard(
+                            color: AppColors.primary.withValues(alpha: .14),
+                            borderColor: AppColors.primary,
+                            child: Row(
+                              children: <Widget>[
+                                Icon(Icons.verified_rounded,
+                                    color: AppColors.primaryDark, size: 28),
+                                const SizedBox(width: AppSpacing.sm),
+                                Expanded(
+                                    child: Text(
+                                        'تم قبض مبلغ الرحلة نقداً من قبل السائق. لا حاجة لاختيار وسيلة دفع أخرى.',
+                                        style: const TextStyle(
+                                            fontWeight: FontWeight.w800))),
+                              ],
+                            ),
+                          )
                         : PaymentMethodTile(
                             id: 'cash',
                             title: 'نقداً',
@@ -819,10 +881,12 @@ class RidePaymentPage extends GetView<PaymentController> {
                 AppSpacing.md,
               ),
               child: Obx(() => AppButton(
-                    label: controller.isPaying.value
-                        ? 'جارٍ إتمام الدفع...'
-                        : controller.cashPaymentConfirmed.value
-                            ? 'إنهاء الرحلة'
+                        label: controller.isPaying.value
+                            ? 'جارٍ إتمام الدفع...'
+                            : controller.cashPaymentConfirmed.value
+                            ? controller.rideCompletedByDriver.value
+                                ? 'متابعة إلى التقييم'
+                                : 'تم الدفع — بانتظار إنهاء السائق'
                             : 'تأكيد ودفع ${controller.totalDue.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
                     leading: const Icon(Icons.lock_outline_rounded),
                     onPressed: controller.isPaying.value
@@ -959,7 +1023,10 @@ class RideThanksPage extends StatelessWidget {
           title: 'شكراً لركوبك معنا!',
           message: 'وصلت إلى وجهتك بأمان. نتمنى أن نراك في رحلة جديدة قريباً.',
           actionLabel: 'احجز رحلة جديدة',
-          action: () => Get.offAllNamed<void>(RideRoutes.homeTransport),
+          action: () {
+            Get.find<RideController>().prepareNewRide();
+            Get.offAllNamed<void>(RideRoutes.homeTransport);
+          },
         ),
       );
 }

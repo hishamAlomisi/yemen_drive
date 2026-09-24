@@ -25,61 +25,70 @@ class PaymentMethodTile extends GetView<PaymentController> {
   @override
   Widget build(BuildContext context) => Obx(() {
         final selected = controller.selectedMethod.value == id;
-        return AppCard(
-          margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-          onTap: () => controller.selectMethod(id),
-          borderColor: selected ? AppColors.primary : null,
-          child: Row(
-            children: <Widget>[
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: .15),
-                  borderRadius: BorderRadius.circular(AppRadius.sm),
+        final enabled = !controller.cashPaymentConfirmed.value;
+        return Opacity(
+          opacity: enabled ? 1 : .52,
+          child: AppCard(
+            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+            onTap: enabled ? () => controller.selectMethod(id) : null,
+            borderColor: selected ? AppColors.primary : null,
+            child: Row(
+              children: <Widget>[
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color: AppColors.primary.withValues(alpha: .15),
+                    borderRadius: BorderRadius.circular(AppRadius.sm),
+                  ),
+                  child: imageUrl == null || imageUrl!.isEmpty
+                      ? Icon(icon, color: AppColors.primaryDark)
+                      : Image.network(imageUrl!,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) =>
+                              Icon(icon, color: AppColors.primaryDark)),
                 ),
-                child: imageUrl == null || imageUrl!.isEmpty ? Icon(icon, color: AppColors.primaryDark) : Image.network(imageUrl!, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(icon, color: AppColors.primaryDark)),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: selected ? AppColors.primary : Colors.transparent,
-                  border: Border.all(
-                    color: selected
-                        ? AppColors.primary
-                        : Theme.of(context).colorScheme.outline,
-                    width: 2,
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        title,
+                        style: const TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
                   ),
                 ),
-                child: selected
-                    ? const Icon(
-                        Icons.check_rounded,
-                        size: 15,
-                        color: Colors.black,
-                      )
-                    : null,
-              ),
-            ],
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: 22,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: selected ? AppColors.primary : Colors.transparent,
+                    border: Border.all(
+                      color: selected
+                          ? AppColors.primary
+                          : Theme.of(context).colorScheme.outline,
+                      width: 2,
+                    ),
+                  ),
+                  child: selected
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 15,
+                          color: Colors.black,
+                        )
+                      : null,
+                ),
+              ],
+            ),
           ),
         );
       });

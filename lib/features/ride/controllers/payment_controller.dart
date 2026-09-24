@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -15,22 +17,51 @@ class PaymentController extends GetxController {
   final RxDouble totalDue = 0.0.obs;
   final RxDouble cancellationFee = 0.0.obs;
   final RxBool cashPaymentConfirmed = false.obs;
+  final RxBool paymentCompleted = false.obs;
+  final RxBool rideCompletedByDriver = false.obs;
   final RxInt cashRequestStatus = (-1).obs;
   final RxBool isPaying = false.obs;
   final RxDouble rating = 0.0.obs;
   final TextEditingController reviewController = TextEditingController();
+  Timer? _summaryPollingTimer;
+  bool _summaryLoading = false;
 
   void selectMethod(String id) => selectedMethod.value = id;
 
   @override
   void onReady() {
     super.onReady();
-    loadPaymentSummary();
+    unawaited(loadPaymentSummary());
+    _summaryPollingTimer = Timer.periodic(
+      const Duration(seconds: 4),
+      (_) => unawaited(_pollPaymentSummary()),
+    );
+  }
+
+  Future<void> _pollPaymentSummary() async {
+    await loadPaymentSummary();
+    if (rideCompletedByDriver.value && paymentCompleted.value) {
+      _summaryPollingTimer?.cancel();
+      _summaryPollingTimer = null;
+    }
   }
 
   Future<void> loadPaymentSummary() async {
+    if (_summaryLoading) return;
+    _summaryLoading = true;
     final rideId = _ride.currentRideId;
-    if (rideId == null) return;
+    if (rideId == null) {
+      _summaryLoading = false;
+      return;
+    }
+    try {
+      await _loadPaymentSummary(rideId);
+    } finally {
+      _summaryLoading = false;
+    }
+  }
+
+  Future<void> _loadPaymentSummary(String rideId) async {
     final detail = await _api.execute<Object?>(
       model: 'RideModel',
       operation: 'get',
@@ -48,7 +79,15 @@ class PaymentController extends GetxController {
       // fare plus its stored fee remains the authoritative display fallback.
       totalDue.value = storedTotal > 0 ? storedTotal : fare + serviceFee;
       cancellationFee.value = _number(ride['cancellationFee']);
+      final rideStatus = '${ride['status'] ?? values['status'] ?? ''}';
+      rideCompletedByDriver.value = rideStatus == 'Completed' || rideStatus == '6';
       final payments = values['payments'];
+      paymentCompleted.value = payments is List && payments.any((raw) {
+        if (raw is! Map) return false;
+        final payment = Map<Object?, Object?>.from(raw);
+        final status = '${payment['status'] ?? ''}'.toLowerCase();
+        return status == '2' || status == 'paid';
+      });
       cashPaymentConfirmed.value = payments is List &&
           payments.any((raw) {
             if (raw is! Map) return false;
@@ -83,6 +122,13 @@ class PaymentController extends GetxController {
     }
   }
 
+  @override
+  void onClose() {
+    _summaryPollingTimer?.cancel();
+    reviewController.dispose();
+    super.onClose();
+  }
+
   Future<void> pay() async {
     if (selectedMethod.value == 'cash') {
       await _requestCashConfirmation();
@@ -111,7 +157,12 @@ class PaymentController extends GetxController {
       if (result is! ApiSuccess)
         throw const FormatException('تعذر إتمام الدفع من المحفظة.');
       await loadPaymentSummary();
-      Get.offAllNamed<void>(RideRoutes.rideThanks);
+      if (rideCompletedByDriver.value) {
+        Get.offAllNamed<void>(RideRoutes.review);
+      } else {
+        Get.back<void>();
+        Get.snackbar('تم الدفع', 'تم الدفع، وبانتظار إنهاء الرحلة من السائق.');
+      }
     } catch (_) {
       Get.snackbar('تعذر الدفع', 'تحقق من رصيد المحفظة ثم أعد المحاولة.');
     } finally {
@@ -133,28 +184,33 @@ class PaymentController extends GetxController {
         operation: 'add',
         data: <String, Object?>{
           'rideId': rideId,
-          'idempotencyKey': 'cash-request-$rideId-${DateTime.now().microsecondsSinceEpoch}',
+          'idempotencyKey':
+              'cash-request-$rideId-${DateTime.now().microsecondsSinceEpoch}',
         },
       );
-      if (result is! ApiSuccess || result.data is! Map) throw const FormatException();
-      cashRequestStatus.value = int.tryParse('${(result.data as Map)['status']}') ?? 0;
+      if (result is! ApiSuccess || result.data is! Map)
+        throw const FormatException();
+      cashRequestStatus.value =
+          int.tryParse('${(result.data as Map)['status']}') ?? 0;
       await loadPaymentSummary();
-      Get.snackbar('أُرسل طلب التأكيد', 'سيصل السائق طلباً لتأكيد استلام المبلغ النقدي.');
+      Get.snackbar('أُرسل طلب التأكيد',
+          'سيصل السائق طلباً لتأكيد استلام المبلغ النقدي.');
     } catch (_) {
-      Get.snackbar('تعذر إرسال الطلب', 'تعذر طلب تأكيد الدفع النقدي من السائق.');
+      Get.snackbar(
+          'تعذر إرسال الطلب', 'تعذر طلب تأكيد الدفع النقدي من السائق.');
     } finally {
       isPaying.value = false;
     }
   }
 
   Future<void> finishCollectedCashRide() async {
-    if (!cashPaymentConfirmed.value) return;
-    await loadPaymentSummary();
-    if (!cashPaymentConfirmed.value) {
-      Get.snackbar('لم يكتمل التحصيل', 'لم يسجل السائق التحصيل النقدي بعد.');
-      return;
+    // Completing a ride is exclusively a driver operation. The customer can
+    // only observe the confirmed payment and wait for the driver's finish.
+    if (cashPaymentConfirmed.value && rideCompletedByDriver.value) {
+      Get.offAllNamed<void>(RideRoutes.review);
+    } else if (cashPaymentConfirmed.value) {
+      Get.snackbar('تم استلام المبلغ', 'بانتظار إنهاء الرحلة من تطبيق السائق.');
     }
-    Get.offAllNamed<void>(RideRoutes.rideThanks);
   }
 
   Future<bool> cancelCashPaidRide({required bool creditCustomerWallet}) async {
@@ -232,9 +288,4 @@ class PaymentController extends GetxController {
 
   void submitReview() => Get.offAllNamed<void>(RideRoutes.rideThanks);
 
-  @override
-  void onClose() {
-    reviewController.dispose();
-    super.onClose();
-  }
 }

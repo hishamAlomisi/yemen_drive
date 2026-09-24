@@ -21,7 +21,11 @@ Future<void> main() async {
         // Hybrid composition is more tolerant of MEmu's virtual display than
         // the default texture layer. Physical devices may still use it safely.
         maps.useAndroidViewSurface = true;
-        await maps.initializeWithRenderer(AndroidMapRenderer.latest);
+        // MEmu's virtual GPU crashes inside the latest vector renderer
+        // (eglChooseConfig) while opening route/service screens. The legacy
+        // renderer is stable on the emulator and remains fully compatible
+        // with the Maps SDK on physical devices.
+        await maps.initializeWithRenderer(AndroidMapRenderer.legacy);
         await maps.warmup();
       } catch (_) {
         // The Maps SDK selects its compatible renderer when a device cannot
