@@ -33,7 +33,7 @@ flutter run \
 
 ## هيكل المشروع
 
-مشروع Flutter هذا مستقل عن الخادم. يوجد مشروع ASP.NET في المجلد الشقيق `../api_control`، ولا توجد ملفات Backend داخل هذا المجلد.
+مشروع Flutter هذا مستقل عن الخادم ولا يحتوي ملفات Backend. يُحدَّد عنوان خادم الـAPI عبر `API_BASE_URL` عند التشغيل أو البناء.
 
 ```text
 lib/
@@ -79,7 +79,7 @@ lib/
 - مهلات اتصال وإرسال واستقبال مناسبة لتطبيق جوال.
 - محاولة واحدة لتجديد الرمز عند استجابة `401`، مع منع تكرار عدة طلبات Refresh بالتوازي.
 
-تُحفظ رموز الوصول والتجديد في `flutter_secure_storage`، وليس في `GetStorage`. عقد الخادم التفصيلي موجود في [docs/aspnet_api_contract.md](docs/aspnet_api_contract.md)، وسياسة نقل البيانات الحالية في [docs/payload_transport.md](docs/payload_transport.md). مشروع الخادم نفسه موجود في `../api_control`.
+تُحفظ رموز الوصول والتجديد في `flutter_secure_storage`، وليس في `GetStorage`. عقد الخادم التفصيلي موجود في [docs/aspnet_api_contract.md](docs/aspnet_api_contract.md)، وسياسة نقل البيانات الحالية في [docs/payload_transport.md](docs/payload_transport.md). يبقى تنفيذ الخادم وعقد Postman الحاليان المرجع العملي عند اختلافهما عن هذه الوثائق.
 
 ### ProblemDetails
 
