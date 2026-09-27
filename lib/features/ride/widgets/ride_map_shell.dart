@@ -434,7 +434,7 @@ class _DefaultRideMapState extends State<_DefaultRideMap> {
       return;
     }
     _radarStartedAt = DateTime.now();
-    _radarTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
+    _radarTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
       if (!mounted) return;
       final elapsed = DateTime.now().difference(_radarStartedAt);
       final nextPhase = (elapsed.inMicroseconds % _radarCycle.inMicroseconds) /
