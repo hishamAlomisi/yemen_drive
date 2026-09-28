@@ -5,6 +5,7 @@ abstract final class ApiEndpoints {
   // The API exposes registration at POST /api/auth/register.
   static const String signUp = 'auth/register';
   static const String refresh = 'auth/refresh';
+  static const String logout = 'auth/logout';
   static const String profile = 'users/me';
   static const String rides = 'rides';
   static const String rideQuotes = 'rides/quotes';

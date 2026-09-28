@@ -11,6 +11,7 @@ abstract interface class RegistrationRepository {
     required ProfileDraft profile,
     required String password,
     String? verificationToken,
+    required String deviceId,
   });
 }
 
@@ -43,12 +44,14 @@ class ApiRegistrationRepository implements RegistrationRepository {
     required ProfileDraft profile,
     required String password,
     String? verificationToken,
+    required String deviceId,
   }) async {
     final payload = _payload((await _provider.complete(
       signUp: signUp,
       profile: profile,
       password: password,
       verificationToken: verificationToken,
+      deviceId: deviceId,
     ))
         .data);
     return _session(payload);
@@ -63,6 +66,7 @@ class ApiRegistrationRepository implements RegistrationRepository {
       accessToken: access,
       refreshToken: payload['refreshToken']?.toString() ?? '',
       userId: _userId(payload),
+      trustedDeviceToken: payload['trustedDeviceToken']?.toString(),
     );
   }
 

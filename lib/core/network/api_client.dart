@@ -8,12 +8,15 @@ import '../storage/secure_storage_service.dart';
 import 'api_endpoints.dart';
 import 'api_models.dart';
 
+enum _RefreshOutcome { refreshed, expired, unavailable }
+
 class ApiClient extends GetxService {
   ApiClient(this._storage);
 
   final SecureStorageService _storage;
   late final Dio dio;
-  Completer<void>? _refreshCompleter;
+  Completer<_RefreshOutcome>? _refreshCompleter;
+  Future<void> Function()? onSessionExpired;
 
   Future<ApiClient> init() async {
     // Relative endpoint paths (for example `auth/login`) require a trailing
@@ -48,14 +51,25 @@ class ApiClient extends GetxService {
         },
         onError: (error, handler) async {
           if (error.response?.statusCode == 401 &&
+              error.requestOptions.extra['retried'] == true) {
+            await _expireSession();
+            handler.next(error);
+            return;
+          }
+          if (error.response?.statusCode == 401 &&
               error.requestOptions.extra['retried'] != true) {
-            final refreshed = await _refreshToken();
-            if (refreshed) {
+            final refreshOutcome = await _refreshToken();
+            if (refreshOutcome == _RefreshOutcome.refreshed) {
               final request = error.requestOptions;
               request.extra['retried'] = true;
               final token = await _storage.accessToken;
               request.headers['Authorization'] = 'Bearer $token';
               handler.resolve(await dio.fetch<Object?>(request));
+              return;
+            }
+            if (refreshOutcome == _RefreshOutcome.unavailable) {
+              handler
+                  .reject(DioException(requestOptions: error.requestOptions));
               return;
             }
           }
@@ -102,39 +116,63 @@ class ApiClient extends GetxService {
     }
   }
 
-  Future<bool> _refreshToken() async {
-    if (_refreshCompleter != null) {
-      await _refreshCompleter!.future;
-      return (await _storage.accessToken)?.isNotEmpty ?? false;
-    }
-    _refreshCompleter = Completer<void>();
+  Future<_RefreshOutcome> _refreshToken() async {
+    final inFlight = _refreshCompleter;
+    if (inFlight != null) return inFlight.future;
+
+    final completer = Completer<_RefreshOutcome>();
+    _refreshCompleter = completer;
+    var outcome = _RefreshOutcome.unavailable;
     try {
       final refreshToken = await _storage.refreshToken;
-      // The current API issues access tokens only; do not call the
-      // unimplemented refresh endpoint with an empty placeholder token.
-      if (refreshToken == null || refreshToken.isEmpty) return false;
+      if (refreshToken == null || refreshToken.isEmpty) {
+        await _expireSession();
+        outcome = _RefreshOutcome.expired;
+      } else {
+        final refreshDio = Dio(
+          BaseOptions(baseUrl: '${AppEnvironment.baseUrl}/'),
+        );
 
-      final refreshDio = Dio(
-        BaseOptions(baseUrl: '${AppEnvironment.baseUrl}/'),
-      );
-
-      final response = await refreshDio.post<Map<String, Object?>>(
-        ApiEndpoints.refresh,
-        data: <String, Object?>{'refreshToken': refreshToken},
-      );
-      final data = response.data;
-      final access = data?['accessToken']?.toString();
-      final refresh = data?['refreshToken']?.toString();
-      if (access == null || refresh == null) return false;
-      await _storage.saveTokens(accessToken: access, refreshToken: refresh);
-      return true;
-    } catch (_) {
-      await _storage.clear();
-      return false;
+        final response = await refreshDio.post<Map<String, Object?>>(
+          ApiEndpoints.refresh,
+          data: <String, Object?>{'refreshToken': refreshToken},
+        );
+        final body = response.data;
+        final payload =
+            body != null && body['success'] == true ? body['data'] : null;
+        final access =
+            payload is Map ? payload['accessToken']?.toString() : null;
+        final refresh =
+            payload is Map ? payload['refreshToken']?.toString() : null;
+        if (access != null &&
+            access.isNotEmpty &&
+            refresh != null &&
+            refresh.isNotEmpty) {
+          await _storage.replaceTokens(
+            accessToken: access,
+            refreshToken: refresh,
+          );
+          outcome = _RefreshOutcome.refreshed;
+        } else if (body != null && body['success'] == false) {
+          await _expireSession();
+          outcome = _RefreshOutcome.expired;
+        }
+      }
+    } catch (error) {
+      if (error is DioException && error.response?.statusCode == 401) {
+        await _expireSession();
+        outcome = _RefreshOutcome.expired;
+      }
     } finally {
-      _refreshCompleter?.complete();
+      completer.complete(outcome);
       _refreshCompleter = null;
     }
+    return outcome;
+  }
+
+  Future<void> _expireSession() async {
+    await _storage.clear();
+    await onSessionExpired?.call();
   }
 
   ApiProblemDetails problemFrom(Object error) {

@@ -5,13 +5,13 @@ class LoginRequest {
     required this.phone,
     required this.password,
     required this.deviceId,
-    required this.isTrustedDevice,
+    this.trustedDeviceToken,
   });
 
   final String phone;
   final String password;
   final String deviceId;
-  final bool isTrustedDevice;
+  final String? trustedDeviceToken;
 }
 
 class DeviceOtpRequest {

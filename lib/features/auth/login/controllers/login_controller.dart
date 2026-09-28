@@ -40,7 +40,7 @@ class LoginController extends GetxController {
         phone: phone.replaceAll('+', ''),
         password: signInPasswordController.text,
         deviceId: _session.deviceId,
-        isTrustedDevice: await _storage.isTrustedPhone(phone),
+        trustedDeviceToken: await _storage.trustedDeviceToken(phone),
       ));
       if (result.requiresOtp) {
         _pendingPhone = phone.replaceAll('+', '');
@@ -72,7 +72,10 @@ class LoginController extends GetxController {
       remember: rememberMe.value,
       userId: session.userId,
     );
-    await _storage.trustPhone(phone);
+    final trustedDeviceToken = session.trustedDeviceToken;
+    if (trustedDeviceToken != null && trustedDeviceToken.isNotEmpty) {
+      await _storage.saveTrustedDeviceToken(phone, trustedDeviceToken);
+    }
     _session.continueAfterAuthentication();
   }
 

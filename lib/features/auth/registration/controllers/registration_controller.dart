@@ -95,6 +95,7 @@ class RegistrationController extends GetxController {
         ),
         password: _password,
         verificationToken: _verificationToken,
+        deviceId: Get.find<AuthSessionService>().deviceId,
       );
       await Get.find<AuthSessionService>().activate(
         accessToken: session.accessToken,
@@ -102,7 +103,11 @@ class RegistrationController extends GetxController {
         remember: true,
         userId: session.userId,
       );
-      await Get.find<SecureStorageService>().trustPhone(_draft.phone);
+      final trustedDeviceToken = session.trustedDeviceToken;
+      if (trustedDeviceToken != null && trustedDeviceToken.isNotEmpty) {
+        await Get.find<SecureStorageService>()
+            .saveTrustedDeviceToken(_draft.phone, trustedDeviceToken);
+      }
       Get.find<AuthSessionService>().continueAfterAuthentication();
     });
   }

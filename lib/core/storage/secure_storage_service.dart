@@ -6,6 +6,7 @@ class SecureStorageService extends GetxService {
   static const String _refreshTokenKey = 'refresh_token';
   static const String _rememberMeKey = 'remember_me';
   static const String _deviceIdKey = 'device_id';
+  static const String _userIdKey = 'authenticated_user_id';
   static const FlutterSecureStorage _storage = FlutterSecureStorage();
 
   Future<String?> get accessToken => _readSafely(_accessTokenKey);
@@ -13,6 +14,8 @@ class SecureStorageService extends GetxService {
   Future<bool> get rememberMe async =>
       await _readSafely(_rememberMeKey) == 'true';
   Future<String?> get deviceId => _readSafely(_deviceIdKey);
+  Future<int?> get authenticatedUserId async =>
+      int.tryParse(await _readSafely(_userIdKey) ?? '');
 
   Future<String?> _readSafely(String key) async {
     try {
@@ -39,22 +42,38 @@ class SecureStorageService extends GetxService {
         _storage.write(key: _refreshTokenKey, value: refreshToken),
       ]);
 
+  Future<void> replaceTokens({
+    required String accessToken,
+    required String refreshToken,
+  }) =>
+      saveTokens(accessToken: accessToken, refreshToken: refreshToken);
+
+  Future<void> saveAuthenticatedUserId(int value) =>
+      _storage.write(key: _userIdKey, value: value.toString());
+
   Future<void> setRememberMe(bool value) =>
       _storage.write(key: _rememberMeKey, value: value.toString());
 
   Future<void> saveDeviceId(String value) =>
       _storage.write(key: _deviceIdKey, value: value);
 
-  Future<bool> isTrustedPhone(String phone) async =>
-      await _storage.read(key: 'trusted_device_$phone') == 'true';
+  Future<String?> trustedDeviceToken(String phone) =>
+      _readSafely('trusted_device_token_${_safePhoneKey(phone)}');
 
-  Future<void> trustPhone(String phone) =>
-      _storage.write(key: 'trusted_device_$phone', value: 'true');
+  Future<void> saveTrustedDeviceToken(String phone, String token) =>
+      _storage.write(
+        key: 'trusted_device_token_${_safePhoneKey(phone)}',
+        value: token,
+      );
+
+  String _safePhoneKey(String phone) =>
+      phone.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
 
   Future<void> clear() => Future.wait<void>(<Future<void>>[
         _storage.delete(key: _accessTokenKey),
         _storage.delete(key: _refreshTokenKey),
         _storage.delete(key: _rememberMeKey),
+        _storage.delete(key: _userIdKey),
       ]);
 
   static Future<void> write({

@@ -35,6 +35,7 @@ class RegistrationProvider {
     required ProfileDraft profile,
     required String password,
     String? verificationToken,
+    required String deviceId,
   }) =>
       _client.dio.post<Object?>(
         ApiEndpoints.signUp,
@@ -44,6 +45,7 @@ class RegistrationProvider {
           'role': 'Customer',
           'password': password,
           'verificationToken': verificationToken,
+          'deviceId': deviceId,
           'gender': profile.gender,
           'street': profile.street,
           'city': profile.city,

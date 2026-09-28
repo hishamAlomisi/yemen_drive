@@ -14,11 +14,15 @@ class OnboardingSlide {
 
 class AuthSession {
   const AuthSession(
-      {required this.accessToken, required this.refreshToken, this.userId});
+      {required this.accessToken,
+      required this.refreshToken,
+      this.userId,
+      this.trustedDeviceToken});
 
   final String accessToken;
   final String refreshToken;
   final int? userId;
+  final String? trustedDeviceToken;
 }
 
 class SignInResult {

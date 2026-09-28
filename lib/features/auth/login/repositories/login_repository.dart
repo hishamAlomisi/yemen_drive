@@ -36,6 +36,7 @@ class ApiLoginRepository implements LoginRepository {
       accessToken: access,
       refreshToken: payload['refreshToken']?.toString() ?? '',
       userId: _userId(payload),
+      trustedDeviceToken: payload['trustedDeviceToken']?.toString(),
     );
   }
 

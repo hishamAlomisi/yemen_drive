@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
+import '../../../../core/services/auth_session_service.dart';
 
 class ChangePasswordController extends GetxController {
   ChangePasswordController(this._client);
@@ -25,18 +26,27 @@ class ChangePasswordController extends GetxController {
     if (!validPassword) return false;
     isSubmitting.value = true;
     try {
-      final result = await _client.dio
-          .post<Object?>('auth/password/change', data: <String, Object?>{
-        'currentPassword': currentPasswordController.text,
-        'newPassword': newPasswordController.text,
-      });
+      final result = await _client.dio.post<Object?>(
+        'auth/password/change',
+        data: <String, Object?>{
+          'currentPassword': currentPasswordController.text,
+          'newPassword': newPasswordController.text,
+        },
+      );
       final body = result.data;
-      if (body is Map && body['success'] == true) return true;
+      if (body is Map && body['success'] == true) {
+        await Get.find<AuthSessionService>().signOut(
+          revokeServerSession: false,
+        );
+        return true;
+      }
       final problem = body is Map
           ? ApiProblemDetails.fromJson(Map<String, Object?>.from(body))
           : null;
       Get.snackbar(
-          'تعذر التحديث', problem?.detail ?? 'تعذر تغيير كلمة المرور.');
+        'تعذر التحديث',
+        problem?.detail ?? 'تعذر تغيير كلمة المرور.',
+      );
       return false;
     } finally {
       isSubmitting.value = false;

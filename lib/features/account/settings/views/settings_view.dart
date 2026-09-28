@@ -9,11 +9,11 @@ import '../../../../../shared/widgets/app_button.dart';
 import '../../../../../shared/widgets/app_card.dart';
 import '../../../../../shared/widgets/app_text_field.dart';
 import '../../account_routes.dart';
-import '../../widgets/account_widgets.dart';
 import '../../change_password/controllers/change_password_controller.dart';
 import '../../contact/controllers/contact_controller.dart';
 import '../../delete_account/controllers/delete_account_controller.dart';
 import '../../language/controllers/language_controller.dart';
+import '../../widgets/account_widgets.dart';
 import '../controllers/settings_controller.dart';
 
 class SettingsPage extends GetView<SettingsController> {
@@ -227,8 +227,10 @@ class ChangePasswordPage extends GetView<ChangePasswordController> {
             isLoading: controller.isSubmitting.value,
             onPressed: () async {
               if (await controller.savePassword()) {
-                Get.back<void>();
-                Get.snackbar('تم التحديث', 'تغيّرت كلمة المرور بنجاح.');
+                Get.snackbar(
+                  'تم التحديث',
+                  'تغيّرت كلمة المرور. سجل الدخول مجدداً للمتابعة.',
+                );
               } else {
                 Get.snackbar(
                   'تحقق من البيانات',
