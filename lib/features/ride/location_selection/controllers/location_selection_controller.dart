@@ -31,6 +31,7 @@ class LocationController extends GetxController {
   );
   final TextEditingController toController = TextEditingController();
   final RxInt activeField = 0.obs;
+  final Rx<MapType> mapType = MapType.normal.obs;
   final RxString confirmedDestination = ''.obs;
   final Rxn<LatLng> pickup = Rxn<LatLng>();
   final Rxn<LatLng> destination = Rxn<LatLng>();
@@ -147,7 +148,7 @@ class LocationController extends GetxController {
         ..color = const ui.Color(0x3D000000);
       final fill = ui.Paint()
         ..isAntiAlias = true
-        ..color = const ui.Color(0xFF1499C5);
+        ..color = const ui.Color(0xFF087AC1);
       final tail = ui.Path()
         ..moveTo(44, 88)
         ..lineTo(27, 58)
@@ -169,7 +170,7 @@ class LocationController extends GetxController {
         23,
         ui.Paint()
           ..isAntiAlias = true
-          ..color = const ui.Color(0xFFE0F4FA),
+          ..color = const ui.Color(0xFFEAF5FF),
       );
       final value = name.trim();
       final letter = value.isEmpty ? 'م' : value.substring(0, 1);
@@ -177,7 +178,7 @@ class LocationController extends GetxController {
         text: TextSpan(
           text: letter,
           style: const TextStyle(
-            color: Color(0xFF087EA6),
+            color: Color(0xFF102C50),
             fontSize: 27,
             fontWeight: FontWeight.w800,
           ),
@@ -283,7 +284,7 @@ class LocationController extends GetxController {
         polylineId: const PolylineId('selected-route'),
         points: routePoints.toList(growable: false),
         width: 6,
-        color: const Color(0xFF1A73E8),
+        color: const Color(0xFF087AC1),
         startCap: Cap.roundCap,
         endCap: Cap.roundCap,
         jointType: JointType.round,

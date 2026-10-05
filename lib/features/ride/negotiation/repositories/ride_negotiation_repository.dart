@@ -13,7 +13,9 @@ abstract interface class RideNegotiationRepository {
     double? durationMinutes,
   });
 
-  Future<String> createRequest(RideRequestDraft draft);
+  Future<RideSearchStartResult> createRequest(RideRequestDraft draft);
+  Future<int> restartSearch(String requestId);
+  Future<void> closeSearch(String requestId, {bool exhausted = false});
   Stream<DriverOffer> watchOffers(String requestId);
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
@@ -79,7 +81,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<String> createRequest(RideRequestDraft draft) async {
+  Future<RideSearchStartResult> createRequest(RideRequestDraft draft) async {
     final result = await _client.execute<Object?>(
       model: 'RideModel',
       operation: 'add',
@@ -107,10 +109,44 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       );
     }
     final success = result as ApiSuccess<Object?>;
-    final id = _map(success.data)['id']?.toString();
-    if (id == null || id.isEmpty)
+    final body = _map(success.data);
+    final id = body['id']?.toString();
+    if (id == null || id.isEmpty) {
       throw const FormatException('لم يُرجع الخادم رقم طلب الرحلة.');
-    return id;
+    }
+    return RideSearchStartResult(
+      rideId: id,
+      recipientCount: _intOrNull(body['notifiedDriverCount']),
+    );
+  }
+
+  @override
+  Future<int> restartSearch(String requestId) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideSearchActionModel',
+      operation: 'update',
+      data: <String, Object?>{'rideId': requestId},
+    );
+    if (result is ApiFailure) {
+      throw FormatException(_failureMessage(result.problem));
+    }
+    final body = _map((result as ApiSuccess<Object?>).data);
+    return _intOrNull(body['notifiedDriverCount']) ?? 0;
+  }
+
+  @override
+  Future<void> closeSearch(String requestId, {bool exhausted = false}) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideSearchActionModel',
+      operation: 'cancel',
+      data: <String, Object?>{
+        'rideId': requestId,
+        'exhausted': exhausted,
+      },
+    );
+    if (result is ApiFailure) {
+      throw FormatException(_failureMessage(result.problem));
+    }
   }
 
   @override
@@ -312,6 +348,15 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
 
   static double _number(Object? value) =>
       value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+  static int? _intOrNull(Object? value) =>
+      value is num ? value.toInt() : int.tryParse('$value');
+
+  static String _failureMessage(ApiProblemDetails problem) {
+    final details =
+        problem.errors.values.expand((messages) => messages).join(' ');
+    return details.isNotEmpty ? details : (problem.detail ?? problem.title);
+  }
 
   static NearbyDriver? _nearbyDriver(Map<Object?, Object?> data) {
     final id = data['driverId']?.toString().trim() ?? '';

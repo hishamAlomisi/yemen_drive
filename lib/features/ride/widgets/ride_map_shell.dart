@@ -1,4 +1,4 @@
-import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -403,69 +403,39 @@ class _DefaultRideMap extends StatefulWidget {
 }
 
 class _DefaultRideMapState extends State<_DefaultRideMap> {
-  static const Duration _radarCycle = Duration(milliseconds: 2100);
-  static const int _waveCount = 3;
-  static const double _minimumRadiusMeters = 110;
-  static const double _maximumRadiusMeters = 760;
+  static const double _earthRadiusMeters = 6371000;
+  static const double _maximumRadiusMeters = 500;
 
-  Timer? _radarTimer;
-  DateTime _radarStartedAt = DateTime.now();
-  double _radarPhase = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _setRadarActive(widget.showPassengerSearchRadar);
-  }
-
-  @override
-  void didUpdateWidget(covariant _DefaultRideMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.showPassengerSearchRadar != widget.showPassengerSearchRadar) {
-      _setRadarActive(widget.showPassengerSearchRadar);
-    }
-  }
-
-  void _setRadarActive(bool active) {
-    _radarTimer?.cancel();
-    _radarTimer = null;
-    if (!active) {
-      _radarPhase = 0;
-      return;
-    }
-    _radarStartedAt = DateTime.now();
-    _radarTimer = Timer.periodic(const Duration(milliseconds: 50), (_) {
-      if (!mounted) return;
-      final elapsed = DateTime.now().difference(_radarStartedAt);
-      final nextPhase = (elapsed.inMicroseconds % _radarCycle.inMicroseconds) /
-          _radarCycle.inMicroseconds;
-      setState(() => _radarPhase = nextPhase);
-    });
-  }
-
-  Set<Circle> _radarCircles(LatLng center, Color color) {
-    if (!widget.showPassengerSearchRadar) return const <Circle>{};
-    return <Circle>{
-      for (var index = 0; index < _waveCount; index++)
-        _radarCircle(center, color, index),
-    };
-  }
-
-  Circle _radarCircle(LatLng center, Color color, int index) {
-    final progress = (_radarPhase + index / _waveCount) % 1;
-    final fade = 1 - progress;
-    final radius = _minimumRadiusMeters +
-        (_maximumRadiusMeters - _minimumRadiusMeters) * progress;
-    return Circle(
-      circleId: CircleId('passenger-search-radar-$index'),
-      center: center,
-      radius: radius,
-      strokeColor: color.withValues(alpha: .22 * fade),
-      strokeWidth: 2,
-      fillColor: color.withValues(alpha: .035 * fade),
-      consumeTapEvents: false,
+  LatLng _radarDestinationPoint(
+    LatLng origin,
+    double distanceMeters,
+    double bearingDegrees,
+  ) {
+    final latitude = origin.latitude * math.pi / 180;
+    final longitude = origin.longitude * math.pi / 180;
+    final bearing = bearingDegrees * math.pi / 180;
+    final angularDistance = distanceMeters / _earthRadiusMeters;
+    final destinationLatitude = math.asin(
+      math.sin(latitude) * math.cos(angularDistance) +
+          math.cos(latitude) * math.sin(angularDistance) * math.cos(bearing),
+    );
+    final destinationLongitude = longitude +
+        math.atan2(
+          math.sin(bearing) * math.sin(angularDistance) * math.cos(latitude),
+          math.cos(angularDistance) -
+              math.sin(latitude) * math.sin(destinationLatitude),
+        );
+    return LatLng(
+      destinationLatitude * 180 / math.pi,
+      destinationLongitude * 180 / math.pi,
     );
   }
+
+  LatLng _radarCameraTarget(LatLng pickup) => _radarDestinationPoint(
+        pickup,
+        _maximumRadiusMeters * .8,
+        180,
+      );
 
   @override
   Widget build(BuildContext context) {
@@ -479,26 +449,36 @@ class _DefaultRideMapState extends State<_DefaultRideMap> {
     return Obx(() {
       final pickup = controller.pickup.value;
       final radarColor = Theme.of(context).colorScheme.primary;
+      final radarMapPadding = widget.showPassengerSearchRadar
+          ? EdgeInsets.only(bottom: MediaQuery.sizeOf(context).height * .36)
+          : EdgeInsets.zero;
       return AppGoogleMap(
         markers: widget.showMarker || widget.showRoute
             ? controller.markers
             : const <Marker>{},
         polylines: widget.showRoute ? controller.polylines : const <Polyline>{},
-        circles: pickup == null
-            ? const <Circle>{}
-            : _radarCircles(pickup, radarColor),
-        focusBounds: widget.showRoute ? controller.selectedRouteBounds : null,
+        radarOverlay: widget.showPassengerSearchRadar && pickup != null
+            ? MapRadarOverlay(
+                center: pickup,
+                radiusMeters: _maximumRadiusMeters,
+                color: radarColor,
+              )
+            : null,
+        mapType: controller.mapType.value,
+        useModernMapStyle: true,
+        focusTarget: widget.showPassengerSearchRadar && pickup != null
+            ? _radarCameraTarget(pickup)
+            : null,
+        focusTargetZoom: 15.5,
+        focusBounds: widget.showRoute && !widget.showPassengerSearchRadar
+            ? controller.selectedRouteBounds
+            : null,
         focusBoundsPadding: 104,
+        mapPadding: radarMapPadding,
         showDemoMarker: widget.showMarker,
         showDemoRoute: widget.showRoute,
       );
     });
-  }
-
-  @override
-  void dispose() {
-    _radarTimer?.cancel();
-    super.dispose();
   }
 }
 

@@ -7,12 +7,18 @@ class RideProcessStepper extends StatelessWidget {
     required this.currentStep,
     this.steps = defaultSteps,
     this.compact = false,
+    this.surfaceColor,
+    this.foregroundColor,
+    this.activeColor,
     super.key,
   });
 
   final int currentStep;
   final List<RideProcessStep> steps;
   final bool compact;
+  final Color? surfaceColor;
+  final Color? foregroundColor;
+  final Color? activeColor;
 
   static const List<RideProcessStep> defaultSteps = <RideProcessStep>[
     RideProcessStep('الخدمة', Icons.apps_rounded),
@@ -25,13 +31,13 @@ class RideProcessStepper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final active = theme.colorScheme.primary;
-    final snackSurface = theme.snackBarTheme.backgroundColor ??
+    final active = activeColor ?? theme.colorScheme.primary;
+    final snackSurface = surfaceColor ??
+        theme.snackBarTheme.backgroundColor ??
         theme.colorScheme.inverseSurface.withValues(alpha: .92);
-    final surface = compact
-        ? snackSurface.withValues(alpha: .58)
-        : snackSurface.withValues(alpha: .88);
-    final onSurface = theme.snackBarTheme.contentTextStyle?.color ??
+    final surface = snackSurface.withValues(alpha: compact ? .58 : .88);
+    final onSurface = foregroundColor ??
+        theme.snackBarTheme.contentTextStyle?.color ??
         theme.colorScheme.onInverseSurface;
     final inactive = onSurface.withValues(alpha: .42);
     final radius = BorderRadius.circular(compact ? 11 : 14);

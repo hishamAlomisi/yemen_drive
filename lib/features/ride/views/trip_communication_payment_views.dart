@@ -165,6 +165,8 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                   polylines: controller.trackingPolylines.isNotEmpty
                       ? controller.trackingPolylines
                       : location.polylines,
+                  mapType: location.mapType.value,
+                  useModernMapStyle: true,
                   // Keep both the moving driver and the customer's pickup in
                   // view. Following the driver alone previously hid the live
                   // route and the pickup marker on longer approaches.

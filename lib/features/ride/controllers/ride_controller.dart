@@ -100,6 +100,8 @@ class RideController extends GetxController {
   StreamSubscription<Position>? _passengerPositionSubscription;
   String? _requestId;
   bool _isResumingRequest = false;
+  bool _searchMutationInProgress = false;
+  int _offersWatchGeneration = 0;
   bool _hasCheckedForOpenRide = false;
   int _catalogRequestId = 0;
   int _quoteRequestId = 0;
@@ -174,8 +176,8 @@ class RideController extends GetxController {
       isSearchingForDriver.value = true;
       offersExhausted.value = false;
       offersStreamDone.value = false;
-      driverOffers.clear();
       receivedOffersCount.value = 0;
+      driverOffers.clear();
       await _watchOffers(rideId);
       if (!isClosed) Get.offAllNamed<void>(RideRoutes.negotiationQuote);
       return;
@@ -919,7 +921,7 @@ class RideController extends GetxController {
       final markerPath = _driverMarkerPath(ui.Offset.zero);
       canvas.drawPath(
         markerPath,
-        paint..color = const ui.Color(0xFFFFA000),
+        paint..color = const ui.Color(0xFF087AC1),
       );
       canvas.drawPath(
         markerPath,
@@ -1294,15 +1296,14 @@ class RideController extends GetxController {
   }
 
   Future<void> requestRide({bool later = false}) async {
+    if (_searchMutationInProgress) return;
     if (!_session.requireAuthentication(
       returnRoute: RideRoutes.negotiationQuote,
       arguments: <String, Object?>{'resumeRequest': true},
     )) {
       return;
     }
-    // "إلغاء البحث" pauses offer collection; it does not cancel the server
-    // ride. Reuse that open request when the customer starts searching again
-    // instead of creating a duplicate ride.
+    // A stopped or exhausted search is resumed on the same server ride.
     if (_requestId != null &&
         !isSearchingForDriver.value &&
         negotiationStatus.value == NegotiationStatus.searching) {
@@ -1371,8 +1372,10 @@ class RideController extends GetxController {
       idempotencyKey: DateTime.now().microsecondsSinceEpoch.toString(),
     );
     currentDraft.value = draft;
+    _searchMutationInProgress = true;
     try {
-      _requestId = await _repository.createRequest(draft);
+      final started = await _repository.createRequest(draft);
+      _requestId = started.rideId;
     } on FormatException catch (error) {
       // Keep diagnostic output limited to non-sensitive matching identifiers.
       debugPrint(
@@ -1383,45 +1386,41 @@ class RideController extends GetxController {
       _requestId = null;
       Get.snackbar('تعذر إرسال الطلب', error.message);
       return;
+    } finally {
+      _searchMutationInProgress = false;
     }
 
-    isSearchingForDriver.value = true;
-    hasShownTripSharePrompt = false;
-    offersExhausted.value = false;
-    offersStreamDone.value = false;
-    receivedOffersCount.value = 0;
-    requestRecipients.clear();
-    _recipientTimer?.cancel();
-    var recipientIndex = 0;
-    _recipientTimer =
-        Timer.periodic(const Duration(milliseconds: 1300), (timer) {
-      if (!isSearchingForDriver.value ||
-          recipientIndex >= nearbyDrivers.length) {
-        timer.cancel();
-        return;
-      }
-      requestRecipients.add(nearbyDrivers[recipientIndex++]);
-    });
-    removingOfferIds.clear();
-    negotiationStatus.value = NegotiationStatus.searching;
-    driverOffers.clear();
+    _beginSearchCycle();
     await _watchOffers(_requestId!);
+    _updateOffersExhausted();
   }
 
   Future<void> _watchOffers(String requestId) async {
-    await _offersSubscription?.cancel();
+    final generation = ++_offersWatchGeneration;
+    final previous = _offersSubscription;
+    _offersSubscription = null;
+    if (previous != null) unawaited(previous.cancel());
     _offersSubscription = _repository.watchOffers(requestId).listen(
       (offer) {
+        if (generation != _offersWatchGeneration ||
+            !isSearchingForDriver.value) {
+          return;
+        }
         offersExhausted.value = false;
         receivedOffersCount.value++;
         driverOffers.add(offer);
       },
       onError: (_) {
+        if (generation != _offersWatchGeneration) return;
         _recipientTimer?.cancel();
         isSearchingForDriver.value = false;
         Get.snackbar('تعذر استلام العروض', 'حاول إرسال الطلب مرة أخرى.');
       },
       onDone: () {
+        if (generation != _offersWatchGeneration ||
+            !isSearchingForDriver.value) {
+          return;
+        }
         offersStreamDone.value = true;
         _updateOffersExhausted();
       },
@@ -1481,47 +1480,118 @@ class RideController extends GetxController {
   }
 
   void _updateOffersExhausted() {
-    offersExhausted.value = offersStreamDone.value && driverOffers.isEmpty;
-    if (offersExhausted.value) {
-      _recipientTimer?.cancel();
-      isSearchingForDriver.value = false;
+    if (!isSearchingForDriver.value ||
+        _searchMutationInProgress ||
+        offersExhausted.value ||
+        driverOffers.isNotEmpty ||
+        removingOfferIds.isNotEmpty) return;
+
+    // A driver who received a notification may stay silent. Recipient count
+    // and received offers therefore cannot tell us that every driver replied;
+    // the polling window is the reliable signal that this search cycle ended.
+    if (offersStreamDone.value) {
+      unawaited(_finishSearchAsExhausted());
     }
   }
 
   void acknowledgeOffersExhausted() => offersExhausted.value = false;
 
   Future<void> retryDriverSearch() async {
-    offersExhausted.value = false;
-    offersStreamDone.value = false;
+    if (_searchMutationInProgress) return;
     final requestId = _requestId;
     if (requestId == null) {
       await requestRide();
       return;
     }
-
-    // Retry observes the same still-open ride. Creating a fresh request here
-    // would duplicate a trip every time the offer polling window ends.
-    isSearchingForDriver.value = true;
-    receivedOffersCount.value = 0;
-    removingOfferIds.clear();
-    driverOffers.clear();
-    await _watchOffers(requestId);
+    _searchMutationInProgress = true;
+    var restarted = false;
+    try {
+      final location = Get.find<LocationController>().pickup.value;
+      await loadNearbyDrivers(center: location);
+      await _repository.restartSearch(requestId);
+      _beginSearchCycle();
+      await _watchOffers(requestId);
+      restarted = true;
+    } catch (error) {
+      isSearchingForDriver.value = false;
+      Get.snackbar('تعذر إعادة البحث', _searchErrorMessage(error));
+    } finally {
+      _searchMutationInProgress = false;
+    }
+    if (restarted) _updateOffersExhausted();
   }
 
   Future<void> cancelDriverSearch() async {
-    // This action only pauses the search UI. The ride remains open so the
-    // customer can press the button again and continue searching on the same
-    // request without creating or cancelling a trip.
+    if (_searchMutationInProgress) return;
+    _searchMutationInProgress = true;
     offersExhausted.value = false;
     offersStreamDone.value = false;
+    receivedOffersCount.value = 0;
     driverOffers.clear();
     requestRecipients.clear();
     _recipientTimer?.cancel();
-    await _offersSubscription?.cancel();
-    _offersSubscription = null;
     isSearchingForDriver.value = false;
+    final subscription = _offersSubscription;
+    _offersSubscription = null;
+    ++_offersWatchGeneration;
+    if (subscription != null) unawaited(subscription.cancel());
     negotiationStatus.value = NegotiationStatus.searching;
+    try {
+      final requestId = _requestId;
+      if (requestId != null) await _repository.closeSearch(requestId);
+    } catch (error) {
+      Get.snackbar('تعذر إيقاف البحث', _searchErrorMessage(error));
+    } finally {
+      _searchMutationInProgress = false;
+    }
   }
+
+  void _beginSearchCycle() {
+    isSearchingForDriver.value = true;
+    hasShownTripSharePrompt = false;
+    offersExhausted.value = false;
+    offersStreamDone.value = false;
+    requestRecipients.clear();
+    _recipientTimer?.cancel();
+    var recipientIndex = 0;
+    _recipientTimer =
+        Timer.periodic(const Duration(milliseconds: 1300), (timer) {
+      if (!isSearchingForDriver.value ||
+          recipientIndex >= nearbyDrivers.length) {
+        timer.cancel();
+        return;
+      }
+      requestRecipients.add(nearbyDrivers[recipientIndex++]);
+    });
+    removingOfferIds.clear();
+    negotiationStatus.value = NegotiationStatus.searching;
+    driverOffers.clear();
+  }
+
+  Future<void> _finishSearchAsExhausted() async {
+    if (!isSearchingForDriver.value || _searchMutationInProgress) return;
+    _searchMutationInProgress = true;
+    isSearchingForDriver.value = false;
+    _recipientTimer?.cancel();
+    final subscription = _offersSubscription;
+    _offersSubscription = null;
+    ++_offersWatchGeneration;
+    if (subscription != null) unawaited(subscription.cancel());
+    try {
+      final requestId = _requestId;
+      if (requestId != null) {
+        await _repository.closeSearch(requestId, exhausted: true);
+      }
+    } catch (error) {
+      Get.snackbar('تعذر إغلاق البحث', _searchErrorMessage(error));
+    } finally {
+      offersExhausted.value = true;
+      _searchMutationInProgress = false;
+    }
+  }
+
+  String _searchErrorMessage(Object error) =>
+      error is FormatException ? error.message.toString() : error.toString();
 
   Future<void> cancelActiveRide(String reason) async {
     final requestId = _requestId;
@@ -1576,12 +1646,13 @@ class RideController extends GetxController {
       }
       final payments = detail['payments'];
       activeRidePaymentCompleted.value = detail['paymentCompleted'] == true ||
-          (payments is List && payments.any((raw) {
-            if (raw is! Map) return false;
-            final payment = Map<Object?, Object?>.from(raw);
-            final status = '${payment['status'] ?? ''}'.toLowerCase();
-            return status == '2' || status == 'paid';
-          }));
+          (payments is List &&
+              payments.any((raw) {
+                if (raw is! Map) return false;
+                final payment = Map<Object?, Object?>.from(raw);
+                final status = '${payment['status'] ?? ''}'.toLowerCase();
+                return status == '2' || status == 'paid';
+              }));
       final approval = detail['cashCollectionApproval'];
       cashCollectionApproval.value =
           approval is Map ? Map<String, Object?>.from(approval) : null;

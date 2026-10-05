@@ -102,6 +102,16 @@ class RideRequestDraft {
       };
 }
 
+class RideSearchStartResult {
+  const RideSearchStartResult({
+    required this.rideId,
+    required this.recipientCount,
+  });
+
+  final String rideId;
+  final int? recipientCount;
+}
+
 class NearbyDriver {
   const NearbyDriver({
     required this.id,

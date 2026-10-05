@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../../app/theme/app_spacing.dart';
-import '../../../../shared/widgets/app_button.dart';
-import '../../widgets/auth_form_page.dart';
+import '../../widgets/auth_otp_page.dart';
 import '../../widgets/otp_code_field.dart';
 import '../controllers/registration_controller.dart';
 
@@ -21,26 +19,19 @@ class _RegistrationOtpViewState extends State<RegistrationOtpView> {
 
   @override
   Widget build(BuildContext context) => Obx(
-        () => AuthFormPage(
+        () => AuthOtpPage(
           title: 'otp_title'.tr,
           subtitle: 'otp_subtitle'.tr,
-          footer: AppButton(
-            label: 'verify'.tr,
-            isLoading: controller.isLoading.value,
-            onPressed: () => controller.verifyOtp(_code),
+          isLoading: controller.isLoading.value,
+          onVerify: () => controller.verifyOtp(_code),
+          codeField: OtpCodeField(
+            initialCode: widget.initialCode,
+            onChanged: (value) => _code = value,
           ),
-          children: <Widget>[
-            OtpCodeField(
-              initialCode: widget.initialCode,
-              onChanged: (value) => _code = value,
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            TextButton(
-              onPressed:
-                  controller.isLoading.value ? null : controller.resendOtp,
-              child: Text('resend'.tr),
-            ),
-          ],
+          resendAction: TextButton(
+            onPressed: controller.isLoading.value ? null : controller.resendOtp,
+            child: Text('resend'.tr),
+          ),
         ),
       );
 }

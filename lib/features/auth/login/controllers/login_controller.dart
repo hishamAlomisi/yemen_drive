@@ -16,6 +16,7 @@ class LoginController extends GetxController {
   final signInIdentityController = TextEditingController();
   final signInPasswordController = TextEditingController();
   final isLoading = false.obs;
+  final otpFieldRevision = 0.obs;
   final rememberMe = false.obs;
   final obscurePassword = true.obs;
   final signInCountry = PhoneCountry.yemen.obs;
@@ -31,17 +32,20 @@ class LoginController extends GetxController {
   void selectCountry(PhoneCountry value) => signInCountry.value = value;
 
   Future<void> submit() async {
-    if (!(signInFormKey.currentState?.validate() ?? false) || isLoading.value)
+    if (!(signInFormKey.currentState?.validate() ?? false) || isLoading.value) {
       return;
+    }
     final phone =
         _normalize(signInIdentityController.text, signInCountry.value);
     await _run(() async {
-      final result = await _repository.login(LoginRequest(
-        phone: phone.replaceAll('+', ''),
-        password: signInPasswordController.text,
-        deviceId: _session.deviceId,
-        trustedDeviceToken: await _storage.trustedDeviceToken(phone),
-      ));
+      final result = await _repository.login(
+        LoginRequest(
+          phone: phone.replaceAll('+', ''),
+          password: signInPasswordController.text,
+          deviceId: _session.deviceId,
+          trustedDeviceToken: await _storage.trustedDeviceToken(phone),
+        ),
+      );
       if (result.requiresOtp) {
         _pendingPhone = phone.replaceAll('+', '');
         _challengeId = result.challengeId ?? '';
@@ -55,12 +59,49 @@ class LoginController extends GetxController {
   Future<void> verifyDeviceOtp(String code) async {
     if (code.length != 6 || isLoading.value) return;
     await _run(() async {
-      final session = await _repository.verifyDeviceOtp(DeviceOtpRequest(
-        phone: _pendingPhone,
-        code: code,
-        challengeId: _challengeId,
-        deviceId: _session.deviceId,
-      ));
+      final session = await _repository.verifyDeviceOtp(
+        DeviceOtpRequest(
+          phone: _pendingPhone,
+          code: code,
+          challengeId: _challengeId,
+          deviceId: _session.deviceId,
+        ),
+      );
+      await _activate(session, _pendingPhone);
+    });
+  }
+
+  Future<void> resendDeviceOtp() async {
+    if (isLoading.value) return;
+    if (_pendingPhone.isEmpty || signInPasswordController.text.isEmpty) {
+      Get.snackbar('request_failed'.tr, 'try_again'.tr);
+      return;
+    }
+
+    await _run(() async {
+      final result = await _repository.login(
+        LoginRequest(
+          phone: _pendingPhone,
+          password: signInPasswordController.text,
+          deviceId: _session.deviceId,
+          trustedDeviceToken: await _storage.trustedDeviceToken(_pendingPhone),
+        ),
+      );
+      if (result.requiresOtp) {
+        final challengeId = result.challengeId;
+        if (challengeId == null || challengeId.isEmpty) {
+          throw const FormatException('تعذر إصدار رمز تحقق جديد.');
+        }
+        _challengeId = challengeId;
+        otpFieldRevision.value++;
+        Get.snackbar('app_name'.tr, 'code_resent'.tr);
+        return;
+      }
+
+      final session = result.session;
+      if (session == null) {
+        throw const FormatException('تعذر متابعة تسجيل الدخول.');
+      }
       await _activate(session, _pendingPhone);
     });
   }

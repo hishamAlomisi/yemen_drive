@@ -52,7 +52,11 @@ class AuthSessionService extends GetxService {
       operation: 'get',
       data: const <String, Object?>{},
     );
-    if (result is ApiSuccess) return;
+    if (result is ApiSuccess<Object?>) {
+      if (_hasExpectedAccountType(result.data)) return;
+      await _clearLocalSession(navigate: false);
+      return;
+    }
 
     final failure = result as ApiFailure<Object?>;
     // Do not sign a customer out solely because the device is temporarily
@@ -62,10 +66,14 @@ class AuthSessionService extends GetxService {
         failure.problem.code == 'invalid_response') {
       return;
     }
-    await _storage.clear();
-    isAuthenticated.value = false;
-    currentUserId.value = null;
-    rememberLogin.value = false;
+    await _clearLocalSession(navigate: false);
+  }
+
+  bool _hasExpectedAccountType(Object? value) {
+    if (value is! Map) return false;
+    final role = value['role'] ?? value['Role'];
+    if (role is num) return role.toInt() == 0;
+    return role?.toString().toLowerCase() == 'customer';
   }
 
   Future<void> activate({

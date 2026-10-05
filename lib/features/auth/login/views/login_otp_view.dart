@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../../app/theme/app_spacing.dart';
-import '../../../../shared/widgets/app_button.dart';
-import '../../widgets/auth_form_page.dart';
+import '../../widgets/auth_otp_page.dart';
 import '../../widgets/otp_code_field.dart';
 import '../controllers/login_controller.dart';
 
@@ -20,20 +18,22 @@ class _LoginOtpViewState extends State<LoginOtpView> {
 
   @override
   Widget build(BuildContext context) => Obx(
-        () => AuthFormPage(
+        () => AuthOtpPage(
           title: 'التحقق من الجهاز الجديد',
           subtitle: 'otp_sent_to'.trParams(
             <String, String>{'contact': controller.maskedDevicePhone},
           ),
-          footer: AppButton(
-            label: 'verify'.tr,
-            isLoading: controller.isLoading.value,
-            onPressed: () => controller.verifyDeviceOtp(_code),
+          isLoading: controller.isLoading.value,
+          onVerify: () => controller.verifyDeviceOtp(_code),
+          codeField: OtpCodeField(
+            key: ValueKey<int>(controller.otpFieldRevision.value),
+            onChanged: (value) => _code = value,
           ),
-          children: <Widget>[
-            OtpCodeField(onChanged: (value) => _code = value),
-            const SizedBox(height: AppSpacing.sm),
-          ],
+          resendAction: TextButton(
+            onPressed:
+                controller.isLoading.value ? null : controller.resendDeviceOtp,
+            child: Text('resend'.tr),
+          ),
         ),
       );
 }

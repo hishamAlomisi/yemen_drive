@@ -51,37 +51,38 @@ class _ConfiguredApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final localeService = Get.find<LocaleService>();
     final themeService = Get.find<ThemeService>();
-    return Obx(() => GetMaterialApp(
-          title: 'يمن درايف',
-          debugShowCheckedModeBanner: false,
-          initialBinding: InitialBinding(),
-          initialRoute: AuthRoutes.splash,
-          getPages: AppPages.pages,
-          translations: AppTranslations(),
-          locale: localeService.locale.value,
-          fallbackLocale: EasyRideApp.fallbackLocale,
-          supportedLocales: EasyRideApp.supportedLocales,
-          localizationsDelegates: GlobalMaterialLocalizations.delegates,
-          theme: AppTheme.lightFor(palette: themeService.palette.value),
-          darkTheme: AppTheme.darkFor(palette: themeService.palette.value),
-          themeMode: themeService.mode.value,
-          defaultTransition: Transition.cupertino,
-          transitionDuration: const Duration(milliseconds: 260),
-          builder: (context, child) => Directionality(
-            textDirection: _textDirectionFor(
-              Localizations.maybeLocaleOf(context) ??
-                  localeService.locale.value,
-            ),
-            child: MediaQuery(
-              data: MediaQuery.of(context).copyWith(
-                textScaler: MediaQuery.textScalerOf(
-                  context,
-                ).clamp(minScaleFactor: .85, maxScaleFactor: 1.35),
-              ),
-              child: child ?? const SizedBox.shrink(),
-            ),
+    return Obx(
+      () => GetMaterialApp(
+        title: 'يمن درايف',
+        debugShowCheckedModeBanner: false,
+        initialBinding: InitialBinding(),
+        initialRoute: AuthRoutes.splash,
+        getPages: AppPages.pages,
+        translations: AppTranslations(),
+        locale: localeService.locale.value,
+        fallbackLocale: EasyRideApp.fallbackLocale,
+        supportedLocales: EasyRideApp.supportedLocales,
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        theme: AppTheme.lightFor(palette: themeService.palette.value),
+        darkTheme: AppTheme.darkFor(palette: themeService.palette.value),
+        themeMode: themeService.mode.value,
+        defaultTransition: Transition.cupertino,
+        transitionDuration: const Duration(milliseconds: 260),
+        builder: (context, child) => Directionality(
+          textDirection: _textDirectionFor(
+            Localizations.maybeLocaleOf(context) ?? localeService.locale.value,
           ),
-        ),);
+          child: MediaQuery(
+            data: MediaQuery.of(context).copyWith(
+              textScaler: MediaQuery.textScalerOf(
+                context,
+              ).clamp(minScaleFactor: .85, maxScaleFactor: 1.35),
+            ),
+            child: child ?? const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
   }
 
   TextDirection _textDirectionFor(Locale locale) =>

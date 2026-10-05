@@ -12,10 +12,10 @@ abstract final class AppTheme {
       _build(
         brightness: Brightness.light,
         palette: palette,
-        background: AppColors.lightBackground,
-        surface: AppColors.lightSurface,
-        onSurface: AppColors.lightText,
-        muted: AppColors.lightMuted,
+        background: palette.colors.lightBackground ?? AppColors.lightBackground,
+        surface: palette.colors.lightSurface ?? AppColors.lightSurface,
+        onSurface: palette.colors.lightText ?? AppColors.lightText,
+        muted: palette.colors.lightMuted ?? AppColors.lightMuted,
       );
 
   static ThemeData get dark => darkFor();
@@ -26,10 +26,10 @@ abstract final class AppTheme {
       _build(
         brightness: Brightness.dark,
         palette: palette,
-        background: AppColors.darkBackground,
-        surface: AppColors.darkSurface,
-        onSurface: AppColors.darkText,
-        muted: AppColors.darkMuted,
+        background: palette.colors.darkBackground ?? AppColors.darkBackground,
+        surface: palette.colors.darkSurface ?? AppColors.darkSurface,
+        onSurface: palette.colors.darkText ?? AppColors.darkText,
+        muted: palette.colors.darkMuted ?? AppColors.darkMuted,
       );
 
   static ThemeData _build({
@@ -41,6 +41,7 @@ abstract final class AppTheme {
     required Color muted,
   }) {
     final colors = palette.colors;
+    final border = colors.border ?? onSurface.withValues(alpha: .16);
     final colorScheme = ColorScheme.fromSeed(
       seedColor: colors.primary,
       brightness: brightness,
@@ -98,11 +99,11 @@ abstract final class AppTheme {
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: onSurface.withValues(alpha: .16)),
+          borderSide: BorderSide(color: border),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: onSurface.withValues(alpha: .16)),
+          borderSide: BorderSide(color: border),
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -113,7 +114,9 @@ abstract final class AppTheme {
           borderSide: const BorderSide(color: AppColors.error),
         ),
       ),
-      dividerColor: onSurface.withValues(alpha: .10),
+      dividerColor: colors.border == null
+          ? onSurface.withValues(alpha: .10)
+          : border.withValues(alpha: .55),
       snackBarTheme: SnackBarThemeData(
         backgroundColor: surface.withValues(alpha: .94),
         contentTextStyle: TextStyle(color: onSurface),
@@ -146,7 +149,11 @@ abstract final class AppTheme {
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
-          side: BorderSide(color: onSurface.withValues(alpha: .08)),
+          side: BorderSide(
+            color: colors.border == null
+                ? onSurface.withValues(alpha: .08)
+                : border.withValues(alpha: .72),
+          ),
         ),
       ),
     );

@@ -17,6 +17,7 @@ class LoginProvider {
           'password': request.password,
           'deviceId': request.deviceId,
           'trustedDeviceToken': request.trustedDeviceToken,
+          'clientType': 'customer',
         },
       );
 
@@ -28,6 +29,7 @@ class LoginProvider {
           'code': request.code,
           'challengeId': request.challengeId,
           'deviceId': request.deviceId,
+          'clientType': 'customer',
         },
       );
 }

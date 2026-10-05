@@ -7,6 +7,7 @@ class AppTranslations extends Translations {
         'ar_SA': <String, String>{
           'app_name': 'يمن درايف',
           'app_tagline': 'رحلتك أسهل وأقرب',
+          'notifications': 'الإشعارات',
           'back': 'رجوع',
           'skip': 'تخطي',
           'next': 'التالي',
@@ -191,6 +192,7 @@ class AppTranslations extends Translations {
         'en_US': <String, String>{
           'app_name': 'Yemen Drive',
           'app_tagline': 'Your ride, made easier',
+          'notifications': 'Notifications',
           'back': 'Back',
           'skip': 'Skip',
           'next': 'Next',

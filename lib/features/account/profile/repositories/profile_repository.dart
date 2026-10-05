@@ -1,5 +1,8 @@
+import 'package:get/get.dart';
+
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
+import '../../../../core/services/auth_session_service.dart';
 
 class ProfileData {
   const ProfileData(
@@ -34,7 +37,13 @@ class ApiProfileRepository implements ProfileRepository {
   Future<ProfileData> get() async {
     final result = await _client
         .execute<Object?>(model: 'UserModel', operation: 'get', data: const {});
-    if (result is! ApiSuccess) throw StateError('تعذر تحميل الملف الشخصي.');
+
+    if (result is! ApiSuccess){
+
+      throw StateError('تعذر تحميل الملف الشخصي.');
+
+    }
+
     return _parse(result.data);
   }
 
