@@ -47,19 +47,20 @@ class RouteFieldsCard extends GetView<LocationController> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    if (compact) return _buildCompactFields(context);
+
     final content = AppCard(
       color: cardColor,
       borderColor: cardBorderColor,
-      padding: EdgeInsets.all(compact ? 6 : AppSpacing.sm),
+      padding: const EdgeInsets.all(AppSpacing.sm),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Padding(
-            padding: EdgeInsets.only(top: compact ? 10 : 15),
-            child: _RouteIndicator(compact: compact),
+          const Padding(
+            padding: EdgeInsets.only(top: 15),
+            child: _RouteIndicator(),
           ),
-          SizedBox(width: compact ? 6 : AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           Expanded(
             child: Column(
               children: <Widget>[
@@ -75,7 +76,11 @@ class RouteFieldsCard extends GetView<LocationController> {
                       (allowEditing
                           ? null
                           : () => controller.startSearch(field: 0)),
-                  prefixIcon: Icon(Icons.my_location_rounded, size: 19),
+                  prefixIcon: const _RouteFieldMarkerIcon(
+                    icon: Icons.my_location_rounded,
+                    foreground: Color(0xFF18865A),
+                    background: Color(0xFFE7F5EE),
+                  ),
                   // In the Arabic (RTL) interface the suffix is rendered on
                   // the left, which keeps the map-point icon on the right.
                   suffixIcon: _ClearLocationFieldButton(
@@ -83,7 +88,7 @@ class RouteFieldsCard extends GetView<LocationController> {
                     onPressed: onClearFrom,
                   ),
                 ),
-                SizedBox(height: compact ? 6 : AppSpacing.sm),
+                const SizedBox(height: AppSpacing.sm),
                 AppTextField(
                   controller: controller.toController,
                   hint: 'إلى أين؟',
@@ -96,7 +101,11 @@ class RouteFieldsCard extends GetView<LocationController> {
                       (allowEditing
                           ? null
                           : () => controller.startSearch(field: 1)),
-                  prefixIcon: Icon(Icons.location_on_outlined, size: 20),
+                  prefixIcon: const _RouteFieldMarkerIcon(
+                    icon: Icons.location_on_rounded,
+                    foreground: Color(0xFFE54C5B),
+                    background: Color(0xFFFFECEE),
+                  ),
                   suffixIcon: _ClearLocationFieldButton(
                     textController: controller.toController,
                     onPressed: onClearTo,
@@ -108,20 +117,205 @@ class RouteFieldsCard extends GetView<LocationController> {
         ],
       ),
     );
-    if (!compact) return content;
-    return Theme(
-      data: theme.copyWith(
-        inputDecorationTheme: theme.inputDecorationTheme.copyWith(
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 12,
-            vertical: 10,
+    return content;
+  }
+
+  Widget _buildCompactFields(BuildContext context) => Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _CompactRouteField(
+            textController: controller.fromController,
+            focusNode: fromFocusNode,
+            label: 'من',
+            hint: 'حدد نقطة الانطلاق',
+            marker: const _RouteFieldMarkerIcon(
+              icon: Icons.my_location_rounded,
+              foreground: Color(0xFF18865A),
+              background: Color(0xFFE7F5EE),
+            ),
+            actionIcon: Icons.gps_fixed_rounded,
+            actionTooltip: 'نقطة الانطلاق',
+            onActivate: onFromTap,
+            onChanged: onFromChanged,
+            onSubmitted: onFromSubmitted,
+            onClear: onClearFrom ?? () => controller.clearRouteField(0),
+            fillColor: cardColor ?? Colors.white,
+            borderColor: cardBorderColor ?? const Color(0xFFE2EAF1),
           ),
-          isDense: true,
-        ),
+          const SizedBox(height: 7),
+          _CompactRouteField(
+            textController: controller.toController,
+            focusNode: toFocusNode,
+            label: 'إلى',
+            hint: 'أدخل وجهتك',
+            marker: const _RouteFieldMarkerIcon(
+              icon: Icons.location_on_rounded,
+              foreground: Color(0xFFE54C5B),
+              background: Color(0xFFFFECEE),
+            ),
+            actionIcon: Icons.location_on_outlined,
+            actionTooltip: 'الوجهة',
+            onActivate: onToTap,
+            onChanged: onToChanged,
+            onSubmitted: onToSubmitted,
+            onClear: onClearTo ?? () => controller.clearRouteField(1),
+            fillColor: const Color(0xFFF5F8FB),
+            borderColor: const Color(0xFFE2EAF1),
+          ),
+        ],
+      );
+}
+
+class _CompactRouteField extends StatelessWidget {
+  const _CompactRouteField({
+    required this.textController,
+    required this.label,
+    required this.hint,
+    required this.marker,
+    required this.actionIcon,
+    required this.actionTooltip,
+    required this.onClear,
+    required this.fillColor,
+    required this.borderColor,
+    this.focusNode,
+    this.onActivate,
+    this.onChanged,
+    this.onSubmitted,
+  });
+
+  final TextEditingController textController;
+  final FocusNode? focusNode;
+  final String label;
+  final String hint;
+  final Widget marker;
+  final IconData actionIcon;
+  final String actionTooltip;
+  final VoidCallback? onActivate;
+  final ValueChanged<String>? onChanged;
+  final ValueChanged<String>? onSubmitted;
+  final VoidCallback onClear;
+  final Color fillColor;
+  final Color borderColor;
+
+  void _activate() {
+    onActivate?.call();
+    focusNode?.requestFocus();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Container(
+      height: 48,
+      padding: const EdgeInsetsDirectional.fromSTEB(6, 3, 7, 3),
+      decoration: BoxDecoration(
+        color: fillColor,
+        borderRadius: BorderRadius.circular(17),
+        border: Border.all(color: borderColor),
       ),
-      child: content,
+      child: Row(
+        children: <Widget>[
+          marker,
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Text(
+                  label,
+                  style: textTheme.labelSmall?.copyWith(
+                    color: const Color(0xFF8094A8),
+                    fontSize: 10,
+                    height: 1.1,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                TextField(
+                  controller: textController,
+                  focusNode: focusNode,
+                  textInputAction: label == 'من'
+                      ? TextInputAction.next
+                      : TextInputAction.search,
+                  onTap: onActivate,
+                  onChanged: onChanged,
+                  onSubmitted: onSubmitted,
+                  maxLines: 1,
+                  style: textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF102C50),
+                    fontSize: 14,
+                    height: 1.2,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  decoration: InputDecoration(
+                    filled: false,
+                    hintText: hint,
+                    hintStyle: textTheme.bodyMedium?.copyWith(
+                      color: const Color(0xFF8094A8),
+                      fontSize: 14,
+                      height: 1.2,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    disabledBorder: InputBorder.none,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 32, height: 34),
+            padding: EdgeInsets.zero,
+            tooltip: actionTooltip,
+            onPressed: _activate,
+            icon: Icon(actionIcon, size: 19, color: const Color(0xFF52677C)),
+          ),
+          IconButton(
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 30, height: 34),
+            padding: EdgeInsets.zero,
+            tooltip: 'مسح والبحث من جديد',
+            onPressed: onClear,
+            icon: const Icon(
+              Icons.close_rounded,
+              size: 19,
+              color: Color(0xFF5B6C7D),
+            ),
+          ),
+        ],
+      ),
     );
   }
+}
+
+class _RouteFieldMarkerIcon extends StatelessWidget {
+  const _RouteFieldMarkerIcon({
+    required this.icon,
+    required this.foreground,
+    required this.background,
+  });
+
+  final IconData icon;
+  final Color foreground;
+  final Color background;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: 34,
+        height: 34,
+        margin: const EdgeInsetsDirectional.only(start: 7, end: 4),
+        decoration: BoxDecoration(
+          color: background,
+          shape: BoxShape.circle,
+          border: Border.all(color: foreground.withValues(alpha: .15)),
+        ),
+        child: Icon(icon, size: 19, color: foreground),
+      );
 }
 
 class _ClearLocationFieldButton extends StatelessWidget {
@@ -151,7 +345,14 @@ class _ClearLocationFieldButton extends StatelessWidget {
 }
 
 class InteractiveRouteFieldsOverlay extends StatefulWidget {
-  const InteractiveRouteFieldsOverlay({super.key});
+  const InteractiveRouteFieldsOverlay({
+    this.cardColor = const Color(0xF7FFFFFF),
+    this.cardBorderColor = const Color(0xFFD2E3F0),
+    super.key,
+  });
+
+  final Color cardColor;
+  final Color cardBorderColor;
 
   @override
   State<InteractiveRouteFieldsOverlay> createState() =>
@@ -414,8 +615,8 @@ class _InteractiveRouteFieldsOverlayState
         child: RouteFieldsCard(
           allowEditing: true,
           compact: true,
-          cardColor: const Color(0xD92D355E),
-          cardBorderColor: const Color(0x667E89B8),
+          cardColor: widget.cardColor,
+          cardBorderColor: widget.cardBorderColor,
           fromFocusNode: _fromFocus,
           toFocusNode: _toFocus,
           onFromTap: () => _activate(0),
@@ -711,9 +912,7 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
 }
 
 class _RouteIndicator extends StatelessWidget {
-  const _RouteIndicator({this.compact = false});
-
-  final bool compact;
+  const _RouteIndicator();
 
   @override
   Widget build(BuildContext context) {
@@ -724,7 +923,7 @@ class _RouteIndicator extends StatelessWidget {
       final isRouteReady = controller.canContinueLocationFlow;
       return SizedBox(
         width: 18,
-        height: compact ? 62 : 76,
+        height: 76,
         child: Column(
           children: <Widget>[
             Icon(Icons.circle, size: 11, color: AppColors.primaryDark),

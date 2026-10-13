@@ -40,6 +40,10 @@ class SafetyRecordingController extends GetxController {
     isWorking.value = true;
     error.value = '';
     try {
+      if (!await _recorder.hasPermission()) {
+        error.value = 'لم تُمنح صلاحية الميكروفون لتسجيل السلامة.';
+        return false;
+      }
       final created = await _api.execute<Object?>(
         model: 'SafetyRecordingModel',
         operation: 'add',
@@ -54,11 +58,6 @@ class SafetyRecordingController extends GetxController {
         error.value = 'تعذر إنشاء جلسة تسجيل السلامة.';
         return false;
       }
-      if (!await _recorder.hasPermission()) {
-        error.value = 'لم تُمنح صلاحية الميكروفون لتسجيل السلامة.';
-        return false;
-      }
-
       _recordingId = id;
       _nextSequence = 0;
       _buffer.clear();
@@ -81,6 +80,26 @@ class SafetyRecordingController extends GetxController {
       );
       return true;
     } on Object {
+      final recordingId = _recordingId;
+      if (recordingId != null) {
+        try {
+          await _audioSubscription?.cancel();
+        } on Object {
+          // Continue sealing the server session even if stream cancellation fails.
+        }
+        _audioSubscription = null;
+        try {
+          await _recorder.stop();
+        } on Object {
+          // The recorder may not have started if stream creation failed.
+        }
+        try {
+          await _finalizeRemote();
+        } on Object {
+          // A later start seals an incomplete session if the network is down.
+        }
+        _recordingId = null;
+      }
       error.value = 'تعذر بدء تسجيل السلامة. تحقق من الاتصال ثم حاول مجدداً.';
       return false;
     } finally {

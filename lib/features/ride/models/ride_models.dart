@@ -102,6 +102,16 @@ class RideRequestDraft {
       };
 }
 
+class RideSearchStartResult {
+  const RideSearchStartResult({
+    required this.rideId,
+    required this.recipientCount,
+  });
+
+  final String rideId;
+  final int? recipientCount;
+}
+
 class NearbyDriver {
   const NearbyDriver({
     required this.id,
@@ -262,11 +272,15 @@ class RecentPlace {
 
 class RideChatMessage {
   const RideChatMessage({
+    required this.id,
+    required this.createdAtUtc,
     required this.text,
     required this.timeLabel,
     required this.isMine,
   });
 
+  final int id;
+  final String createdAtUtc;
   final String text;
   final String timeLabel;
   final bool isMine;

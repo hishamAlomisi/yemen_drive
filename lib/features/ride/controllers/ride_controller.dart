@@ -11,18 +11,20 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/config/app_environment.dart';
+import '../../../core/network/api_client.dart';
+import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/ride_preferences.dart';
 import '../../account/account_routes.dart';
 import '../home/repositories/service_kind_repository.dart';
-import '../negotiation/repositories/ride_negotiation_repository.dart';
-import '../vehicle_selection/repositories/service_catalog_repository.dart';
-import '../models/ride_models.dart';
-import '../models/service_kind_models.dart';
-import '../ride_routes.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
 import '../location_selection/repositories/route_repository.dart';
+import '../models/ride_models.dart';
+import '../models/service_kind_models.dart';
+import '../negotiation/repositories/ride_negotiation_repository.dart';
+import '../ride_routes.dart';
+import '../vehicle_selection/repositories/service_catalog_repository.dart';
 
 class RideController extends GetxController {
   RideController(this._repository, this._session,
@@ -65,6 +67,7 @@ class RideController extends GetxController {
   final RxBool customerPaymentEnabled = false.obs;
   final Rxn<Map<String, Object?>> cashCollectionApproval =
       Rxn<Map<String, Object?>>();
+  final RxnInt cashShortfallApprovalToOpen = RxnInt();
   final RxString cancellationReason = ''.obs;
   final Rx<NegotiationStatus> negotiationStatus = NegotiationStatus.idle.obs;
   final RxString quoteError = ''.obs;
@@ -94,12 +97,26 @@ class RideController extends GetxController {
       Rxn<DriverTrackingSnapshot>();
   final Rxn<RideCoordinate> trackedPassenger = Rxn<RideCoordinate>();
   final RxList<LatLng> trackingRoutePoints = <LatLng>[].obs;
-  StreamSubscription<DriverOffer>? _offersSubscription;
+  final RxInt trackingRouteDistanceMeters = 0.obs;
+  final RxInt trackingRouteDurationSeconds = 0.obs;
+  final RxString trackingNextStepInstruction = ''.obs;
+  final RxString trackingNextManeuver = ''.obs;
+  final RxInt trackingNextStepDistanceMeters = 0.obs;
+  StreamSubscription<TrackingHubEvent>? _hubEventSubscription;
+  StreamSubscription<void>? _hubConnectionSubscription;
   Timer? _trackingTimer;
   Timer? _recipientTimer;
+  Timer? _offersDeadlineTimer;
   StreamSubscription<Position>? _passengerPositionSubscription;
+  Timer? _driverMarkerAnimationTimer;
+  DriverTrackingSnapshot? _driverAnimationStart;
+  DriverTrackingSnapshot? _driverAnimationTarget;
+  DateTime? _driverAnimationStartedAt;
+  Duration _driverAnimationDuration = const Duration(milliseconds: 1500);
   String? _requestId;
   bool _isResumingRequest = false;
+  bool _searchMutationInProgress = false;
+  int _offersWatchGeneration = 0;
   bool _hasCheckedForOpenRide = false;
   int _catalogRequestId = 0;
   int _quoteRequestId = 0;
@@ -122,12 +139,93 @@ class RideController extends GetxController {
     unawaited(loadServiceCatalog());
     unawaited(_loadHomeServices());
     unawaited(_loadTrackingIcons());
+    if (Get.isRegistered<TrackingHubService>()) {
+      final hub = Get.find<TrackingHubService>();
+      _hubEventSubscription = hub.events.listen(_handleHubEvent);
+      _hubConnectionSubscription = hub.connectionRestored.listen((_) {
+        final rideId = _requestId;
+        if (rideId != null && isSearchingForDriver.value) {
+          unawaited(
+            _refreshSearchSnapshotSafely(rideId, _offersWatchGeneration),
+          );
+        } else if (rideId != null) {
+          unawaited(refreshActiveRide());
+        }
+      });
+    }
   }
 
   @override
   void onReady() {
     super.onReady();
+    final arguments = Get.arguments;
+    if (arguments is Map && arguments['pushNotification'] is Map) return;
     unawaited(restoreOpenRideOnLaunch());
+  }
+
+  /// Handles only the fixed notification actions defined by the application.
+  /// The server supplies identifiers, never Flutter route names.
+  Future<void> openNotificationPayload(Map<String, String> payload) async {
+    final notificationId = payload['notificationId'];
+    final action = payload['action']?.trim().toLowerCase();
+    final rideId = payload['rideId']?.trim();
+    try {
+      if (action == 'open_notifications') {
+        await _markNotificationRead(notificationId);
+        Get.offAllNamed<void>(RideRoutes.notifications, arguments: payload);
+        return;
+      }
+      if (_opensWallet(action, payload)) {
+        await _markNotificationRead(notificationId);
+        Get.offAllNamed<void>(AccountRoutes.wallet, arguments: payload);
+        return;
+      }
+
+      if (rideId != null && rideId.isNotEmpty) {
+        await resumeOpenRide(rideId);
+        await _markNotificationRead(notificationId);
+        if (action == 'open_ride_chat') {
+          Get.toNamed<void>(RideRoutes.chat, arguments: payload);
+        } else if (action == 'open_ride_payment') {
+          Get.toNamed<void>(RideRoutes.payment, arguments: payload);
+        } else if (action == 'approve_cash_shortfall') {
+          requestCashShortfallApproval(
+            int.tryParse(payload['cashCollectionApprovalId'] ?? ''),
+          );
+        }
+        return;
+      }
+    } on Object {
+      // A stale or finalized ride must not prevent access to the notification
+      // center, where the user can still read the server's final message.
+    }
+
+    await _markNotificationRead(notificationId);
+    Get.offAllNamed<void>(RideRoutes.notifications, arguments: payload);
+  }
+
+  bool _opensWallet(String? action, Map<String, String> payload) =>
+      action == 'open_wallet' ||
+      action == 'open_wallet_transaction' ||
+      payload['walletTransactionId']?.isNotEmpty == true ||
+      payload['driverSettlementPaymentId']?.isNotEmpty == true;
+
+  Future<void> _markNotificationRead(String? notificationId) async {
+    if (notificationId == null || notificationId.isEmpty) return;
+    try {
+      await Get.find<ApiClient>().execute<Object?>(
+        model: 'NotificationModel',
+        operation: 'update',
+        data: <String, Object?>{'id': notificationId, 'isRead': true},
+      );
+    } on Object {
+      // The selected screen is still valid if the read marker is retried later.
+    }
+  }
+
+  void requestCashShortfallApproval(int? approvalId) {
+    if (approvalId == null) return;
+    cashShortfallApprovalToOpen.value = approvalId;
   }
 
   /// Restores the server's latest non-final ride after an app restart. The
@@ -174,8 +272,8 @@ class RideController extends GetxController {
       isSearchingForDriver.value = true;
       offersExhausted.value = false;
       offersStreamDone.value = false;
-      driverOffers.clear();
       receivedOffersCount.value = 0;
+      driverOffers.clear();
       await _watchOffers(rideId);
       if (!isClosed) Get.offAllNamed<void>(RideRoutes.negotiationQuote);
       return;
@@ -534,6 +632,10 @@ class RideController extends GetxController {
       return;
     }
     if (AppEnvironment.useDemoData) {
+      if (Get.isRegistered<TrackingHubService>()) {
+        unawaited(
+            Get.find<TrackingHubService>().clearNearbyDriverSubscription());
+      }
       loadDemoNearbyDrivers(center: origin);
       return;
     }
@@ -550,6 +652,19 @@ class RideController extends GetxController {
       );
       if (requestId != _nearbyDriversRequestId) return;
       nearbyDrivers.assignAll(drivers);
+      if (Get.isRegistered<TrackingHubService>()) {
+        final serviceKindId =
+            selected?.serviceKindId ?? selectedServiceKindId.value;
+        await Get.find<TrackingHubService>().setNearbyDriverSubscription(
+          serviceKindId: serviceKindId,
+          serviceCatalogItemId: selected?.serviceCatalogItemId,
+          pickupLatitude: origin.latitude,
+          pickupLongitude: origin.longitude,
+          radiusMeters: 3000,
+          initialDriverIds:
+              drivers.map((driver) => int.tryParse(driver.id)).whereType<int>(),
+        );
+      }
       unawaited(_loadDemoDriverIcon());
       for (final driver in drivers) {
         unawaited(_loadDriverPhotoMarker(driver));
@@ -557,7 +672,13 @@ class RideController extends GetxController {
     } catch (_) {
       // Do not retain markers belonging to an old pickup after the server
       // query fails. A later pickup change or return to this screen retries.
-      if (requestId == _nearbyDriversRequestId) nearbyDrivers.clear();
+      if (requestId == _nearbyDriversRequestId) {
+        nearbyDrivers.clear();
+        if (Get.isRegistered<TrackingHubService>()) {
+          unawaited(
+              Get.find<TrackingHubService>().clearNearbyDriverSubscription());
+        }
+      }
     }
   }
 
@@ -919,7 +1040,7 @@ class RideController extends GetxController {
       final markerPath = _driverMarkerPath(ui.Offset.zero);
       canvas.drawPath(
         markerPath,
-        paint..color = const ui.Color(0xFFFFA000),
+        paint..color = const ui.Color(0xFF087AC1),
       );
       canvas.drawPath(
         markerPath,
@@ -1294,15 +1415,14 @@ class RideController extends GetxController {
   }
 
   Future<void> requestRide({bool later = false}) async {
+    if (_searchMutationInProgress) return;
     if (!_session.requireAuthentication(
       returnRoute: RideRoutes.negotiationQuote,
       arguments: <String, Object?>{'resumeRequest': true},
     )) {
       return;
     }
-    // "إلغاء البحث" pauses offer collection; it does not cancel the server
-    // ride. Reuse that open request when the customer starts searching again
-    // instead of creating a duplicate ride.
+    // A stopped or exhausted search is resumed on the same server ride.
     if (_requestId != null &&
         !isSearchingForDriver.value &&
         negotiationStatus.value == NegotiationStatus.searching) {
@@ -1371,8 +1491,10 @@ class RideController extends GetxController {
       idempotencyKey: DateTime.now().microsecondsSinceEpoch.toString(),
     );
     currentDraft.value = draft;
+    _searchMutationInProgress = true;
     try {
-      _requestId = await _repository.createRequest(draft);
+      final started = await _repository.createRequest(draft);
+      _requestId = started.rideId;
     } on FormatException catch (error) {
       // Keep diagnostic output limited to non-sensitive matching identifiers.
       debugPrint(
@@ -1383,49 +1505,185 @@ class RideController extends GetxController {
       _requestId = null;
       Get.snackbar('تعذر إرسال الطلب', error.message);
       return;
+    } finally {
+      _searchMutationInProgress = false;
     }
 
-    isSearchingForDriver.value = true;
-    hasShownTripSharePrompt = false;
-    offersExhausted.value = false;
-    offersStreamDone.value = false;
-    receivedOffersCount.value = 0;
-    requestRecipients.clear();
-    _recipientTimer?.cancel();
-    var recipientIndex = 0;
-    _recipientTimer =
-        Timer.periodic(const Duration(milliseconds: 1300), (timer) {
-      if (!isSearchingForDriver.value ||
-          recipientIndex >= nearbyDrivers.length) {
-        timer.cancel();
-        return;
-      }
-      requestRecipients.add(nearbyDrivers[recipientIndex++]);
-    });
-    removingOfferIds.clear();
-    negotiationStatus.value = NegotiationStatus.searching;
-    driverOffers.clear();
+    _beginSearchCycle();
     await _watchOffers(_requestId!);
+    _updateOffersExhausted();
   }
 
   Future<void> _watchOffers(String requestId) async {
-    await _offersSubscription?.cancel();
-    _offersSubscription = _repository.watchOffers(requestId).listen(
-      (offer) {
-        offersExhausted.value = false;
-        receivedOffersCount.value++;
+    final generation = ++_offersWatchGeneration;
+    final rideId = int.tryParse(requestId);
+    if (rideId == null || !Get.isRegistered<TrackingHubService>()) return;
+    try {
+      await Get.find<TrackingHubService>().clearNearbyDriverSubscription();
+      // Join first, then fetch one snapshot. This closes the gap where an
+      // offer could arrive between the initial read and Hub subscription.
+      await Get.find<TrackingHubService>().setRideSubscriptions(<int>{rideId});
+      await _refreshSearchSnapshot(requestId, generation);
+    } catch (_) {
+      if (generation == _offersWatchGeneration) {
+        Get.snackbar(
+            'تعذر تحديث حالة البحث', 'تحقق من الاتصال ثم أعد المحاولة.');
+      }
+    }
+  }
+
+  Future<void> _refreshSearchSnapshot(String requestId, int generation) async {
+    final detail = await _repository.getRideDetail(requestId);
+    if (generation != _offersWatchGeneration ||
+        requestId != _requestId ||
+        !isSearchingForDriver.value) return;
+
+    final rawRide = detail['ride'];
+    final ride = rawRide is Map
+        ? Map<Object?, Object?>.from(rawRide)
+        : const <Object?, Object?>{};
+    final status = _asInt(ride['status']);
+    final rawOffers = detail['offers'];
+    final allOffers = rawOffers is List
+        ? rawOffers
+            .whereType<Map<Object?, Object?>>()
+            .map((item) => Map<String, Object?>.from(item))
+            .map(_repository.mapRealtimeOffer)
+            .whereType<DriverOffer>()
+            .toList(growable: false)
+        : const <DriverOffer>[];
+    if (status != null && <int>{3, 4, 5, 8}.contains(status)) {
+      activeRideStatus.value = '${ride['status']}';
+      acceptedOffer.value = allOffers
+          .where((offer) => offer.status == DriverOfferStatus.accepted)
+          .firstOrNull;
+      driverFound();
+      return;
+    }
+    if (status == 6 || status == 7) {
+      isSearchingForDriver.value = false;
+      _offersDeadlineTimer?.cancel();
+      unawaited(
+          Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      return;
+    }
+
+    final snapshot = allOffers
+        .where((offer) => offer.status == DriverOfferStatus.pending)
+        .where((offer) =>
+            offer.expiresAt == null || offer.expiresAt!.isAfter(DateTime.now()))
+        .toList(growable: false);
+    driverOffers.assignAll(snapshot);
+    receivedOffersCount.value = snapshot.length;
+    _updateOffersExhausted();
+  }
+
+  Future<void> _refreshSearchSnapshotSafely(
+      String requestId, int generation) async {
+    try {
+      await _refreshSearchSnapshot(requestId, generation);
+    } catch (_) {
+      // The next reconnect or explicit retry can restore the current snapshot.
+    }
+  }
+
+  void _handleHubEvent(TrackingHubEvent event) {
+    final payload = event.payload;
+    if (event.name == 'nearbyDriverAvailabilityChanged' &&
+        payload['isAvailable'] == false) {
+      final driverId = '${payload['driverId'] ?? ''}';
+      nearbyDrivers.removeWhere((driver) => driver.id == driverId);
+      return;
+    }
+    if (event.name == 'nearbyDriverLocationUpdated') {
+      final driver = _repository.mapRealtimeNearbyDriver(payload);
+      if (driver == null) return;
+      final index = nearbyDrivers.indexWhere((item) => item.id == driver.id);
+      if (index < 0) {
+        nearbyDrivers.add(driver);
+      } else {
+        nearbyDrivers[index] = driver;
+      }
+      unawaited(_loadDriverPhotoMarker(driver));
+      return;
+    }
+    final rideId =
+        payload['rideId']?.toString() ?? payload['rideID']?.toString();
+    if (rideId != _requestId) return;
+
+    if (event.name == 'paymentUpdated' || event.name == 'cashApprovalUpdated') {
+      unawaited(refreshActiveRide());
+      return;
+    }
+
+    if (event.name == 'rideUnavailable') {
+      if (!isSearchingForDriver.value) return;
+      isSearchingForDriver.value = false;
+      offersExhausted.value = true;
+      _offersDeadlineTimer?.cancel();
+      driverOffers.clear();
+      unawaited(
+          Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      return;
+    }
+    if (event.name == 'rideStatusUpdated') {
+      final status = _asInt(payload['rideStatus']);
+      if (status == null) return;
+      activeRideStatus.value = '$status';
+      customerPaymentEnabled.value = payload['customerPaymentEnabled'] == true;
+      if (status == 6 || status == 7) _stopRealTracking();
+      return;
+    }
+    if (event.name == 'driverLocationUpdated') {
+      final latitude = _asDouble(payload['latitude']);
+      final longitude = _asDouble(payload['longitude']);
+      if (latitude == null || longitude == null) return;
+      final observedAt =
+          DateTime.tryParse('${payload['observedAtUtc'] ?? ''}')?.toUtc();
+      _animateTrackedDriver(DriverTrackingSnapshot(
+        driverId: '${payload['driverId'] ?? ''}',
+        location: RideCoordinate(latitude: latitude, longitude: longitude),
+        heading: _asDouble(payload['bearing']),
+        updatedAt: observedAt ?? DateTime.now().toUtc(),
+      ));
+      unawaited(_refreshAssignedDriverRoute());
+      return;
+    }
+    if (event.name != 'offerReceived' && event.name != 'offerUpdated') return;
+    final offer = _repository.mapRealtimeOffer(payload);
+    if (offer == null) return;
+
+    final index = driverOffers.indexWhere((item) => item.id == offer.id);
+    if (offer.status == DriverOfferStatus.pending) {
+      if (index < 0) {
         driverOffers.add(offer);
-      },
-      onError: (_) {
-        _recipientTimer?.cancel();
-        isSearchingForDriver.value = false;
-        Get.snackbar('تعذر استلام العروض', 'حاول إرسال الطلب مرة أخرى.');
-      },
-      onDone: () {
-        offersStreamDone.value = true;
-        _updateOffersExhausted();
-      },
-    );
+        receivedOffersCount.value++;
+      } else {
+        driverOffers[index] = offer;
+      }
+      offersExhausted.value = false;
+      return;
+    }
+
+    if (index >= 0) driverOffers[index] = offer;
+    if (offer.status == DriverOfferStatus.accepted &&
+        _asInt(payload['rideStatus']) == 3) {
+      acceptedOffer.value = offer;
+      activeRideStatus.value = '${payload['rideStatus']}';
+      negotiationStatus.value = NegotiationStatus.accepted;
+      _offersDeadlineTimer?.cancel();
+      driverOffers.assignAll(driverOffers.map((item) => item.copyWith(
+            status: item.id == offer.id
+                ? DriverOfferStatus.accepted
+                : DriverOfferStatus.rejected,
+          )));
+      driverFound();
+      return;
+    }
+    if (offer.status == DriverOfferStatus.rejected ||
+        offer.status == DriverOfferStatus.expired) {
+      _dismissOffer(offer.id);
+    }
   }
 
   Future<void> acceptOffer(DriverOffer offer) async {
@@ -1481,47 +1739,127 @@ class RideController extends GetxController {
   }
 
   void _updateOffersExhausted() {
-    offersExhausted.value = offersStreamDone.value && driverOffers.isEmpty;
-    if (offersExhausted.value) {
-      _recipientTimer?.cancel();
-      isSearchingForDriver.value = false;
+    if (!isSearchingForDriver.value ||
+        _searchMutationInProgress ||
+        offersExhausted.value ||
+        driverOffers.isNotEmpty ||
+        removingOfferIds.isNotEmpty) return;
+
+    // Drivers can stay silent, so the two-minute search window remains the
+    // timeout signal. Offer delivery itself no longer polls the API.
+    if (offersStreamDone.value) {
+      unawaited(_finishSearchAsExhausted());
     }
   }
 
   void acknowledgeOffersExhausted() => offersExhausted.value = false;
 
   Future<void> retryDriverSearch() async {
-    offersExhausted.value = false;
-    offersStreamDone.value = false;
+    if (_searchMutationInProgress) return;
     final requestId = _requestId;
     if (requestId == null) {
       await requestRide();
       return;
     }
-
-    // Retry observes the same still-open ride. Creating a fresh request here
-    // would duplicate a trip every time the offer polling window ends.
-    isSearchingForDriver.value = true;
-    receivedOffersCount.value = 0;
-    removingOfferIds.clear();
-    driverOffers.clear();
-    await _watchOffers(requestId);
+    _searchMutationInProgress = true;
+    var restarted = false;
+    try {
+      final location = Get.find<LocationController>().pickup.value;
+      await loadNearbyDrivers(center: location);
+      await _repository.restartSearch(requestId);
+      _beginSearchCycle();
+      await _watchOffers(requestId);
+      restarted = true;
+    } catch (error) {
+      isSearchingForDriver.value = false;
+      Get.snackbar('تعذر إعادة البحث', _searchErrorMessage(error));
+    } finally {
+      _searchMutationInProgress = false;
+    }
+    if (restarted) _updateOffersExhausted();
   }
 
   Future<void> cancelDriverSearch() async {
-    // This action only pauses the search UI. The ride remains open so the
-    // customer can press the button again and continue searching on the same
-    // request without creating or cancelling a trip.
+    if (_searchMutationInProgress) return;
+    _searchMutationInProgress = true;
     offersExhausted.value = false;
     offersStreamDone.value = false;
+    receivedOffersCount.value = 0;
     driverOffers.clear();
     requestRecipients.clear();
     _recipientTimer?.cancel();
-    await _offersSubscription?.cancel();
-    _offersSubscription = null;
+    _offersDeadlineTimer?.cancel();
     isSearchingForDriver.value = false;
+    ++_offersWatchGeneration;
     negotiationStatus.value = NegotiationStatus.searching;
+    try {
+      final requestId = _requestId;
+      if (requestId != null) await _repository.closeSearch(requestId);
+    } catch (error) {
+      Get.snackbar('تعذر إيقاف البحث', _searchErrorMessage(error));
+    } finally {
+      if (Get.isRegistered<TrackingHubService>()) {
+        unawaited(
+            Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      }
+      _searchMutationInProgress = false;
+    }
   }
+
+  void _beginSearchCycle() {
+    isSearchingForDriver.value = true;
+    hasShownTripSharePrompt = false;
+    offersExhausted.value = false;
+    offersStreamDone.value = false;
+    _offersDeadlineTimer?.cancel();
+    requestRecipients.clear();
+    _recipientTimer?.cancel();
+    var recipientIndex = 0;
+    _recipientTimer =
+        Timer.periodic(const Duration(milliseconds: 1300), (timer) {
+      if (!isSearchingForDriver.value ||
+          recipientIndex >= nearbyDrivers.length) {
+        timer.cancel();
+        return;
+      }
+      requestRecipients.add(nearbyDrivers[recipientIndex++]);
+    });
+    removingOfferIds.clear();
+    negotiationStatus.value = NegotiationStatus.searching;
+    driverOffers.clear();
+    _offersDeadlineTimer = Timer(const Duration(minutes: 2), () {
+      if (!isSearchingForDriver.value) return;
+      offersStreamDone.value = true;
+      _updateOffersExhausted();
+    });
+  }
+
+  Future<void> _finishSearchAsExhausted() async {
+    if (!isSearchingForDriver.value || _searchMutationInProgress) return;
+    _searchMutationInProgress = true;
+    isSearchingForDriver.value = false;
+    _recipientTimer?.cancel();
+    _offersDeadlineTimer?.cancel();
+    ++_offersWatchGeneration;
+    try {
+      final requestId = _requestId;
+      if (requestId != null) {
+        await _repository.closeSearch(requestId, exhausted: true);
+      }
+    } catch (error) {
+      Get.snackbar('تعذر إغلاق البحث', _searchErrorMessage(error));
+    } finally {
+      if (Get.isRegistered<TrackingHubService>()) {
+        unawaited(
+            Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      }
+      offersExhausted.value = true;
+      _searchMutationInProgress = false;
+    }
+  }
+
+  String _searchErrorMessage(Object error) =>
+      error is FormatException ? error.message.toString() : error.toString();
 
   Future<void> cancelActiveRide(String reason) async {
     final requestId = _requestId;
@@ -1548,6 +1886,7 @@ class RideController extends GetxController {
 
   void driverFound() {
     _recipientTimer?.cancel();
+    _offersDeadlineTimer?.cancel();
     isSearchingForDriver.value = false;
     isDriverAssigned.value = true;
     if (AppEnvironment.useDemoData) startDemoTracking();
@@ -1557,11 +1896,15 @@ class RideController extends GetxController {
 
   void startRealTracking() {
     _trackingTimer?.cancel();
-    unawaited(refreshActiveRide());
-    unawaited(_startPassengerPositionTracking());
-    _trackingTimer = Timer.periodic(const Duration(seconds: 4), (_) {
-      unawaited(refreshActiveRide());
-    });
+    final rideId = int.tryParse(_requestId ?? '');
+    unawaited(() async {
+      if (rideId != null && Get.isRegistered<TrackingHubService>()) {
+        await Get.find<TrackingHubService>()
+            .setRideSubscriptions(<int>{rideId});
+      }
+      await refreshActiveRide();
+      await _startPassengerPositionTracking();
+    }());
   }
 
   Future<void> refreshActiveRide() async {
@@ -1571,17 +1914,22 @@ class RideController extends GetxController {
       final detail = await _repository.getRideDetail(rideId);
       final ride = detail['ride'];
       if (ride is Map) {
+        final status = _asInt(ride['status']);
         activeRideStatus.value = '${ride['status'] ?? ''}';
         customerPaymentEnabled.value = ride['customerPaymentEnabled'] == true;
+        if (status == 6 || status == 7) {
+          _stopRealTracking();
+        }
       }
       final payments = detail['payments'];
       activeRidePaymentCompleted.value = detail['paymentCompleted'] == true ||
-          (payments is List && payments.any((raw) {
-            if (raw is! Map) return false;
-            final payment = Map<Object?, Object?>.from(raw);
-            final status = '${payment['status'] ?? ''}'.toLowerCase();
-            return status == '2' || status == 'paid';
-          }));
+          (payments is List &&
+              payments.any((raw) {
+                if (raw is! Map) return false;
+                final payment = Map<Object?, Object?>.from(raw);
+                final status = '${payment['status'] ?? ''}'.toLowerCase();
+                return status == '2' || status == 'paid';
+              }));
       final approval = detail['cashCollectionApproval'];
       cashCollectionApproval.value =
           approval is Map ? Map<String, Object?>.from(approval) : null;
@@ -1604,19 +1952,87 @@ class RideController extends GetxController {
         final latitude = _asDouble(values['latitude']);
         final longitude = _asDouble(values['longitude']);
         if (latitude != null && longitude != null) {
-          trackedDriver.value = DriverTrackingSnapshot(
+          _animateTrackedDriver(DriverTrackingSnapshot(
             driverId: '${values['driverId'] ?? ''}',
             location: RideCoordinate(latitude: latitude, longitude: longitude),
             heading: _asDouble(values['bearing']),
             updatedAt: DateTime.tryParse('${values['observedAtUtc'] ?? ''}') ??
                 DateTime.now(),
-          );
+          ));
           unawaited(_refreshAssignedDriverRoute());
         }
       }
     } catch (_) {
       // Keep the last confirmed marker visible during a transient network failure.
     }
+  }
+
+  void _stopRealTracking() {
+    _trackingTimer?.cancel();
+    _trackingTimer = null;
+    _driverMarkerAnimationTimer?.cancel();
+    _driverMarkerAnimationTimer = null;
+    _passengerPositionSubscription?.cancel();
+    _passengerPositionSubscription = null;
+    if (Get.isRegistered<TrackingHubService>()) {
+      unawaited(
+          Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+    }
+  }
+
+  void _animateTrackedDriver(DriverTrackingSnapshot target) {
+    final current = trackedDriver.value;
+    if (current != null && !target.updatedAt.isAfter(current.updatedAt)) return;
+    _driverMarkerAnimationTimer?.cancel();
+    _driverAnimationStart = current ?? target;
+    _driverAnimationTarget = target;
+    _driverAnimationStartedAt = DateTime.now();
+    final sampleGap = current == null
+        ? const Duration(milliseconds: 1200)
+        : target.updatedAt.difference(current.updatedAt);
+    _driverAnimationDuration = Duration(
+      milliseconds: sampleGap.inMilliseconds.clamp(700, 2800),
+    );
+    if (current == null) {
+      trackedDriver.value = target;
+      return;
+    }
+    _driverMarkerAnimationTimer = Timer.periodic(
+      const Duration(milliseconds: 40),
+      (_) {
+        final from = _driverAnimationStart;
+        final to = _driverAnimationTarget;
+        final startedAt = _driverAnimationStartedAt;
+        if (from == null || to == null || startedAt == null) return;
+        final progress = (DateTime.now().difference(startedAt).inMilliseconds /
+                _driverAnimationDuration.inMilliseconds)
+            .clamp(0.0, 1.0);
+        if (progress >= 1) {
+          trackedDriver.value = to;
+          _driverMarkerAnimationTimer?.cancel();
+          _driverMarkerAnimationTimer = null;
+          return;
+        }
+        trackedDriver.value = DriverTrackingSnapshot(
+          driverId: to.driverId,
+          location: RideCoordinate(
+            latitude: from.location.latitude +
+                (to.location.latitude - from.location.latitude) * progress,
+            longitude: from.location.longitude +
+                (to.location.longitude - from.location.longitude) * progress,
+          ),
+          heading: _interpolateHeading(from.heading, to.heading, progress),
+          updatedAt: to.updatedAt,
+        );
+      },
+    );
+  }
+
+  double? _interpolateHeading(double? from, double? to, double progress) {
+    if (to == null) return from;
+    if (from == null) return to;
+    final delta = ((to - from + 540) % 360) - 180;
+    return (from + delta * progress + 360) % 360;
   }
 
   Future<void> _refreshAssignedDriverRoute() async {
@@ -1636,8 +2052,9 @@ class RideController extends GetxController {
       latitude: target.latitude,
       longitude: target.longitude,
     );
-    final requestedRecently = _lastTrackingRouteRequestedAt != null &&
-        DateTime.now().difference(_lastTrackingRouteRequestedAt!) <
+    final lastRequestedAt = _lastTrackingRouteRequestedAt;
+    final requestedRecently = lastRequestedAt != null &&
+        DateTime.now().difference(lastRequestedAt) <
             const Duration(seconds: 45);
     final originChanged = _lastTrackingRouteOrigin == null ||
         Geolocator.distanceBetween(
@@ -1655,7 +2072,7 @@ class RideController extends GetxController {
               targetCoordinate.longitude,
             ) >=
             10;
-    if (!originChanged && !targetChanged && requestedRecently) return;
+    if (!targetChanged && (!originChanged || requestedRecently)) return;
 
     _lastTrackingRouteOrigin = origin;
     _lastTrackingRouteDestination = targetCoordinate;
@@ -1665,9 +2082,16 @@ class RideController extends GetxController {
       final route = await routeRepository.getDrivingRoute(
         origin: LatLng(origin.latitude, origin.longitude),
         destination: target,
+        includeSteps: true,
       );
       if (requestId == _trackingRouteRequestId) {
         trackingRoutePoints.assignAll(route.points);
+        trackingRouteDistanceMeters.value = route.distanceMeters;
+        trackingRouteDurationSeconds.value = route.durationSeconds;
+        final nextStep = route.steps.isEmpty ? null : route.steps.first;
+        trackingNextStepInstruction.value = nextStep?.instruction ?? '';
+        trackingNextManeuver.value = nextStep?.maneuver ?? '';
+        trackingNextStepDistanceMeters.value = nextStep?.distanceMeters ?? 0;
       }
     } catch (_) {
       // Retain the last confirmed route during a temporary maps failure.
@@ -1701,7 +2125,7 @@ class RideController extends GetxController {
 
   void cancelRide(String reason) {
     _recipientTimer?.cancel();
-    _offersSubscription?.cancel();
+    _offersDeadlineTimer?.cancel();
     // Cancellation is a terminal booking state. Clear the same transient
     // booking data used by "start a new ride" so the next booking cannot
     // reuse the cancelled route, vehicle, offer, or payment state.
@@ -1712,8 +2136,16 @@ class RideController extends GetxController {
 
   void prepareNewRide() {
     _recipientTimer?.cancel();
-    _offersSubscription?.cancel();
+    _driverMarkerAnimationTimer?.cancel();
+    _driverMarkerAnimationTimer = null;
+    _offersDeadlineTimer?.cancel();
+    ++_offersWatchGeneration;
     _requestId = null;
+    if (Get.isRegistered<TrackingHubService>()) {
+      unawaited(
+          Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      unawaited(Get.find<TrackingHubService>().clearNearbyDriverSubscription());
+    }
     currentDraft.value = null;
     quote.value = null;
     acceptedOffer.value = null;
@@ -1732,6 +2164,11 @@ class RideController extends GetxController {
     cancellationReason.value = '';
     isSearchingForDriver.value = false;
     trackingRoutePoints.clear();
+    trackingRouteDistanceMeters.value = 0;
+    trackingRouteDurationSeconds.value = 0;
+    trackingNextStepInstruction.value = '';
+    trackingNextManeuver.value = '';
+    trackingNextStepDistanceMeters.value = 0;
     trackedDriver.value = null;
     trackedPassenger.value = null;
     _lastTrackingRouteOrigin = null;
@@ -1771,9 +2208,12 @@ class RideController extends GetxController {
 
   @override
   void onClose() {
-    _offersSubscription?.cancel();
+    _hubEventSubscription?.cancel();
+    _hubConnectionSubscription?.cancel();
     _trackingTimer?.cancel();
+    _driverMarkerAnimationTimer?.cancel();
     _recipientTimer?.cancel();
+    _offersDeadlineTimer?.cancel();
     _passengerPositionSubscription?.cancel();
     super.onClose();
   }

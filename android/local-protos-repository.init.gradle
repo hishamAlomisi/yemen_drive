@@ -1,0 +1,17 @@
+def localProtosRepository = file("E:/Driver/.gradle-local-repo")
+def androidProjectRoot = file("E:/Driver/yemen_drive/android").canonicalFile
+
+// The Android analytics artifact is already verified and present locally.
+// Add it before remote repositories for every included Android project so a
+// transient Maven download cannot block a local debug build.
+gradle.beforeProject { project ->
+    if (project.rootProject.projectDir.canonicalFile != androidProjectRoot) {
+        return
+    }
+    project.buildscript.repositories.maven {
+        url = localProtosRepository.toURI()
+    }
+    project.repositories.maven {
+        url = localProtosRepository.toURI()
+    }
+}

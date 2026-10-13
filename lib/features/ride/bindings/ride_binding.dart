@@ -1,6 +1,7 @@
 import 'package:get/get.dart';
 
 import '../../../core/network/api_client.dart';
+import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
 import '../controllers/chat_controller.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
@@ -77,6 +78,7 @@ class RideBinding extends Bindings {
       () => NotificationsController(
         Get.find<ApiClient>(),
         Get.find<AuthSessionService>(),
+        Get.find<TrackingHubService>(),
       ),
       fenix: true,
     );
@@ -85,6 +87,7 @@ class RideBinding extends Bindings {
         Get.find<ApiClient>(),
         Get.find<AuthSessionService>(),
         Get.find<RideController>(),
+        Get.find<TrackingHubService>(),
       ),
       fenix: true,
     );

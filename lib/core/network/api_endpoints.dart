@@ -16,4 +16,5 @@ abstract final class ApiEndpoints {
   static const String wallet = 'wallet';
   static const String payments = 'payments';
   static const String notifications = 'notifications';
+  static const String pushInstallations = 'device-push/installations';
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -12,10 +14,10 @@ import '../../../shared/widgets/app_google_map.dart';
 import '../../../shared/widgets/app_text_field.dart';
 import '../../account/models/account_models.dart';
 import '../controllers/chat_controller.dart';
-import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/ride_controller.dart';
 import '../controllers/safety_recording_controller.dart';
+import '../location_selection/controllers/location_selection_controller.dart';
 import '../models/ride_models.dart';
 import '../ride_routes.dart';
 import '../widgets/ride_common_widgets.dart';
@@ -33,15 +35,41 @@ class DriverLocationPage extends StatefulWidget {
 class _DriverLocationPageState extends State<DriverLocationPage> {
   final RideController controller = Get.find<RideController>();
   bool _isSubmittingCashShortfallDecision = false;
+  Worker? _cashShortfallOpenWorker;
 
   @override
   void initState() {
     super.initState();
+    _cashShortfallOpenWorker = ever<int?>(
+      controller.cashShortfallApprovalToOpen,
+      _openRequestedCashShortfall,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openRequestedCashShortfall(
+        controller.cashShortfallApprovalToOpen.value,
+      );
       if (!mounted || controller.hasShownTripSharePrompt) return;
       controller.hasShownTripSharePrompt = true;
       _showTripSharePrompt();
     });
+  }
+
+  void _openRequestedCashShortfall(int? approvalId) {
+    if (!mounted || approvalId == null || (Get.isDialogOpen ?? false)) return;
+    final approval = controller.cashCollectionApproval.value;
+    if (approval == null ||
+        int.tryParse('${approval['id'] ?? ''}') != approvalId ||
+        '${approval['status']}' != '0') {
+      return;
+    }
+    controller.cashShortfallApprovalToOpen.value = null;
+    unawaited(_showCashShortfallDecision(approval));
+  }
+
+  @override
+  void dispose() {
+    _cashShortfallOpenWorker?.dispose();
+    super.dispose();
   }
 
   Future<void> _showTripSharePrompt() => Get.dialog<void>(
@@ -68,9 +96,9 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       return;
     }
     final message = '${'shared_trip_message'.trParams(<String, String>{
-      'destination': destination,
-      'driver': driver,
-    })}\n$shareUrl';
+          'destination': destination,
+          'driver': driver,
+        })}\n$shareUrl';
     await SharePlus.instance.share(ShareParams(text: message));
     if (Get.isDialogOpen ?? false) Get.back<void>();
   }
@@ -89,29 +117,29 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       return Get.toNamed<void>(RideRoutes.rideCancel) ?? Future<void>.value();
     }
     return Get.dialog<void>(
-        _RideCancelDecisionDialog(
-          offer: controller.acceptedOffer.value,
-          onWait: Get.back<void>,
-          onSupport: () {
-            Get.back<void>();
-            final driverName =
-                controller.acceptedOffer.value?.driverName ?? 'driver'.tr;
-            Get.snackbar(
-              'contact_driver'.tr,
-              'driver_contact_unavailable'.trParams(<String, String>{
-                'driver': driverName,
-              }),
-              snackPosition: SnackPosition.TOP,
-            );
-          },
-          onCancel: () {
-            Get.back<void>();
-            Get.toNamed<void>(RideRoutes.rideCancel);
-          },
-        ),
-        barrierDismissible: false,
-        barrierColor: Colors.black.withValues(alpha: .52),
-      );
+      _RideCancelDecisionDialog(
+        offer: controller.acceptedOffer.value,
+        onWait: Get.back<void>,
+        onSupport: () {
+          Get.back<void>();
+          final driverName =
+              controller.acceptedOffer.value?.driverName ?? 'driver'.tr;
+          Get.snackbar(
+            'contact_driver'.tr,
+            'driver_contact_unavailable'.trParams(<String, String>{
+              'driver': driverName,
+            }),
+            snackPosition: SnackPosition.TOP,
+          );
+        },
+        onCancel: () {
+          Get.back<void>();
+          Get.toNamed<void>(RideRoutes.rideCancel);
+        },
+      ),
+      barrierDismissible: false,
+      barrierColor: Colors.black.withValues(alpha: .52),
+    );
   }
 
   @override
@@ -123,8 +151,8 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                 controller.customerPaymentEnabled.value;
         final paymentReadyForReview =
             (controller.activeRideStatus.value == 'Completed' ||
-                controller.activeRideStatus.value == '6') &&
-            controller.activeRidePaymentCompleted.value;
+                    controller.activeRideStatus.value == '6') &&
+                controller.activeRidePaymentCompleted.value;
         final cashApproval = controller.cashCollectionApproval.value;
         final approvalPending =
             cashApproval != null && '${cashApproval['status']}' == '0';
@@ -149,76 +177,78 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         return PopScope<void>(
           canPop: !lockBackNavigation,
           child: RideMapShell(
-          processStep: 4,
-          map: useDevelopmentTrackingFallback
-              ? const _DevelopmentTrackingMap()
-              : AppGoogleMap(
-                  initialTarget:
-                      location.pickup.value ?? const LatLng(15.3694, 44.1910),
-                  markers: <Marker>{
-                    // The pickup marker is the customer's personal marker.
-                    // Do not add a second generic passenger pin during live
-                    // tracking, otherwise the destination becomes unclear.
-                    ...location.markers,
-                    ...controller.trackingMarkers,
-                  },
-                  polylines: controller.trackingPolylines.isNotEmpty
-                      ? controller.trackingPolylines
-                      : location.polylines,
-                  // Keep both the moving driver and the customer's pickup in
-                  // view. Following the driver alone previously hid the live
-                  // route and the pickup marker on longer approaches.
-                  focusBounds: controller.trackingFocusBounds ??
-                      location.selectedRouteBounds,
-                  focusBoundsPadding: 104,
-                  showDemoMarker: false,
-                  showDemoRoute: false,
+            processStep: 4,
+            map: useDevelopmentTrackingFallback
+                ? const _DevelopmentTrackingMap()
+                : AppGoogleMap(
+                    initialTarget:
+                        location.pickup.value ?? const LatLng(15.3694, 44.1910),
+                    markers: <Marker>{
+                      // The pickup marker is the customer's personal marker.
+                      // Do not add a second generic passenger pin during live
+                      // tracking, otherwise the destination becomes unclear.
+                      ...location.markers,
+                      ...controller.trackingMarkers,
+                    },
+                    polylines: controller.trackingPolylines.isNotEmpty
+                        ? controller.trackingPolylines
+                        : location.polylines,
+                    mapType: location.mapType.value,
+                    useModernMapStyle: true,
+                    // Keep both the moving driver and the customer's pickup in
+                    // view. Following the driver alone previously hid the live
+                    // route and the pickup marker on longer approaches.
+                    focusBounds: controller.trackingFocusBounds ??
+                        location.selectedRouteBounds,
+                    focusBoundsPadding: 104,
+                    showDemoMarker: false,
+                    showDemoRoute: false,
+                  ),
+            showRoute: true,
+            showMarker: false,
+            panelMaxHeightFactor: .58,
+            panelFooter: AppButton(
+              label: approvalPending
+                  ? 'موافقة مطلوبة لفرق الدفع'
+                  : paymentReadyForReview
+                      ? 'متابعة إلى التقييم'
+                      : canProceedToPayment
+                          ? 'متابعة إلى الدفع'
+                          : 'بانتظار اكتمال الرحلة',
+              onPressed: approvalPending
+                  ? () => _showCashShortfallDecision(cashApproval)
+                  : paymentReadyForReview
+                      ? () => Get.toNamed<void>(RideRoutes.review)
+                      : canProceedToPayment
+                          ? () => Get.toNamed<void>(RideRoutes.payment)
+                          : null,
+            ),
+            top: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: <Widget>[
+                lockBackNavigation
+                    ? const SizedBox(width: 48)
+                    : const RideBackButton(),
+                RideStatusPill(
+                  label: statusLabel,
+                  icon: Icons.local_taxi_rounded,
                 ),
-          showRoute: true,
-          showMarker: false,
-          panelMaxHeightFactor: .58,
-          panelFooter: AppButton(
-            label: approvalPending
-                ? 'موافقة مطلوبة لفرق الدفع'
-                : paymentReadyForReview
-                    ? 'متابعة إلى التقييم'
-                : canProceedToPayment
-                    ? 'متابعة إلى الدفع'
-                    : 'بانتظار اكتمال الرحلة',
-            onPressed: approvalPending
-                ? () => _showCashShortfallDecision(cashApproval)
-                : paymentReadyForReview
-                    ? () => Get.toNamed<void>(RideRoutes.review)
-                : canProceedToPayment
-                    ? () => Get.toNamed<void>(RideRoutes.payment)
-                    : null,
-          ),
-          top: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: <Widget>[
-              lockBackNavigation
-                  ? const SizedBox(width: 48)
-                  : const RideBackButton(),
-              RideStatusPill(
-                label: statusLabel,
-                icon: Icons.local_taxi_rounded,
-              ),
-            ],
-          ),
-          panel: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              const RidePanelHandle(),
-              const DriverCard(),
-              const SizedBox(height: AppSpacing.sm),
-              RouteSummaryCard(compact: true),
-              const SizedBox(height: AppSpacing.md),
-              TripEmergencyActions(
-                onShareTrip: _shareTrip,
-                onCancelRide: _showCancelDecision,
-              ),
-            ],
-          ),
+              ],
+            ),
+            panel: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                const RidePanelHandle(),
+                const DriverCard(),
+                const SizedBox(height: AppSpacing.sm),
+                RouteSummaryCard(compact: true),
+                const SizedBox(height: AppSpacing.md),
+                TripEmergencyActions(
+                  onShareTrip: _shareTrip,
+                  onCancelRide: _showCancelDecision,
+                ),
+              ],
+            ),
           ),
         );
       });
@@ -685,15 +715,47 @@ class RideChatPage extends GetView<ChatController> {
           const _ChatDriverStatus(),
           Expanded(
             child: Obx(
-              () => ListView.separated(
-                reverse: false,
-                padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                itemCount: controller.messages.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: AppSpacing.sm),
-                itemBuilder: (context, index) =>
-                    _MessageBubble(message: controller.messages[index]),
-              ),
+              () => controller.isLoading.value && controller.messages.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : controller.messages.isEmpty
+                      ? const Center(child: Text('لا توجد رسائل بعد.'))
+                      : ListView.separated(
+                          controller: controller.scrollController,
+                          reverse: false,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.md),
+                          itemCount: controller.messages.length +
+                              (controller.hasOlderMessages.value ? 1 : 0),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: AppSpacing.sm),
+                          itemBuilder: (context, index) {
+                            if (controller.hasOlderMessages.value &&
+                                index == 0) {
+                              return Center(
+                                child: TextButton.icon(
+                                  onPressed: controller.isLoadingOlder.value
+                                      ? null
+                                      : controller.loadOlderMessages,
+                                  icon: controller.isLoadingOlder.value
+                                      ? const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(
+                                              strokeWidth: 2),
+                                        )
+                                      : const Icon(Icons.history_rounded),
+                                  label: const Text('تحميل رسائل أقدم'),
+                                ),
+                              );
+                            }
+                            final messageIndex =
+                                controller.hasOlderMessages.value
+                                    ? index - 1
+                                    : index;
+                            return _MessageBubble(
+                                message: controller.messages[messageIndex]);
+                          },
+                        ),
             ),
           ),
           SafeArea(
@@ -712,14 +774,18 @@ class RideChatPage extends GetView<ChatController> {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.sm),
-                  Material(
-                    color: AppColors.primary,
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      onPressed: controller.sendMessage,
-                      tooltip: 'إرسال',
-                      color: Colors.black,
-                      icon: Icon(Icons.send_rounded),
+                  Obx(
+                    () => Material(
+                      color: AppColors.primary,
+                      shape: const CircleBorder(),
+                      child: IconButton(
+                        onPressed: controller.isSending.value
+                            ? null
+                            : controller.sendMessage,
+                        tooltip: 'إرسال',
+                        color: Colors.black,
+                        icon: Icon(Icons.send_rounded),
+                      ),
                     ),
                   ),
                 ],
@@ -881,9 +947,9 @@ class RidePaymentPage extends GetView<PaymentController> {
                 AppSpacing.md,
               ),
               child: Obx(() => AppButton(
-                        label: controller.isPaying.value
-                            ? 'جارٍ إتمام الدفع...'
-                            : controller.cashPaymentConfirmed.value
+                    label: controller.isPaying.value
+                        ? 'جارٍ إتمام الدفع...'
+                        : controller.cashPaymentConfirmed.value
                             ? controller.rideCompletedByDriver.value
                                 ? 'متابعة إلى التقييم'
                                 : 'تم الدفع — بانتظار إنهاء السائق'
@@ -1040,7 +1106,13 @@ class _ChatDriverStatus extends StatelessWidget {
         final driverName = ride.assignedDriverName.value.isNotEmpty
             ? ride.assignedDriverName.value
             : ride.acceptedOffer.value?.driverName ?? 'السائق المعين';
-        final eta = ride.acceptedOffer.value?.etaMinutes;
+        final routeEtaSeconds = ride.trackingRouteDurationSeconds.value;
+        final eta = routeEtaSeconds > 0
+            ? (routeEtaSeconds + 59) ~/ 60
+            : ride.acceptedOffer.value?.etaMinutes;
+        final remainingMeters = ride.trackingRouteDistanceMeters.value;
+        final nextStep = ride.trackingNextStepInstruction.value;
+        final nextStepMeters = ride.trackingNextStepDistanceMeters.value;
         return AppCard(
           margin: const EdgeInsets.only(top: AppSpacing.xs),
           padding: const EdgeInsets.symmetric(
@@ -1063,8 +1135,21 @@ class _ChatDriverStatus extends StatelessWidget {
                       driverName,
                       style: TextStyle(fontWeight: FontWeight.w800),
                     ),
-                    Text('تحديث حالة الرحلة مباشر',
-                        style: TextStyle(color: AppColors.success)),
+                    Text(
+                      remainingMeters > 0
+                          ? 'متبقي نحو ${(remainingMeters / 1000).toStringAsFixed(1)} كم · التتبع مباشر'
+                          : 'تحديث حالة الرحلة مباشر',
+                      style: TextStyle(color: AppColors.success),
+                    ),
+                    if (nextStep.isNotEmpty)
+                      Text(
+                        '${nextStepMeters > 0 ? 'بعد $nextStepMeters م: ' : ''}$nextStep',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                      ),
                   ],
                 ),
               ),

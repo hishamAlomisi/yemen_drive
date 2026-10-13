@@ -98,6 +98,8 @@ final List<GetPage<dynamic>> authPages = <GetPage<dynamic>>[
     name: AuthRoutes.signIn,
     page: LoginView.new,
     binding: LoginBinding(),
+    opaque: false,
+    transition: Transition.noTransition,
   ),
   GetPage<dynamic>(
     name: AuthRoutes.verifyDeviceOtp,

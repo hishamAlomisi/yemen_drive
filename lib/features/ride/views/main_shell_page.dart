@@ -10,8 +10,29 @@ import '../models/ride_models.dart';
 import '../widgets/ride_home_template.dart';
 import 'home_notifications_location_views.dart';
 
-class MainShellPage extends GetView<RideController> {
+class MainShellPage extends StatefulWidget {
   const MainShellPage({super.key});
+
+  @override
+  State<MainShellPage> createState() => _MainShellPageState();
+}
+
+class _MainShellPageState extends State<MainShellPage> {
+  late final RideController controller = Get.find<RideController>();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final arguments = Get.arguments;
+      final rawPayload =
+          arguments is Map ? arguments['pushNotification'] : null;
+      if (!mounted || rawPayload is! Map) return;
+      final payload =
+          rawPayload.map((key, value) => MapEntry('$key', '$value'));
+      controller.openNotificationPayload(payload);
+    });
+  }
 
   @override
   Widget build(BuildContext context) => Directionality(

@@ -5,8 +5,9 @@ import 'package:get/get.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_models.dart';
-import 'ride_controller.dart';
+import '../../../core/realtime/tracking_hub_service.dart';
 import '../ride_routes.dart';
+import 'ride_controller.dart';
 
 class PaymentController extends GetxController {
   final ApiClient _api = Get.find<ApiClient>();
@@ -23,8 +24,10 @@ class PaymentController extends GetxController {
   final RxBool isPaying = false.obs;
   final RxDouble rating = 0.0.obs;
   final TextEditingController reviewController = TextEditingController();
-  Timer? _summaryPollingTimer;
+  StreamSubscription<TrackingHubEvent>? _hubEventSubscription;
+  StreamSubscription<void>? _hubConnectionSubscription;
   bool _summaryLoading = false;
+  bool _summaryRefreshRequested = false;
 
   void selectMethod(String id) => selectedMethod.value = id;
 
@@ -32,30 +35,38 @@ class PaymentController extends GetxController {
   void onReady() {
     super.onReady();
     unawaited(loadPaymentSummary());
-    _summaryPollingTimer = Timer.periodic(
-      const Duration(seconds: 4),
-      (_) => unawaited(_pollPaymentSummary()),
-    );
+    if (Get.isRegistered<TrackingHubService>()) {
+      final hub = Get.find<TrackingHubService>();
+      _hubEventSubscription = hub.events.listen(_handleRealtimeEvent);
+      _hubConnectionSubscription = hub.connectionRestored.listen((_) {
+        unawaited(loadPaymentSummary());
+      });
+      unawaited(hub.setUserEventListening(this, true));
+    }
   }
 
-  Future<void> _pollPaymentSummary() async {
-    await loadPaymentSummary();
-    if (rideCompletedByDriver.value && paymentCompleted.value) {
-      _summaryPollingTimer?.cancel();
-      _summaryPollingTimer = null;
+  void _handleRealtimeEvent(TrackingHubEvent event) {
+    if (event.name != 'paymentUpdated' && event.name != 'cashApprovalUpdated') {
+      return;
     }
+    final rideId = _ride.currentRideId;
+    if (rideId == null || event.payload['rideId']?.toString() != rideId) return;
+    unawaited(loadPaymentSummary());
   }
 
   Future<void> loadPaymentSummary() async {
-    if (_summaryLoading) return;
-    _summaryLoading = true;
-    final rideId = _ride.currentRideId;
-    if (rideId == null) {
-      _summaryLoading = false;
+    if (_summaryLoading) {
+      _summaryRefreshRequested = true;
       return;
     }
+    _summaryLoading = true;
     try {
-      await _loadPaymentSummary(rideId);
+      do {
+        _summaryRefreshRequested = false;
+        final rideId = _ride.currentRideId;
+        if (rideId == null) return;
+        await _loadPaymentSummary(rideId);
+      } while (_summaryRefreshRequested);
     } finally {
       _summaryLoading = false;
     }
@@ -80,14 +91,16 @@ class PaymentController extends GetxController {
       totalDue.value = storedTotal > 0 ? storedTotal : fare + serviceFee;
       cancellationFee.value = _number(ride['cancellationFee']);
       final rideStatus = '${ride['status'] ?? values['status'] ?? ''}';
-      rideCompletedByDriver.value = rideStatus == 'Completed' || rideStatus == '6';
+      rideCompletedByDriver.value =
+          rideStatus == 'Completed' || rideStatus == '6';
       final payments = values['payments'];
-      paymentCompleted.value = payments is List && payments.any((raw) {
-        if (raw is! Map) return false;
-        final payment = Map<Object?, Object?>.from(raw);
-        final status = '${payment['status'] ?? ''}'.toLowerCase();
-        return status == '2' || status == 'paid';
-      });
+      paymentCompleted.value = payments is List &&
+          payments.any((raw) {
+            if (raw is! Map) return false;
+            final payment = Map<Object?, Object?>.from(raw);
+            final status = '${payment['status'] ?? ''}'.toLowerCase();
+            return status == '2' || status == 'paid';
+          });
       cashPaymentConfirmed.value = payments is List &&
           payments.any((raw) {
             if (raw is! Map) return false;
@@ -124,7 +137,11 @@ class PaymentController extends GetxController {
 
   @override
   void onClose() {
-    _summaryPollingTimer?.cancel();
+    _hubEventSubscription?.cancel();
+    _hubConnectionSubscription?.cancel();
+    if (Get.isRegistered<TrackingHubService>()) {
+      unawaited(Get.find<TrackingHubService>().setUserEventListening(this, false));
+    }
     reviewController.dispose();
     super.onClose();
   }
@@ -287,5 +304,4 @@ class PaymentController extends GetxController {
   void setRating(double value) => rating.value = value;
 
   void submitReview() => Get.offAllNamed<void>(RideRoutes.rideThanks);
-
 }

@@ -48,7 +48,12 @@ class RideHomeTemplate extends GetView<RideController> {
       );
     }
     return RideMapShell(
-      map: const NearbyDriversMap(),
+      map: Obx(
+        () => NearbyDriversMap(
+          mapType: Get.find<LocationController>().mapType.value,
+          useModernMapStyle: true,
+        ),
+      ),
       panelMaxHeightFactor: .53,
       fitPanelToContent: true,
       panelHorizontalMargin: 16,
@@ -87,6 +92,8 @@ class NearbyDriversMap extends StatefulWidget {
     this.onMapCreated,
     this.onTap,
     this.minimumCardTop = 112,
+    this.mapType = MapType.normal,
+    this.useModernMapStyle = false,
     super.key,
   });
 
@@ -98,6 +105,8 @@ class NearbyDriversMap extends StatefulWidget {
   final MapCreatedCallback? onMapCreated;
   final ArgumentCallback<LatLng>? onTap;
   final double minimumCardTop;
+  final MapType mapType;
+  final bool useModernMapStyle;
 
   @override
   State<NearbyDriversMap> createState() => _NearbyDriversMapState();
@@ -304,6 +313,8 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
               ),
             },
             polylines: widget.polylines,
+            mapType: widget.mapType,
+            useModernMapStyle: widget.useModernMapStyle,
             showDemoMarker: false,
             onMapCreated: (controller) {
               _mapController = controller;
@@ -569,71 +580,160 @@ class _DriverDetail extends StatelessWidget {
 }
 
 class RideHomeHeader extends StatelessWidget {
-  const RideHomeHeader({super.key});
+  const RideHomeHeader({this.routePicker = false, super.key});
+
+  final bool routePicker;
 
   @override
-  Widget build(BuildContext context) => Row(
-        children: <Widget>[
-          RideIconButton(
-            icon: Icons.menu_rounded,
-            tooltip: 'القائمة',
-            onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Obx(() {
-              final location = Get.find<LocationController>();
-              final available = location.serviceAreaAvailable.value;
-              final unavailable = available == false;
-              return Material(
-                color: unavailable
-                    ? Colors.orange.shade50
-                    : Theme.of(context).colorScheme.surface,
-                elevation: 2,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                child: InkWell(
-                  // This is an informational availability banner, not an
-                  // interactive location picker.
-                  onTap: null,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  child: Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-                    child: Row(
-                      children: <Widget>[
-                        Icon(
-                            unavailable
-                                ? Icons.close_rounded
-                                : Icons.check_circle_outline_rounded,
-                            size: 19,
-                            color: unavailable ? Colors.deepOrange : null),
-                        SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '${location.serviceCountryName.value} - ${location.serviceCityName.value} · ${unavailable ? 'الخدمة غير متوفرة' : 'الخدمة متوفرة'}',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                      ],
+  Widget build(BuildContext context) {
+    if (routePicker) {
+      final location = Get.find<LocationController>();
+      return Obx(() {
+        final serviceUnavailable = location.serviceAreaAvailable.value == false;
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            SizedBox(
+              height: 100,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: <Widget>[
+                  RideIconButton(
+                    icon: Icons.menu_rounded,
+                    tooltip: 'القائمة',
+                    foregroundColor: const Color(0xFF102C50),
+                    onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(
+                    child: Center(
+                      child: Image.asset(
+                        'assets/images/branding/yemen_drive_brand_logo.png',
+                        width: 200,
+                        height: 100,
+                        fit: BoxFit.contain,
+                        filterQuality: FilterQuality.high,
+                        semanticLabel: 'شعار يمن درايف',
+                      ),
                     ),
                   ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Obx(() {
+                    final notifications = Get.find<NotificationsController>();
+                    return RideIconButton(
+                      icon: Icons.notifications_none_rounded,
+                      tooltip: 'الإشعارات',
+                      foregroundColor: const Color(0xFF102C50),
+                      badgeCount: notifications.unreadCount,
+                      onPressed: () =>
+                          Get.toNamed<void>(RideRoutes.notifications),
+                    );
+                  }),
+                ],
+              ),
+            ),
+            if (serviceUnavailable) ...<Widget>[
+              const SizedBox(height: 4),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
                 ),
-              );
-            }),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Obx(() {
-            final notifications = Get.find<NotificationsController>();
-            return RideIconButton(
-              icon: Icons.notifications_none_rounded,
-              tooltip: 'الإشعارات',
-              badgeCount: notifications.unreadCount,
-              onPressed: () => Get.toNamed<void>(RideRoutes.notifications),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF3F0),
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(color: const Color(0x33C85637)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Icon(
+                      Icons.error_outline_rounded,
+                      size: 14,
+                      color: Color(0xFFC85637),
+                    ),
+                    SizedBox(width: 5),
+                    Text(
+                      'الخدمة غير متوفرة في منطقتك',
+                      style: TextStyle(
+                        color: Color(0xFF102C50),
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      });
+    }
+    return Row(
+      children: <Widget>[
+        RideIconButton(
+          icon: Icons.menu_rounded,
+          tooltip: 'القائمة',
+          onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Obx(() {
+            final location = Get.find<LocationController>();
+            final available = location.serviceAreaAvailable.value;
+            final unavailable = available == false;
+            return Material(
+              color: unavailable
+                  ? Colors.orange.shade50
+                  : Theme.of(context).colorScheme.surface,
+              elevation: 2,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+              child: InkWell(
+                onTap: null,
+                borderRadius: BorderRadius.circular(AppRadius.pill),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 11,
+                  ),
+                  child: Row(
+                    children: <Widget>[
+                      Icon(
+                        unavailable
+                            ? Icons.close_rounded
+                            : Icons.check_circle_outline_rounded,
+                        size: 19,
+                        color: unavailable ? Colors.deepOrange : null,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '${location.serviceCountryName.value} - ${location.serviceCityName.value} · ${unavailable ? 'الخدمة غير متوفرة' : 'الخدمة متوفرة'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             );
           }),
-        ],
-      );
+        ),
+        const SizedBox(width: AppSpacing.sm),
+        Obx(() {
+          final notifications = Get.find<NotificationsController>();
+          return RideIconButton(
+            icon: Icons.notifications_none_rounded,
+            tooltip: 'الإشعارات',
+            badgeCount: notifications.unreadCount,
+            onPressed: () => Get.toNamed<void>(RideRoutes.notifications),
+          );
+        }),
+      ],
+    );
+  }
 }
 
 class _ServiceCarousel extends StatefulWidget {

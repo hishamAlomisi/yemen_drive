@@ -1,4 +1,3 @@
-import 'dart:async';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
 import '../../models/ride_models.dart';
@@ -13,8 +12,11 @@ abstract interface class RideNegotiationRepository {
     double? durationMinutes,
   });
 
-  Future<String> createRequest(RideRequestDraft draft);
-  Stream<DriverOffer> watchOffers(String requestId);
+  Future<RideSearchStartResult> createRequest(RideRequestDraft draft);
+  Future<int> restartSearch(String requestId);
+  Future<void> closeSearch(String requestId, {bool exhausted = false});
+  DriverOffer? mapRealtimeOffer(Map<String, Object?> event);
+  NearbyDriver? mapRealtimeNearbyDriver(Map<String, Object?> event);
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
   Future<void> requestCancellation(String requestId, String reason);
@@ -33,12 +35,15 @@ abstract interface class RideNegotiationRepository {
   });
 }
 
-/// REST implementation. The API returns the
-/// current ride snapshot, so offers are observed by lightweight polling until
-/// SignalR is enabled for the client.
+/// REST provides the initial/reconnect snapshot. New offer changes arrive over
+/// the authenticated Tracking Hub connection.
 class ApiRideNegotiationRepository implements RideNegotiationRepository {
   const ApiRideNegotiationRepository(this._client);
   final ApiClient _client;
+
+  @override
+  NearbyDriver? mapRealtimeNearbyDriver(Map<String, Object?> event) =>
+      _nearbyDriver(event);
 
   @override
   Future<RideQuote> getQuote({
@@ -79,7 +84,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<String> createRequest(RideRequestDraft draft) async {
+  Future<RideSearchStartResult> createRequest(RideRequestDraft draft) async {
     final result = await _client.execute<Object?>(
       model: 'RideModel',
       operation: 'add',
@@ -107,51 +112,61 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       );
     }
     final success = result as ApiSuccess<Object?>;
-    final id = _map(success.data)['id']?.toString();
-    if (id == null || id.isEmpty)
+    final body = _map(success.data);
+    final id = body['id']?.toString();
+    if (id == null || id.isEmpty) {
       throw const FormatException('لم يُرجع الخادم رقم طلب الرحلة.');
-    return id;
+    }
+    return RideSearchStartResult(
+      rideId: id,
+      recipientCount: _intOrNull(body['notifiedDriverCount']),
+    );
   }
 
   @override
-  Stream<DriverOffer> watchOffers(String requestId) async* {
-    final seen = <String>{};
-    for (var i = 0; i < 60; i++) {
-      final result = await _client.execute<Object?>(
-          model: 'RideModel', operation: 'get', data: {'id': requestId});
-      if (result is! ApiSuccess) {
-        throw const FormatException('تعذر تحديث عروض السائقين من الخادم.');
-      }
-      final offers = _map(result.data)['offers'];
-      if (offers is List) {
-        for (final raw in offers) {
-          final item = _map(raw);
-          if (item.isEmpty) continue;
-          final id = item['id']?.toString() ?? '';
-          if (id.isEmpty || !seen.add(id)) continue;
-          final expiresAt = _serverUtcDateTime(item['expiresAtUtc']);
-          final status = _offerStatus(item['status']);
-          // The ride snapshot retains its offer history. An expired or already
-          // handled offer must never briefly appear as a new customer choice.
-          if (status != DriverOfferStatus.pending ||
-              (expiresAt != null && !expiresAt.isAfter(DateTime.now()))) {
-            continue;
-          }
-          yield DriverOffer(
-            id: id,
-            driverName: item['driverName']?.toString() ?? '',
-            vehicleSummary: item['vehicleModel']?.toString() ?? '',
-            price: _number(item['amount']),
-            rating: 0,
-            etaMinutes: 0,
-            status: status,
-            expiresAt: expiresAt,
-            createdAt: _serverUtcDateTime(item['createdAtUtc']),
-          );
-        }
-      }
-      await Future<void>.delayed(const Duration(seconds: 2));
+  Future<int> restartSearch(String requestId) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideSearchActionModel',
+      operation: 'update',
+      data: <String, Object?>{'rideId': requestId},
+    );
+    if (result is ApiFailure) {
+      throw FormatException(_failureMessage(result.problem));
     }
+    final body = _map((result as ApiSuccess<Object?>).data);
+    return _intOrNull(body['notifiedDriverCount']) ?? 0;
+  }
+
+  @override
+  Future<void> closeSearch(String requestId, {bool exhausted = false}) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideSearchActionModel',
+      operation: 'cancel',
+      data: <String, Object?>{
+        'rideId': requestId,
+        'exhausted': exhausted,
+      },
+    );
+    if (result is ApiFailure) {
+      throw FormatException(_failureMessage(result.problem));
+    }
+  }
+
+  @override
+  DriverOffer? mapRealtimeOffer(Map<String, Object?> item) {
+    final id = item['id']?.toString() ?? '';
+    if (id.isEmpty) return null;
+    return DriverOffer(
+      id: id,
+      driverName: item['driverName']?.toString() ?? '',
+      vehicleSummary: item['vehicleModel']?.toString() ?? '',
+      price: _number(item['amount']),
+      rating: 0,
+      etaMinutes: 0,
+      status: _offerStatus(item['status']),
+      expiresAt: _serverUtcDateTime(item['expiresAtUtc']),
+      createdAt: _serverUtcDateTime(item['createdAtUtc']),
+    );
   }
 
   DriverOfferStatus _offerStatus(Object? value) {
@@ -312,6 +327,15 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
 
   static double _number(Object? value) =>
       value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
+
+  static int? _intOrNull(Object? value) =>
+      value is num ? value.toInt() : int.tryParse('$value');
+
+  static String _failureMessage(ApiProblemDetails problem) {
+    final details =
+        problem.errors.values.expand((messages) => messages).join(' ');
+    return details.isNotEmpty ? details : (problem.detail ?? problem.title);
+  }
 
   static NearbyDriver? _nearbyDriver(Map<Object?, Object?> data) {
     final id = data['driverId']?.toString().trim() ?? '';

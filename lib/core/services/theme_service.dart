@@ -23,6 +23,7 @@ class ThemeService extends GetxService {
       'yemenDrive' => AppPalette.yemenDrive,
       'blueGold' => AppPalette.blueGold,
       'midnightBurgundy' => AppPalette.midnightBurgundy,
+      'modern' => AppPalette.modern,
       _ => AppPalette.blueGold,
     };
     AppColors.setPalette(palette.value);

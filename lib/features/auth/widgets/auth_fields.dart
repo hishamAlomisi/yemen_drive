@@ -15,6 +15,7 @@ class PhoneTextField extends StatelessWidget {
     required this.country,
     required this.onCountryChanged,
     this.textInputAction = TextInputAction.next,
+    this.trailingIcon,
     super.key,
   });
 
@@ -23,6 +24,7 @@ class PhoneTextField extends StatelessWidget {
   final PhoneCountry country;
   final ValueChanged<PhoneCountry> onCountryChanged;
   final TextInputAction textInputAction;
+  final IconData? trailingIcon;
 
   @override
   Widget build(BuildContext context) => AppTextField(
@@ -73,6 +75,9 @@ class PhoneTextField extends StatelessWidget {
             ),
           ),
         ),
+        suffixIcon: trailingIcon == null
+            ? null
+            : Icon(trailingIcon, color: Theme.of(context).colorScheme.primary),
       );
 }
 

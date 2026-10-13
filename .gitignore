@@ -63,3 +63,6 @@ app.*.map.json
 *.key
 *.keystore
 *.jks
+
+# Local work output.
+work/

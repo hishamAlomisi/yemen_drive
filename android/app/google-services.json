@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "90697291774",
+    "project_id": "yemendrive-7ab97",
+    "storage_bucket": "yemendrive-7ab97.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:90697291774:android:694fcfb9a90135b8c6d2af",
+        "android_client_info": {
+          "package_name": "com.example.yemen_drive"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCBSUvOQcQev9hZfxqWpopnZzIIY2HzNVA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
