@@ -88,6 +88,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     final initialMessage = await _messaging!.getInitialMessage();
     if (initialMessage != null) _openData(initialMessage.data);
 
+    _debugRegistrationState('initialized', authenticated: _isEligible);
     if (_isEligible) {
       unawaited(onAuthenticated());
     } else {
@@ -104,9 +105,15 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
         !_isEligible ||
         _registrationInProgress ||
         _registrationAttemptedForSession) {
+      _debugRegistrationState(
+        'skipped',
+        authenticated: _isEligible,
+        messagingAvailable: messaging != null,
+      );
       return;
     }
 
+    _debugRegistrationState('starting', authenticated: _isEligible);
     _registrationInProgress = true;
     _registrationAttemptedForSession = true;
     try {
@@ -116,7 +123,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
       // transient `denied` state before a channel has been shown.
       try {
         await messaging.requestPermission();
-      } on Object {
+      } on Object catch (error) {
+        _debugRegistrationFailure('permission request', error);
         // Registering the device and prompting for notification permission are
         // independent operations. A later resume will ask again if needed.
       }
@@ -125,7 +133,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
       await messaging.setAutoInitEnabled(true);
       _registrationEnabled = true;
       await _syncPendingToken();
-    } on Object {
+    } on Object catch (error) {
+      _debugRegistrationFailure('Firebase setup', error);
       // Keep retrying after Firebase or the API is temporarily unavailable.
       _registrationAttemptedForSession = false;
       _scheduleRetry();
@@ -167,10 +176,6 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     }
   }
 
-  bool _isAuthorized(AuthorizationStatus status) =>
-      status == AuthorizationStatus.authorized ||
-      status == AuthorizationStatus.provisional;
-
   Future<void> _queueTokenForSync(String token) async {
     final normalized = token.trim();
     if (normalized.isEmpty) return;
@@ -196,7 +201,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
         return;
       }
       await _queueTokenForSync(token);
-    } on Object {
+    } on Object catch (error) {
+      _debugRegistrationFailure('FCM token request', error);
       _scheduleRetry();
     }
   }
@@ -229,7 +235,9 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
       _retryAttempt = 0;
       _retryTimer?.cancel();
       _retryTimer = null;
-    } on Object {
+      _debugRegistrationState('accepted', authenticated: _isEligible);
+    } on Object catch (error) {
+      _debugRegistrationFailure('API registration', error);
       // Keep the token locally and retry registration. The server cannot send
       // any notification until this authenticated device has been registered.
       _scheduleRetry();
@@ -259,6 +267,23 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
         unawaited(_syncPendingToken());
       }
     });
+  }
+
+  void _debugRegistrationFailure(String operation, Object error) {
+    if (!kDebugMode) return;
+    debugPrint('Push registration failed during $operation: ${error.runtimeType}');
+  }
+
+  void _debugRegistrationState(
+    String state, {
+    required bool authenticated,
+    bool? messagingAvailable,
+  }) {
+    if (!kDebugMode) return;
+    final availability = messagingAvailable == null
+        ? ''
+        : ', messaging=$messagingAvailable';
+    debugPrint('Push registration $state: authenticated=$authenticated$availability');
   }
 
   @override

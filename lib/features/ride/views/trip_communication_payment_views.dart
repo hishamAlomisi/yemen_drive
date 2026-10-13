@@ -177,7 +177,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         return PopScope<void>(
           canPop: !lockBackNavigation,
           child: RideMapShell(
-<<<<<<< HEAD
             processStep: 4,
             map: useDevelopmentTrackingFallback
                 ? const _DevelopmentTrackingMap()
@@ -233,34 +232,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                 RideStatusPill(
                   label: statusLabel,
                   icon: Icons.local_taxi_rounded,
-=======
-          processStep: 4,
-          map: useDevelopmentTrackingFallback
-              ? const _DevelopmentTrackingMap()
-              : AppGoogleMap(
-                  initialTarget:
-                      location.pickup.value ?? const LatLng(15.3694, 44.1910),
-                  markers: <Marker>{
-                    // The pickup marker is the customer's personal marker.
-                    // Do not add a second generic passenger pin during live
-                    // tracking, otherwise the destination becomes unclear.
-                    ...location.markers,
-                    ...controller.trackingMarkers,
-                  },
-                  polylines: controller.trackingPolylines.isNotEmpty
-                      ? controller.trackingPolylines
-                      : location.polylines,
-                  mapType: location.mapType.value,
-                  useModernMapStyle: true,
-                  // Keep both the moving driver and the customer's pickup in
-                  // view. Following the driver alone previously hid the live
-                  // route and the pickup marker on longer approaches.
-                  focusBounds: controller.trackingFocusBounds ??
-                      location.selectedRouteBounds,
-                  focusBoundsPadding: 104,
-                  showDemoMarker: false,
-                  showDemoRoute: false,
->>>>>>> origin/main
                 ),
               ],
             ),

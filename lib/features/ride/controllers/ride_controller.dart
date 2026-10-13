@@ -1516,7 +1516,6 @@ class RideController extends GetxController {
 
   Future<void> _watchOffers(String requestId) async {
     final generation = ++_offersWatchGeneration;
-<<<<<<< HEAD
     final rideId = int.tryParse(requestId);
     if (rideId == null || !Get.isRegistered<TrackingHubService>()) return;
     try {
@@ -1685,36 +1684,6 @@ class RideController extends GetxController {
         offer.status == DriverOfferStatus.expired) {
       _dismissOffer(offer.id);
     }
-=======
-    final previous = _offersSubscription;
-    _offersSubscription = null;
-    if (previous != null) unawaited(previous.cancel());
-    _offersSubscription = _repository.watchOffers(requestId).listen(
-      (offer) {
-        if (generation != _offersWatchGeneration ||
-            !isSearchingForDriver.value) {
-          return;
-        }
-        offersExhausted.value = false;
-        receivedOffersCount.value++;
-        driverOffers.add(offer);
-      },
-      onError: (_) {
-        if (generation != _offersWatchGeneration) return;
-        _recipientTimer?.cancel();
-        isSearchingForDriver.value = false;
-        Get.snackbar('تعذر استلام العروض', 'حاول إرسال الطلب مرة أخرى.');
-      },
-      onDone: () {
-        if (generation != _offersWatchGeneration ||
-            !isSearchingForDriver.value) {
-          return;
-        }
-        offersStreamDone.value = true;
-        _updateOffersExhausted();
-      },
-    );
->>>>>>> origin/main
   }
 
   Future<void> acceptOffer(DriverOffer offer) async {
@@ -1776,14 +1745,8 @@ class RideController extends GetxController {
         driverOffers.isNotEmpty ||
         removingOfferIds.isNotEmpty) return;
 
-<<<<<<< HEAD
     // Drivers can stay silent, so the two-minute search window remains the
     // timeout signal. Offer delivery itself no longer polls the API.
-=======
-    // A driver who received a notification may stay silent. Recipient count
-    // and received offers therefore cannot tell us that every driver replied;
-    // the polling window is the reliable signal that this search cycle ended.
->>>>>>> origin/main
     if (offersStreamDone.value) {
       unawaited(_finishSearchAsExhausted());
     }
@@ -1825,17 +1788,9 @@ class RideController extends GetxController {
     driverOffers.clear();
     requestRecipients.clear();
     _recipientTimer?.cancel();
-<<<<<<< HEAD
     _offersDeadlineTimer?.cancel();
     isSearchingForDriver.value = false;
     ++_offersWatchGeneration;
-=======
-    isSearchingForDriver.value = false;
-    final subscription = _offersSubscription;
-    _offersSubscription = null;
-    ++_offersWatchGeneration;
-    if (subscription != null) unawaited(subscription.cancel());
->>>>>>> origin/main
     negotiationStatus.value = NegotiationStatus.searching;
     try {
       final requestId = _requestId;
@@ -1843,13 +1798,10 @@ class RideController extends GetxController {
     } catch (error) {
       Get.snackbar('تعذر إيقاف البحث', _searchErrorMessage(error));
     } finally {
-<<<<<<< HEAD
       if (Get.isRegistered<TrackingHubService>()) {
         unawaited(
             Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
       }
-=======
->>>>>>> origin/main
       _searchMutationInProgress = false;
     }
   }
@@ -1859,10 +1811,7 @@ class RideController extends GetxController {
     hasShownTripSharePrompt = false;
     offersExhausted.value = false;
     offersStreamDone.value = false;
-<<<<<<< HEAD
     _offersDeadlineTimer?.cancel();
-=======
->>>>>>> origin/main
     requestRecipients.clear();
     _recipientTimer?.cancel();
     var recipientIndex = 0;
@@ -1878,14 +1827,11 @@ class RideController extends GetxController {
     removingOfferIds.clear();
     negotiationStatus.value = NegotiationStatus.searching;
     driverOffers.clear();
-<<<<<<< HEAD
     _offersDeadlineTimer = Timer(const Duration(minutes: 2), () {
       if (!isSearchingForDriver.value) return;
       offersStreamDone.value = true;
       _updateOffersExhausted();
     });
-=======
->>>>>>> origin/main
   }
 
   Future<void> _finishSearchAsExhausted() async {
@@ -1893,15 +1839,8 @@ class RideController extends GetxController {
     _searchMutationInProgress = true;
     isSearchingForDriver.value = false;
     _recipientTimer?.cancel();
-<<<<<<< HEAD
     _offersDeadlineTimer?.cancel();
     ++_offersWatchGeneration;
-=======
-    final subscription = _offersSubscription;
-    _offersSubscription = null;
-    ++_offersWatchGeneration;
-    if (subscription != null) unawaited(subscription.cancel());
->>>>>>> origin/main
     try {
       final requestId = _requestId;
       if (requestId != null) {
@@ -1910,13 +1849,10 @@ class RideController extends GetxController {
     } catch (error) {
       Get.snackbar('تعذر إغلاق البحث', _searchErrorMessage(error));
     } finally {
-<<<<<<< HEAD
       if (Get.isRegistered<TrackingHubService>()) {
         unawaited(
             Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
       }
-=======
->>>>>>> origin/main
       offersExhausted.value = true;
       _searchMutationInProgress = false;
     }
