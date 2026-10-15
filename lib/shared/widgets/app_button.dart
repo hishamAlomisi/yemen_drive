@@ -32,18 +32,17 @@ class AppButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final enabled = !isLoading && !isDisabled && onPressed != null;
     final foreground = switch (variant) {
-      AppButtonVariant.primary => Theme.of(context).colorScheme.onPrimary,
-      AppButtonVariant.secondary => Colors.white,
-      AppButtonVariant.danger => Colors.white,
-      AppButtonVariant.outline ||
-      AppButtonVariant.text =>
-        Theme.of(context).colorScheme.onSurface,
+      AppButtonVariant.primary => scheme.onPrimary,
+      AppButtonVariant.secondary => scheme.surface,
+      AppButtonVariant.danger => scheme.onError,
+      AppButtonVariant.outline || AppButtonVariant.text => scheme.onSurface,
     };
     final background = switch (variant) {
-      AppButtonVariant.primary => Theme.of(context).colorScheme.primary,
-      AppButtonVariant.secondary => Theme.of(context).colorScheme.onSurface,
+      AppButtonVariant.primary => scheme.primary,
+      AppButtonVariant.secondary => scheme.onSurface,
       AppButtonVariant.danger => AppColors.error,
       AppButtonVariant.outline || AppButtonVariant.text => Colors.transparent,
     };

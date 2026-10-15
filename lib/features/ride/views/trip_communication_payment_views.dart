@@ -35,6 +35,8 @@ class DriverLocationPage extends StatefulWidget {
 class _DriverLocationPageState extends State<DriverLocationPage> {
   final RideController controller = Get.find<RideController>();
   bool _isSubmittingCashShortfallDecision = false;
+  bool _isFollowingLiveRoute = true;
+  int _liveRouteFocusRevision = 0;
   Worker? _cashShortfallOpenWorker;
 
   @override
@@ -70,6 +72,13 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
   void dispose() {
     _cashShortfallOpenWorker?.dispose();
     super.dispose();
+  }
+
+  void _toggleLiveRouteFollowing() {
+    setState(() {
+      _isFollowingLiveRoute = !_isFollowingLiveRoute;
+      if (_isFollowingLiveRoute) _liveRouteFocusRevision++;
+    });
   }
 
   Future<void> _showTripSharePrompt() => Get.dialog<void>(
@@ -166,7 +175,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           '5',
           '6',
         }.contains(controller.activeRideStatus.value);
-        final useDevelopmentTrackingFallback = AppEnvironment.useDemoData;
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
           'DriverEnRoute' || '4' => 'السائق في الطريق',
@@ -174,39 +182,49 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           'Completed' || '6' => 'تم الوصول',
           _ => 'جاري تحديث حالة الرحلة',
         };
+        final liveRouteBounds =
+            controller.trackingFocusBounds ?? location.selectedRouteBounds;
         return PopScope<void>(
           canPop: !lockBackNavigation,
           child: RideMapShell(
             processStep: 4,
-            map: useDevelopmentTrackingFallback
-                ? const _DevelopmentTrackingMap()
-                : AppGoogleMap(
-                    initialTarget:
-                        location.pickup.value ?? const LatLng(15.3694, 44.1910),
-                    markers: <Marker>{
-                      // The pickup marker is the customer's personal marker.
-                      // Do not add a second generic passenger pin during live
-                      // tracking, otherwise the destination becomes unclear.
-                      ...location.markers,
-                      ...controller.trackingMarkers,
-                    },
-                    polylines: controller.trackingPolylines.isNotEmpty
-                        ? controller.trackingPolylines
-                        : location.polylines,
-                    mapType: location.mapType.value,
-                    useModernMapStyle: true,
-                    // Keep both the moving driver and the customer's pickup in
-                    // view. Following the driver alone previously hid the live
-                    // route and the pickup marker on longer approaches.
-                    focusBounds: controller.trackingFocusBounds ??
-                        location.selectedRouteBounds,
-                    focusBoundsPadding: 104,
-                    showDemoMarker: false,
-                    showDemoRoute: false,
-                  ),
+            map: AppGoogleMap(
+              initialTarget:
+                  location.pickup.value ?? const LatLng(15.3694, 44.1910),
+              markers: <Marker>{
+                // The pickup marker is the customer's personal marker.
+                // Do not add a second generic passenger pin during live
+                // tracking, otherwise the destination becomes unclear.
+                ...location.markers,
+                ...controller.trackingMarkers,
+              },
+              polylines: controller.trackingPolylines.isNotEmpty
+                  ? controller.trackingPolylines
+                  : location.polylines,
+              mapType: location.mapType.value,
+              useModernMapStyle: true,
+              // The bounds contain the actual GPS position plus the remaining
+              // road route. A passenger can pause this automatic camera move
+              // to inspect the map, then enable it again from the map button.
+              focusBounds: _isFollowingLiveRoute ? liveRouteBounds : null,
+              focusBoundsPadding: 104,
+              focusBoundsRevision: _liveRouteFocusRevision,
+              focusBoundsUpdateInterval: const Duration(milliseconds: 650),
+            ),
             showRoute: true,
             showMarker: false,
             panelMaxHeightFactor: .58,
+            allowPanelCollapse: true,
+            mapAction: RideIconButton(
+              icon: _isFollowingLiveRoute
+                  ? Icons.gps_fixed_rounded
+                  : Icons.gps_not_fixed_rounded,
+              tooltip: _isFollowingLiveRoute
+                  ? 'إيقاف تتبع مسار السائق'
+                  : 'تتبع مسار السائق',
+              onPressed: _toggleLiveRouteFollowing,
+            ),
+            mapActionAtStart: true,
             panelFooter: AppButton(
               label: approvalPending
                   ? 'موافقة مطلوبة لفرق الدفع'
@@ -238,7 +256,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
             panel: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                const RidePanelHandle(),
                 const DriverCard(),
                 const SizedBox(height: AppSpacing.sm),
                 RouteSummaryCard(compact: true),
@@ -309,41 +326,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       _isSubmittingCashShortfallDecision = false;
     }
   }
-}
-
-class _DevelopmentTrackingMap extends StatelessWidget {
-  const _DevelopmentTrackingMap();
-
-  @override
-  Widget build(BuildContext context) => ColoredBox(
-        color: AppColors.mapLandLight,
-        child: Center(
-          child: Container(
-            margin: const EdgeInsets.all(32),
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .94),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Icon(Icons.location_searching_rounded, size: 42),
-                SizedBox(height: 10),
-                Text(
-                  'متابعة موقع السائق التجريبية',
-                  textAlign: TextAlign.center,
-                ),
-                SizedBox(height: 6),
-                Text(
-                  'الخريطة الحية تعمل عند تجهيز بيئة الخرائط الفعلية.',
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
 }
 
 class _RideCancelDecisionDialog extends StatelessWidget {
@@ -783,7 +765,7 @@ class RideChatPage extends GetView<ChatController> {
                             ? null
                             : controller.sendMessage,
                         tooltip: 'إرسال',
-                        color: Colors.black,
+                        color: Theme.of(context).colorScheme.onPrimary,
                         icon: Icon(Icons.send_rounded),
                       ),
                     ),
@@ -970,45 +952,10 @@ class RidePaymentPage extends GetView<PaymentController> {
 class ActiveRidePage extends StatelessWidget {
   const ActiveRidePage({super.key});
 
+  // Keep the legacy route on the same real-time screen. The old standalone
+  // page only drew a static route and placeholder trip details.
   @override
-  Widget build(BuildContext context) => RideMapShell(
-        processStep: 4,
-        showRoute: true,
-        showMarker: false,
-        // Fit the sheet to its content; only scroll once it reaches this cap.
-        fitPanelToContent: true,
-        panelMaxHeightFactor: .82,
-        panelFooter: AppButton(
-          label: 'إنهاء الرحلة التجريبية',
-          onPressed: () => Get.toNamed<void>(RideRoutes.review),
-        ),
-        top: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: <Widget>[
-            const RideBackButton(),
-            RideStatusPill(
-              label: 'الوصول 01:05 م',
-              icon: Icons.schedule_rounded,
-            ),
-          ],
-        ),
-        panel: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            const RidePanelHandle(),
-            const RideSectionHeader(
-              title: 'أنت في الطريق',
-              subtitle: 'متبقٍ 8 دقائق للوصول إلى شركة ارتقاء سوفت.',
-            ),
-            const SizedBox(height: AppSpacing.md),
-            const DriverCard(status: 'الرحلة جارية'),
-            const SizedBox(height: AppSpacing.sm),
-            TripMetricRow(),
-            const SizedBox(height: AppSpacing.md),
-            const TripSafetyActions(),
-          ],
-        ),
-      );
+  Widget build(BuildContext context) => const DriverLocationPage();
 }
 
 class RideReviewPage extends GetView<PaymentController> {
@@ -1124,7 +1071,10 @@ class _ChatDriverStatus extends StatelessWidget {
               CircleAvatar(
                 radius: 19,
                 backgroundColor: AppColors.primary,
-                child: Icon(Icons.person_rounded, color: Colors.black),
+                child: Icon(
+                  Icons.person_rounded,
+                  color: Theme.of(context).colorScheme.onPrimary,
+                ),
               ),
               SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -1199,15 +1149,21 @@ class _MessageBubble extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     message.text,
-                    style:
-                        TextStyle(color: message.isMine ? Colors.black : null),
+                    style: TextStyle(
+                      color: message.isMine
+                          ? Theme.of(context).colorScheme.onPrimary
+                          : null,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     message.timeLabel,
                     style: TextStyle(
                       color: message.isMine
-                          ? Colors.black54
+                          ? Theme.of(context)
+                              .colorScheme
+                              .onPrimary
+                              .withValues(alpha: .72)
                           : Theme.of(
                               context,
                             ).colorScheme.onSurface.withValues(alpha: .5),

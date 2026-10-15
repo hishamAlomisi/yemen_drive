@@ -8,9 +8,10 @@ import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../../../core/config/app_environment.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
+import '../../../../core/services/auth_session_service.dart';
+import '../../../auth/routes/auth_routes.dart';
 import '../../models/ride_models.dart';
 import '../../ride_routes.dart';
 import '../repositories/location_search_repository.dart';
@@ -21,11 +22,13 @@ class LocationController extends GetxController {
     this._routeRepository,
     this._searchRepository,
     this._client,
+    this._session,
   );
 
   final RouteRepository _routeRepository;
   final LocationSearchRepository _searchRepository;
   final ApiClient _client;
+  final AuthSessionService _session;
   final TextEditingController fromController = TextEditingController(
     text: 'موقعي الحالي',
   );
@@ -52,6 +55,7 @@ class LocationController extends GetxController {
       <LocationSearchResult>[].obs;
   final RxBool isSearching = false.obs;
   final RxBool searchFailed = false.obs;
+  final RxBool searchNeedsAuthentication = false.obs;
   final RxBool isAddressLoading = false.obs;
   final TextEditingController addressNameController = TextEditingController();
   final TextEditingController streetController = TextEditingController();
@@ -60,6 +64,7 @@ class LocationController extends GetxController {
   GoogleMapController? _mapController;
   int _searchRequestId = 0;
   int _routeRequestId = 0;
+  String? _lastResumedLocationSearchId;
 
   final RxList<RecentPlace> recentPlaces = <RecentPlace>[].obs;
   final Rxn<BitmapDescriptor> _personalPickupMarkerIcon =
@@ -253,8 +258,6 @@ class LocationController extends GetxController {
     );
   }
 
-  bool get _useDevelopmentRouteFallback => AppEnvironment.useDemoData;
-
   Set<Marker> get markers => <Marker>{
         if (pickup.value != null)
           Marker(
@@ -384,16 +387,33 @@ class LocationController extends GetxController {
 
   Future<void> searchPlaces(String query) async {
     final requestId = ++_searchRequestId;
-    if (query.trim().length < 2) {
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.length < 2) {
       searchResults.clear();
       searchFailed.value = false;
+      searchNeedsAuthentication.value = false;
       isSearching.value = false;
       return;
     }
+
+    final returnRoute = _locationSearchReturnRoute;
+    final resumeArguments = _locationSearchResumeArguments(normalizedQuery);
+    if (!_session.requireAuthentication(
+      returnRoute: returnRoute,
+      arguments: resumeArguments,
+    )) {
+      searchResults.clear();
+      searchFailed.value = false;
+      searchNeedsAuthentication.value = true;
+      isSearching.value = false;
+      return;
+    }
+
     searchFailed.value = false;
+    searchNeedsAuthentication.value = false;
     isSearching.value = true;
     try {
-      final results = await _searchRepository.search(query);
+      final results = await _searchRepository.search(normalizedQuery);
       if (requestId != _searchRequestId) return;
       // Google already applies locale-aware matching. Re-filtering the
       // results literally here hid valid Arabic/Latin transliterations such
@@ -408,6 +428,15 @@ class LocationController extends GetxController {
         'تحقق من اتصال الشبكة وحاول مرة أخرى',
       );
     } on LocationSearchRequestException catch (error) {
+      if (error.requiresAuthentication) {
+        searchResults.clear();
+        searchNeedsAuthentication.value = true;
+        _session.requireAuthentication(
+          returnRoute: returnRoute,
+          arguments: resumeArguments,
+        );
+        return;
+      }
       if (requestId != _searchRequestId) return;
       searchResults.clear();
       searchFailed.value = true;
@@ -420,6 +449,50 @@ class LocationController extends GetxController {
     } finally {
       if (requestId == _searchRequestId) isSearching.value = false;
     }
+  }
+
+  String get _locationSearchReturnRoute {
+    final route = Get.currentRoute;
+    return route.isEmpty || route == AuthRoutes.signIn
+        ? RideRoutes.locationPicker
+        : route;
+  }
+
+  Map<String, Object?> _locationSearchResumeArguments(String query) =>
+      <String, Object?>{
+        'resumeLocationSearch': true,
+        'locationSearchQuery': query,
+        'locationSearchField': activeField.value,
+        'locationSearchRequestId': DateTime.now().microsecondsSinceEpoch,
+      };
+
+  /// Restores and reruns a location search after sign-in navigates back to the
+  /// page where the user entered the query.
+  bool resumeLocationSearchFromArguments(Object? arguments) {
+    if (arguments is! Map || arguments['resumeLocationSearch'] != true) {
+      return false;
+    }
+    final query = arguments['locationSearchQuery']?.toString().trim() ?? '';
+    final requestId = arguments['locationSearchRequestId']?.toString() ?? '';
+    if (query.length < 2 ||
+        requestId.isEmpty ||
+        requestId == _lastResumedLocationSearchId) {
+      return false;
+    }
+
+    final rawField = arguments['locationSearchField'];
+    final field = rawField is num && rawField.toInt() == 0 ? 0 : 1;
+    activeField.value = field;
+    final textController = field == 0 ? fromController : toController;
+    if (textController.text != query) {
+      textController.value = TextEditingValue(
+        text: query,
+        selection: TextSelection.collapsed(offset: query.length),
+      );
+    }
+    _lastResumedLocationSearchId = requestId;
+    unawaited(searchPlaces(query));
+    return true;
   }
 
   /// Saved places are part of the same search experience as Google places.
@@ -448,6 +521,7 @@ class LocationController extends GetxController {
     _searchRequestId++;
     searchResults.clear();
     searchFailed.value = false;
+    searchNeedsAuthentication.value = false;
     isSearching.value = false;
   }
 
@@ -713,15 +787,6 @@ class LocationController extends GetxController {
     routeDistanceMeters.value = 0;
     routeDurationSeconds.value = 0;
     try {
-      if (_useDevelopmentRouteFallback) {
-        if (requestId != _routeRequestId) return;
-        routePoints.assignAll(<LatLng>[start, end]);
-        Get.snackbar(
-          'مسار تقديري للتطوير',
-          'استُخدم خط بين النقطتين المختارتين للاختبار. لا يمثل مسار قيادة فعلياً.',
-        );
-        return;
-      }
       final route = await _routeRepository.getDrivingRoute(
         origin: start,
         destination: end,

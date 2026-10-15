@@ -24,8 +24,6 @@ abstract final class AuthRoutes {
   static const String welcome = '/auth/welcome';
   static const String signUp = '/auth/sign-up';
   static const String verifySignUpOtp = '/auth/sign-up/verify';
-  static const String verifySignUpOtpFilled =
-      '/auth/sign-up/verify/preview-filled';
   static const String setPassword = '/auth/sign-up/password';
   static const String completeProfile = '/auth/sign-up/profile';
   static const String signIn = '/auth/sign-in';
@@ -33,8 +31,6 @@ abstract final class AuthRoutes {
   static const String recoveryIdentity = '/auth/recovery/contact';
   static const String forgotPasswordMethod = '/auth/recovery/method';
   static const String verifyResetOtp = '/auth/recovery/verify';
-  static const String verifyResetOtpFilled =
-      '/auth/recovery/verify/preview-filled';
   static const String setNewPassword = '/auth/recovery/password';
   static const String postAuthentication = '/home';
 }
@@ -80,11 +76,6 @@ final List<GetPage<dynamic>> authPages = <GetPage<dynamic>>[
     binding: RegistrationBinding(),
   ),
   GetPage<dynamic>(
-    name: AuthRoutes.verifySignUpOtpFilled,
-    page: () => const RegistrationOtpView(initialCode: '25'),
-    binding: RegistrationBinding(),
-  ),
-  GetPage<dynamic>(
     name: AuthRoutes.setPassword,
     page: PasswordSetupScreen.new,
     binding: RegistrationBinding(),
@@ -119,11 +110,6 @@ final List<GetPage<dynamic>> authPages = <GetPage<dynamic>>[
   GetPage<dynamic>(
     name: AuthRoutes.verifyResetOtp,
     page: PasswordResetOtpView.new,
-    binding: PasswordResetBinding(),
-  ),
-  GetPage<dynamic>(
-    name: AuthRoutes.verifyResetOtpFilled,
-    page: () => const PasswordResetOtpView(initialCode: '25'),
     binding: PasswordResetBinding(),
   ),
   GetPage<dynamic>(

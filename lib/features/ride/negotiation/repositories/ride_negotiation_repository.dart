@@ -27,12 +27,6 @@ abstract interface class RideNegotiationRepository {
     int? serviceKindId,
     int? serviceCatalogItemId,
   });
-  Future<void> publishPassengerLocation(
-    String requestId,
-    RideCoordinate location, {
-    double? bearing,
-    double? speed,
-  });
 }
 
 /// REST provides the initial/reconnect snapshot. New offer changes arrive over
@@ -297,29 +291,6 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         .map(_nearbyDriver)
         .whereType<NearbyDriver>()
         .toList(growable: false);
-  }
-
-  @override
-  Future<void> publishPassengerLocation(
-    String requestId,
-    RideCoordinate location, {
-    double? bearing,
-    double? speed,
-  }) async {
-    final result = await _client.execute<Object?>(
-      model: 'RideLocationModel',
-      operation: 'add',
-      data: <String, Object?>{
-        'rideId': requestId,
-        'latitude': location.latitude,
-        'longitude': location.longitude,
-        'bearing': bearing,
-        'speed': speed,
-      },
-    );
-    if (result is! ApiSuccess) {
-      throw const FormatException('تعذر حفظ موقع العميل للرحلة.');
-    }
   }
 
   static Map<String, Object?> _map(Object? value) =>

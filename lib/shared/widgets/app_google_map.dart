@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../app/theme/app_map_styles.dart';
-import '../../core/config/app_environment.dart';
-import 'map_backdrop.dart';
 
 class AppGoogleMap extends StatefulWidget {
   const AppGoogleMap({
@@ -21,6 +18,8 @@ class AppGoogleMap extends StatefulWidget {
     this.focusTargetZoom = 15.5,
     this.focusBounds,
     this.focusBoundsPadding = 72,
+    this.focusBoundsRevision = 0,
+    this.focusBoundsUpdateInterval,
     this.mapPadding = EdgeInsets.zero,
     this.markers = const <Marker>{},
     this.polylines = const <Polyline>{},
@@ -38,8 +37,6 @@ class AppGoogleMap extends StatefulWidget {
     this.onTap,
     this.lightStyle,
     this.darkStyle,
-    this.showDemoMarker = true,
-    this.showDemoRoute = false,
     super.key,
   });
 
@@ -56,6 +53,14 @@ class AppGoogleMap extends StatefulWidget {
   /// tracking may follow a moving driver after the initial route focus.
   final LatLngBounds? focusBounds;
   final double focusBoundsPadding;
+
+  /// Increments when the caller explicitly wants the current bounds framed
+  /// again, even if the coordinates themselves have not changed.
+  final int focusBoundsRevision;
+
+  /// Limits camera work while a live marker is interpolated frequently. The
+  /// marker still receives every update; only map camera movements are paced.
+  final Duration? focusBoundsUpdateInterval;
   final EdgeInsets mapPadding;
   final Set<Marker> markers;
   final Set<Polyline> polylines;
@@ -73,8 +78,6 @@ class AppGoogleMap extends StatefulWidget {
   final ArgumentCallback<LatLng>? onTap;
   final String? lightStyle;
   final String? darkStyle;
-  final bool showDemoMarker;
-  final bool showDemoRoute;
 
   @override
   State<AppGoogleMap> createState() => _AppGoogleMapState();
@@ -113,6 +116,8 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
   LatLngBounds? _lastFocusedBounds;
   LatLng? _lastFocusedTarget;
   int _cameraRevision = 0;
+  DateTime? _lastBoundsFocusAt;
+  Timer? _pendingBoundsFocus;
   final ValueNotifier<_RadarProjection?> _radarProjection =
       ValueNotifier<_RadarProjection?>(null);
 
@@ -137,9 +142,12 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
         unawaited(_focusTarget());
       }
     }
-    if (!_sameBounds(widget.focusBounds, oldWidget.focusBounds)) {
+    final shouldRefocusBounds =
+        widget.focusBoundsRevision != oldWidget.focusBoundsRevision;
+    if (!_sameBounds(widget.focusBounds, oldWidget.focusBounds) ||
+        shouldRefocusBounds) {
       if (widget.focusTarget == null) {
-        unawaited(_focusBounds());
+        unawaited(_requestFocusBounds(force: shouldRefocusBounds));
       } else {
         _lastFocusedBounds = null;
       }
@@ -148,44 +156,6 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
 
   @override
   Widget build(BuildContext context) {
-    // The backdrop is an explicit demo-mode fallback only. Development builds
-    // with a configured Android Maps key must exercise the real native map.
-    final useDevelopmentBackdrop = !kIsWeb && AppEnvironment.useDemoData;
-    if (useDevelopmentBackdrop) {
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: LayoutBuilder(
-          builder: (context, constraints) => GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTapDown: widget.onTap == null
-                ? null
-                : (details) => widget.onTap!(
-                      _developmentTargetForTap(
-                        details.localPosition,
-                        constraints.biggest,
-                      ),
-                    ),
-            child: MapBackdrop(
-              showMarker: widget.showDemoMarker,
-              showRoute: widget.showDemoRoute,
-            ),
-          ),
-        ),
-      );
-    }
-    // Android and iOS receive the key through their native configuration.
-    // Web needs its JavaScript API key during web bootstrap.
-    if (kIsWeb && AppEnvironment.googleMapsApiKey.isEmpty) {
-      return SizedBox(
-        width: widget.width,
-        height: widget.height,
-        child: MapBackdrop(
-          showMarker: widget.showDemoMarker,
-          showRoute: widget.showDemoRoute,
-        ),
-      );
-    }
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final mapStyle = isDark ? widget.darkStyle : widget.lightStyle;
     final resolvedMapStyle = mapStyle ??
@@ -385,13 +355,13 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
         first.cycleDuration == second.cycleDuration;
   }
 
-  Future<void> _focusBounds() async {
+  Future<void> _focusBounds({bool force = false}) async {
     if (!mounted) return;
     final controller = _controller;
     final bounds = widget.focusBounds;
     if (controller == null ||
         bounds == null ||
-        _sameBounds(bounds, _lastFocusedBounds)) {
+        (!force && _sameBounds(bounds, _lastFocusedBounds))) {
       return;
     }
     _lastFocusedBounds = bounds;
@@ -404,6 +374,39 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
       // frame. The next widget update or an explicit recenter will retry it.
       _lastFocusedBounds = null;
     }
+  }
+
+  Future<void> _requestFocusBounds({bool force = false}) async {
+    if (!mounted || _controller == null || widget.focusBounds == null) {
+      if (widget.focusBounds == null) {
+        _pendingBoundsFocus?.cancel();
+        _pendingBoundsFocus = null;
+      }
+      return;
+    }
+    final interval = widget.focusBoundsUpdateInterval;
+    if (force || interval == null || interval <= Duration.zero) {
+      _pendingBoundsFocus?.cancel();
+      _pendingBoundsFocus = null;
+      _lastBoundsFocusAt = DateTime.now();
+      await _focusBounds(force: force);
+      return;
+    }
+
+    final lastFocus = _lastBoundsFocusAt;
+    final now = DateTime.now();
+    if (lastFocus == null || now.difference(lastFocus) >= interval) {
+      _lastBoundsFocusAt = now;
+      await _focusBounds();
+      return;
+    }
+    if (_pendingBoundsFocus != null) return;
+    _pendingBoundsFocus = Timer(interval - now.difference(lastFocus), () {
+      _pendingBoundsFocus = null;
+      if (!mounted || widget.focusBounds == null) return;
+      _lastBoundsFocusAt = DateTime.now();
+      unawaited(_focusBounds());
+    });
   }
 
   Future<void> _focusTarget() async {
@@ -447,20 +450,9 @@ class _AppGoogleMapState extends State<AppGoogleMap> {
         first.northeast.longitude == second.northeast.longitude;
   }
 
-  LatLng _developmentTargetForTap(Offset position, Size size) {
-    final safeWidth = size.width <= 0 ? 1 : size.width;
-    final safeHeight = size.height <= 0 ? 1 : size.height;
-    // A small bounded offset is sufficient to make pickup/destination
-    // selection testable while clearly remaining a development simulation.
-    final latitude =
-        widget.initialTarget.latitude + ((.5 - position.dy / safeHeight) * .02);
-    final longitude =
-        widget.initialTarget.longitude + ((position.dx / safeWidth - .5) * .02);
-    return LatLng(latitude, longitude);
-  }
-
   @override
   void dispose() {
+    _pendingBoundsFocus?.cancel();
     _radarProjection.dispose();
     _controller?.dispose();
     _controller = null;

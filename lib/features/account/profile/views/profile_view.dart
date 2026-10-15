@@ -57,13 +57,13 @@ class ProfilePage extends GetView<ProfileController> {
                   child: Icon(
                     Icons.person_rounded,
                     size: 58,
-                    color: AppColors.primaryDark,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                 ),
                 CircleAvatar(
                   radius: 18,
                   backgroundColor: AppColors.primary,
-                  foregroundColor: Colors.black,
+                  foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   child: IconButton(
                     padding: EdgeInsets.zero,
                     tooltip: 'تغيير الصورة',
@@ -290,7 +290,7 @@ class _MenuHeader extends StatelessWidget {
             CircleAvatar(
               radius: 40,
               backgroundColor: AppColors.primary,
-              foregroundColor: Colors.black,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
               child: Icon(Icons.person_rounded, size: 42),
             ),
             const SizedBox(height: AppSpacing.sm),

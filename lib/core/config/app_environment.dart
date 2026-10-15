@@ -7,18 +7,12 @@ import '../../features/account/models/account_models.dart';
 class AppEnvironment {
   AppEnvironment._();
 
-  static late final String flavor;
   static late final String baseUrl;
   static String defaultCurrency = 'ر.ي';
-  static bool useDemoData = true;
-  // Used only by the web build. Android reads the restricted Maps SDK key
-  // from the native manifest placeholder in local.properties.
-  static String googleMapsApiKey = '';
   static String signalRHubUrl = '';
   static bool _isConfigured = false;
 
   static bool get isConfigured => _isConfigured;
-  static bool get isProduction => flavor == 'prod';
   static List<PaymentMethodItem> paymentMethods = <PaymentMethodItem>[];
 
   static Future<void> loadPaymentMethods(ApiClient client) async {
@@ -50,18 +44,12 @@ class AppEnvironment {
   }
 
   static void configure({
-    required String flavor,
     required String baseUrl,
-    bool useDemoData = true,
-    String googleMapsApiKey = '',
     String signalRHubUrl = '',
   }) {
-    AppEnvironment.flavor = flavor;
     AppEnvironment.baseUrl = baseUrl.endsWith('/')
         ? baseUrl.substring(0, baseUrl.length - 1)
         : baseUrl;
-    AppEnvironment.useDemoData = useDemoData;
-    AppEnvironment.googleMapsApiKey = googleMapsApiKey;
     AppEnvironment.signalRHubUrl = signalRHubUrl.isEmpty
         ? _defaultSignalRHubUrl(AppEnvironment.baseUrl)
         : signalRHubUrl;

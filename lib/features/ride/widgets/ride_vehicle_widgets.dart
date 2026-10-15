@@ -9,167 +9,25 @@ import '../../../shared/widgets/app_card.dart';
 import '../controllers/ride_controller.dart';
 import '../models/ride_models.dart';
 
+String? _httpImageUrl(String? value) {
+  final url = value?.trim();
+  if (url == null ||
+      (!url.startsWith('https://') && !url.startsWith('http://'))) {
+    return null;
+  }
+  return url;
+}
+
 extension RideVehicleTypePresentation on RideVehicleType {
-  String get arabicLabel => switch (this) {
-        RideVehicleType.car => 'سيارة',
-        RideVehicleType.bike => 'دراجة نارية',
-        RideVehicleType.cycle => 'دراجة هوائية',
-        RideVehicleType.taxi => 'تاكسي',
-      };
-
-  String get arabicSubtitle => switch (this) {
-        RideVehicleType.car => 'مريحة حتى 4 ركاب',
-        RideVehicleType.bike => 'الأسرع للرحلات القصيرة',
-        RideVehicleType.cycle => 'اقتصادية وصديقة للبيئة',
-        RideVehicleType.taxi => 'تاكسي مرخّص قريب منك',
-      };
-
   IconData get icon => switch (this) {
         RideVehicleType.car => Icons.directions_car_filled_rounded,
         RideVehicleType.bike => Icons.two_wheeler_rounded,
         RideVehicleType.cycle => Icons.pedal_bike_rounded,
         RideVehicleType.taxi => Icons.local_taxi_rounded,
       };
-
-  String get imageAsset => switch (this) {
-        RideVehicleType.car => 'assets/images/vehicles/car.jpg',
-        RideVehicleType.bike => 'assets/images/vehicles/delivery_scooter.jpg',
-        RideVehicleType.cycle => 'assets/images/vehicles/delivery_bicycle.jpg',
-        RideVehicleType.taxi => 'assets/images/vehicles/taxi.png',
-      };
-
-  String get localizedLabel => switch (this) {
-        RideVehicleType.car => 'vehicle_car'.tr,
-        RideVehicleType.bike => 'vehicle_bike'.tr,
-        RideVehicleType.cycle => 'vehicle_cycle'.tr,
-        RideVehicleType.taxi => 'vehicle_taxi'.tr,
-      };
-
-  String get localizedDescription => switch (this) {
-        RideVehicleType.car => 'transport_car_description'.tr,
-        RideVehicleType.bike => 'transport_bike_description'.tr,
-        RideVehicleType.cycle => 'transport_cycle_description'.tr,
-        RideVehicleType.taxi => 'transport_taxi_description'.tr,
-      };
 }
 
-class TransportModeListCard extends StatelessWidget {
-  const TransportModeListCard({
-    required this.type,
-    required this.selected,
-    required this.onTap,
-    super.key,
-  });
-
-  final RideVehicleType type;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 180),
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      decoration: BoxDecoration(
-        color: selected
-            ? colors.primary.withValues(alpha: .10)
-            : Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: selected
-              ? colors.primary
-              : colors.onSurface.withValues(alpha: .10),
-          width: selected ? 1.5 : 1,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-            child: Row(
-              children: <Widget>[
-                Container(
-                  width: 78,
-                  height: 66,
-                  padding: const EdgeInsets.all(4),
-                  decoration: BoxDecoration(
-                    color: colors.surfaceContainerHighest.withValues(
-                      alpha: .55,
-                    ),
-                    borderRadius: BorderRadius.circular(9),
-                  ),
-                  child: Image.asset(
-                    type.imageAsset,
-                    fit: BoxFit.contain,
-                    filterQuality: FilterQuality.high,
-                    errorBuilder: (_, __, ___) => Icon(
-                      type.icon,
-                      size: 34,
-                      color: colors.primary,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        type.localizedLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
-                            ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        type.localizedDescription,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              height: 1.35,
-                            ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 24,
-                  height: 24,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: selected ? colors.primary : Colors.transparent,
-                    border: Border.all(
-                      color: selected
-                          ? colors.primary
-                          : colors.onSurface.withValues(alpha: .28),
-                    ),
-                  ),
-                  child: selected
-                      ? Icon(
-                          Icons.check_rounded,
-                          size: 16,
-                          color: colors.onPrimary,
-                        )
-                      : null,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Catalog-backed transport card. Unlike [TransportModeListCard], its label,
+/// Catalog-backed transport card. Its label,
 /// description, image and metadata are supplied by the API catalog.
 class CatalogTransportListCard extends StatelessWidget {
   const CatalogTransportListCard({
@@ -186,14 +44,7 @@ class CatalogTransportListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final source = vehicle.imageAsset;
-    final isRemote = source != null &&
-        (source.startsWith('http://') || source.startsWith('https://'));
-    final image = source == null || source.isEmpty
-        ? null
-        : (isRemote
-            ? Image.network(source, fit: BoxFit.contain)
-            : Image.asset(source, fit: BoxFit.contain));
+    final source = _httpImageUrl(vehicle.imageAsset);
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
@@ -228,27 +79,21 @@ class CatalogTransportListCard extends StatelessWidget {
                         colors.surfaceContainerHighest.withValues(alpha: .55),
                     borderRadius: BorderRadius.circular(9),
                   ),
-                  child: image == null
-                      ? Icon(vehicle.type.icon, size: 34, color: colors.primary)
-                      : (isRemote
-                          ? Image.network(
-                              source,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => Icon(
-                                vehicle.type.icon,
-                                size: 34,
-                                color: colors.primary,
-                              ),
-                            )
-                          : Image.asset(
-                              source!,
-                              fit: BoxFit.contain,
-                              errorBuilder: (_, __, ___) => Icon(
-                                vehicle.type.icon,
-                                size: 34,
-                                color: colors.primary,
-                              ),
-                            )),
+                  child: source == null
+                      ? Icon(
+                          vehicle.type.icon,
+                          size: 34,
+                          color: colors.primary,
+                        )
+                      : Image.network(
+                          source,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Icon(
+                            vehicle.type.icon,
+                            size: 34,
+                            color: colors.primary,
+                          ),
+                        ),
                 ),
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
@@ -301,56 +146,6 @@ class CatalogTransportListCard extends StatelessWidget {
       ),
     );
   }
-}
-
-class TransportModeCard extends StatelessWidget {
-  const TransportModeCard({required this.type, required this.onTap, super.key});
-
-  final RideVehicleType type;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => AppCard(
-        onTap: onTap,
-        padding: const EdgeInsets.all(AppSpacing.md),
-        child: AspectRatio(
-          aspectRatio: 1.08,
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: <Widget>[
-              SizedBox(
-                width: 104,
-                height: 104,
-                child: Image.asset(
-                  type.imageAsset,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                  errorBuilder: (context, error, stackTrace) => Icon(
-                    type.icon,
-                    size: 42,
-                    color: AppColors.primaryDark,
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.md),
-              Text(
-                type.arabicLabel,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: AppSpacing.xs),
-              Text(
-                type.arabicSubtitle,
-                textAlign: TextAlign.center,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-      );
 }
 
 class VehiclePreviewCard extends StatelessWidget {
@@ -592,7 +387,7 @@ class _VehicleIllustration extends StatelessWidget {
         ),
         alignment: Alignment.center,
         child: _VehicleImage(
-          source: vehicle.imageAsset ?? vehicle.type.imageAsset,
+          source: vehicle.imageAsset,
           fallback: Icon(
             vehicle.type.icon,
             size: compact ? 32 : 39,
@@ -605,27 +400,19 @@ class _VehicleIllustration extends StatelessWidget {
 class _VehicleImage extends StatelessWidget {
   const _VehicleImage({required this.source, required this.fallback});
 
-  final String source;
+  final String? source;
   final Widget fallback;
 
   @override
   Widget build(BuildContext context) {
-    final isRemote =
-        source.startsWith('http://') || source.startsWith('https://');
-    final image = isRemote
-        ? Image.network(
-            source,
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.high,
-            errorBuilder: (_, __, ___) => fallback,
-          )
-        : Image.asset(
-            source,
-            fit: BoxFit.contain,
-            filterQuality: FilterQuality.high,
-            errorBuilder: (_, __, ___) => fallback,
-          );
-    return image;
+    final remoteUrl = _httpImageUrl(source);
+    if (remoteUrl == null) return fallback;
+    return Image.network(
+      remoteUrl,
+      fit: BoxFit.contain,
+      filterQuality: FilterQuality.high,
+      errorBuilder: (_, __, ___) => fallback,
+    );
   }
 }
 

@@ -24,65 +24,76 @@ class AuthFormPage extends StatelessWidget {
   final bool resizeToAvoidBottomInset;
 
   @override
-  Widget build(BuildContext context) => Directionality(
-        textDirection: Directionality.of(context),
-        child: AppScaffold(
-          resizeToAvoidBottomInset: resizeToAvoidBottomInset,
-          body: LayoutBuilder(
-            builder: (BuildContext context, BoxConstraints constraints) =>
-                SingleChildScrollView(
-              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-              padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  minHeight: constraints.maxHeight - 32,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    if (showBack)
-                      Align(
-                        alignment: AlignmentDirectional.centerStart,
-                        child: TextButton.icon(
-                          onPressed: Get.back<void>,
-                          icon: const DirectionalArrowIcon(
-                            forward: false,
-                            size: 16,
-                          ),
-                          label: Text('back'.tr),
+  Widget build(BuildContext context) {
+    final keyboardInset = resizeToAvoidBottomInset
+        ? 0.0
+        : MediaQuery.viewInsetsOf(context).bottom;
+
+    return Directionality(
+      textDirection: Directionality.of(context),
+      child: AppScaffold(
+        resizeToAvoidBottomInset: resizeToAvoidBottomInset,
+        body: LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints constraints) =>
+              SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.only(
+              top: AppSpacing.md,
+              bottom: AppSpacing.md + keyboardInset,
+            ),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - 32)
+                    .clamp(0, double.infinity)
+                    .toDouble(),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: <Widget>[
+                  if (showBack)
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        onPressed: Get.back<void>,
+                        icon: const DirectionalArrowIcon(
+                          forward: false,
+                          size: 16,
                         ),
+                        label: Text('back'.tr),
                       ),
-                    SizedBox(
-                      height: showBack ? AppSpacing.sm : AppSpacing.lg,
                     ),
+                  SizedBox(
+                    height: showBack ? AppSpacing.sm : AppSpacing.lg,
+                  ),
+                  Text(
+                    title,
+                    style: Theme.of(context).textTheme.headlineSmall,
+                  ),
+                  if (subtitle != null) ...<Widget>[
+                    const SizedBox(height: AppSpacing.xs),
                     Text(
-                      title,
-                      style: Theme.of(context).textTheme.headlineSmall,
+                      subtitle!,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurface.withValues(alpha: .62),
+                          ),
                     ),
-                    if (subtitle != null) ...<Widget>[
-                      const SizedBox(height: AppSpacing.xs),
-                      Text(
-                        subtitle!,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: Theme.of(
-                                context,
-                              ).colorScheme.onSurface.withValues(alpha: .62),
-                            ),
-                      ),
-                    ],
-                    const SizedBox(height: AppSpacing.lg),
-                    ...children,
-                    // A scroll view provides unbounded height; Spacer and
-                    // IntrinsicHeight are intentionally avoided here.
-                    const SizedBox(height: AppSpacing.lg),
-                    footer,
                   ],
-                ),
+                  const SizedBox(height: AppSpacing.lg),
+                  ...children,
+                  // A scroll view provides unbounded height; Spacer and
+                  // IntrinsicHeight are intentionally avoided here.
+                  const SizedBox(height: AppSpacing.lg),
+                  footer,
+                ],
               ),
             ),
           ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 class AuthInlineAction extends StatelessWidget {

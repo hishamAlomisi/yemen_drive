@@ -14,6 +14,7 @@ abstract final class AppTheme {
         palette: palette,
         background: palette.colors.lightBackground ?? AppColors.lightBackground,
         surface: palette.colors.lightSurface ?? AppColors.lightSurface,
+        surfaceAlt: palette.colors.lightSurfaceAlt ?? AppColors.lightSurfaceAlt,
         onSurface: palette.colors.lightText ?? AppColors.lightText,
         muted: palette.colors.lightMuted ?? AppColors.lightMuted,
       );
@@ -28,6 +29,7 @@ abstract final class AppTheme {
         palette: palette,
         background: palette.colors.darkBackground ?? AppColors.darkBackground,
         surface: palette.colors.darkSurface ?? AppColors.darkSurface,
+        surfaceAlt: palette.colors.darkSurfaceAlt ?? AppColors.darkSurfaceAlt,
         onSurface: palette.colors.darkText ?? AppColors.darkText,
         muted: palette.colors.darkMuted ?? AppColors.darkMuted,
       );
@@ -37,19 +39,31 @@ abstract final class AppTheme {
     required AppPalette palette,
     required Color background,
     required Color surface,
+    required Color surfaceAlt,
     required Color onSurface,
     required Color muted,
   }) {
     final colors = palette.colors;
     final border = colors.border ?? onSurface.withValues(alpha: .16);
+    final onPrimary = AppColors.onColor(colors.primary);
+    final onSecondary = AppColors.onColor(colors.secondary);
     final colorScheme = ColorScheme.fromSeed(
       seedColor: colors.primary,
       brightness: brightness,
       primary: colors.primary,
-      onPrimary: Colors.white,
+      onPrimary: onPrimary,
       secondary: colors.secondary,
+      onSecondary: onSecondary,
       surface: surface,
       error: AppColors.error,
+    ).copyWith(
+      onSurface: onSurface,
+      onSurfaceVariant: muted,
+      surfaceContainer: surfaceAlt,
+      surfaceContainerHigh: surfaceAlt,
+      surfaceContainerHighest: surfaceAlt,
+      outline: border,
+      onError: AppColors.onColor(AppColors.error),
     );
     final base = ThemeData(
       useMaterial3: true,
@@ -93,6 +107,8 @@ abstract final class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
+        prefixIconColor: muted,
+        suffixIconColor: muted,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 15,
@@ -126,12 +142,13 @@ abstract final class AppTheme {
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
+        backgroundColor: surface,
         indicatorColor: colors.primary,
         indicatorShape: const StadiumBorder(),
         iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>(
           (states) => IconThemeData(
             color: states.contains(WidgetState.selected)
-                ? Colors.white
+                ? onPrimary
                 : onSurface.withValues(alpha: .72),
           ),
         ),
@@ -155,6 +172,37 @@ abstract final class AppTheme {
                 : border.withValues(alpha: .72),
           ),
         ),
+      ),
+      iconTheme: IconThemeData(color: onSurface),
+      primaryIconTheme: IconThemeData(color: onPrimary),
+      iconButtonTheme: IconButtonThemeData(
+        style: IconButton.styleFrom(foregroundColor: onSurface),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(foregroundColor: colors.primary),
+      ),
+      filledButtonTheme: FilledButtonThemeData(
+        style: FilledButton.styleFrom(
+          backgroundColor: colors.primary,
+          foregroundColor: onPrimary,
+        ),
+      ),
+      floatingActionButtonTheme: FloatingActionButtonThemeData(
+        backgroundColor: colors.primary,
+        foregroundColor: onPrimary,
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: surface,
+        modalBackgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surface,
+        surfaceTintColor: Colors.transparent,
+      ),
+      listTileTheme: ListTileThemeData(
+        iconColor: onSurface,
+        textColor: onSurface,
       ),
     );
   }

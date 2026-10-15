@@ -135,14 +135,9 @@ class AddAmountPage extends GetView<WalletController> {
   @override
   Widget build(BuildContext context) => AccountPageTemplate(
         title: 'إضافة رصيد',
-        bottomAction: Obx(
-          () => AppButton(
-            label: controller.selectedPaymentMethodId.value == 'bank'
-                ? 'متابعة إلى بيانات البنك'
-                : 'إضافة الرصيد',
-            isLoading: controller.isSubmitting.value,
-            onPressed: () => _continue(),
-          ),
+        bottomAction: AppButton(
+          label: 'متابعة',
+          onPressed: _continue,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -168,30 +163,24 @@ class AddAmountPage extends GetView<WalletController> {
               ),
               onChanged: controller.setAmount,
             ),
-            const SizedBox(height: AppSpacing.sm),
-            AccountResponsiveGrid(
-              mobileColumns: 3,
-              wideColumns: 5,
-              children: <double>[500, 1000, 2000, 3000, 5000]
-                  .map(
-                    (amount) => OutlinedButton(
-                      onPressed: () => controller.selectQuickAmount(amount),
-                      child: Text(
-                        '${amount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency} ',
-                      ),
-                    ),
-                  )
-                  .toList(growable: false),
-            ),
             const SizedBox(height: AppSpacing.lg),
             const AccountSectionTitle(
-              title: 'طريقة الدفع المفضلة',
-              subtitle: 'اختر وسيلة آمنة لإتمام عملية الشحن',
+              title: 'طريقة الدفع',
+              subtitle: 'اختر وسيلة الشحن المفعلة من الخادم',
             ),
             const SizedBox(height: AppSpacing.sm),
-            Obx(
-              () => Column(
-                children: AppEnvironment.paymentMethods.where((method) => method.availableForWalletTopUp)
+            Obx(() {
+              final methods = AppEnvironment.paymentMethods
+                  .where((method) => method.availableForWalletTopUp)
+                  .toList(growable: false);
+              if (methods.isEmpty) {
+                return const AccountInfoBanner(
+                  text: 'لا توجد وسائل شحن مفعلة حالياً.',
+                  icon: Icons.info_outline_rounded,
+                );
+              }
+              return Column(
+                children: methods
                     .map(
                       (method) => Padding(
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -208,11 +197,12 @@ class AddAmountPage extends GetView<WalletController> {
                       ),
                     )
                     .toList(growable: false),
-              ),
-            ),
-            AccountInfoBanner(
+              );
+            }),
+            const SizedBox(height: AppSpacing.sm),
+            const AccountInfoBanner(
               text:
-                  'بيانات الدفع لا تُحفظ داخل التطبيق، وستُرسل مشفّرة إلى مزوّد الدفع عند ربط الواجهة الخلفية.',
+                  'يُضاف الرصيد بعد تأكيد عملية الدفع من مزود الدفع أو بعد اعتماد طلب شحن من الخادم.',
               icon: Icons.lock_outline_rounded,
             ),
           ],
@@ -221,14 +211,21 @@ class AddAmountPage extends GetView<WalletController> {
 
   Future<void> _continue() async {
     if ((controller.parsedAmount ?? 0) <= 0) {
-      Get.snackbar('تحقق من المبلغ', 'أدخل مبلغًا أكبر من صفر.');
+      Get.snackbar('تحقق من المبلغ', 'أدخل مبلغاً أكبر من صفر.');
       return;
     }
-    if (controller.selectedPaymentMethodId.value == 'bank') {
+    if (controller.selectedPaymentMethod == null) {
+      Get.snackbar('طريقة الدفع', 'اختر وسيلة شحن مفعلة أولاً.');
+      return;
+    }
+    if (controller.requiresBankAccount) {
       await Get.toNamed<void>(AccountRoutes.bank);
       return;
     }
-    Get.snackbar('طلب الشحن', 'اخترت وسيلة الشحن. ستفتح خطوة الإكمال الآمنة عند تنفيذ ربط المزود الخارجي.');
+    Get.snackbar(
+      'شحن المحفظة',
+      'لم يُربط مزود الدفع لهذه الوسيلة بعد، لذلك لن يُضاف أي رصيد قبل التأكيد الفعلي.',
+    );
   }
 }
 
@@ -236,99 +233,13 @@ class BankAccountPage extends GetView<WalletController> {
   const BankAccountPage({super.key});
 
   @override
-  Widget build(BuildContext context) => AccountPageTemplate(
-        title: 'الحساب البنكي',
-        bottomAction: Obx(
-          () => AppButton(
-            label: 'تأكيد وإضافة الرصيد',
-            isLoading: controller.isSubmitting.value,
-            onPressed: _submit,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            AccountInfoBanner(
-              text:
-                  'تأكد أن اسم صاحب الحساب البنكي مطابق لاسم المستخدم المسجل.',
-              icon: Icons.account_balance_outlined,
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            AppTextField(
-              label: 'المبلغ',
-              controller: controller.amountController,
-              keyboardType:
-                  const TextInputType.numberWithOptions(decimal: true),
-              onChanged: controller.setAmount,
-              prefixIcon: Icon(Icons.payments_outlined),
-              suffixIcon: Padding(
-                padding: EdgeInsets.all(16),
-                child: Text(AppEnvironment.defaultCurrency),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            DropdownButtonFormField<String>(
-              initialValue: 'riyad',
-              decoration: const InputDecoration(
-                labelText: 'اسم البنك',
-                prefixIcon: Icon(Icons.account_balance_rounded),
-              ),
-              items: const <DropdownMenuItem<String>>[
-                DropdownMenuItem(
-                  value: 'riyad',
-                  child: Text('بنك اليمن الدولي'),
-                ),
-                DropdownMenuItem(value: 'rajhi', child: Text('مصرف الراجحي')),
-                DropdownMenuItem(value: 'snb', child: Text('بنك الكريمي')),
-                DropdownMenuItem(value: 'other', child: Text('بنك آخر')),
-              ],
-              onChanged: (_) {},
-            ),
-            const SizedBox(height: AppSpacing.md),
-            AppTextField(
-              controller: controller.bankAccountController,
-              label: 'رقم الحساب أو الآيبان',
-              hint: 'SA00 0000 0000 0000 0000 0000',
-              textInputAction: TextInputAction.done,
-              prefixIcon: Icon(Icons.numbers_rounded),
-              inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9 ]')),
-                LengthLimitingTextInputFormatter(29),
-              ],
-            ),
-          ],
-        ),
-      );
-
-  Future<void> _submit() async {
-    if (await controller.addAmount(includeBankAccount: true)) {
-      await Get.toNamed<void>(AccountRoutes.walletSuccess);
-    } else {
-      Get.snackbar(
-        'تحقق من البيانات',
-        'أدخل مبلغًا صحيحًا ورقم حساب أو آيبان مكتملًا.',
-      );
-    }
-  }
-}
-
-class WalletSuccessPage extends GetView<WalletController> {
-  const WalletSuccessPage({super.key});
-
-  @override
-  Widget build(BuildContext context) => AccountPageTemplate(
-        title: 'تمت العملية',
-        scrollable: false,
+  Widget build(BuildContext context) => const AccountPageTemplate(
+        title: 'الشحن البنكي',
         child: Center(
-          child: Obx(
-            () => AccountSuccessPanel(
-              title: 'تمت إضافة الرصيد بنجاح',
-              value:
-                  '${controller.lastAddedAmount.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency} ',
-              message: 'أصبح المبلغ متاحًا الآن في محفظتك.',
-              actionLabel: 'العودة إلى المحفظة',
-              onAction: () => Get.offAllNamed<void>(AccountRoutes.wallet),
-            ),
+          child: AccountInfoBanner(
+            text:
+                'يتطلب الشحن البنكي طلب شحن مؤكد من الخادم. لن تُحفظ بيانات حساب أو يُضاف رصيد قبل تنفيذ هذه العملية.',
+            icon: Icons.account_balance_outlined,
           ),
         ),
       );

@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../../core/config/app_environment.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/app_google_map.dart';
@@ -315,7 +314,6 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
             polylines: widget.polylines,
             mapType: widget.mapType,
             useModernMapStyle: widget.useModernMapStyle,
-            showDemoMarker: false,
             onMapCreated: (controller) {
               _mapController = controller;
               widget.onMapCreated?.call(controller);
@@ -601,7 +599,7 @@ class RideHomeHeader extends StatelessWidget {
                   RideIconButton(
                     icon: Icons.menu_rounded,
                     tooltip: 'القائمة',
-                    foregroundColor: const Color(0xFF102C50),
+                    foregroundColor: Theme.of(context).colorScheme.onSurface,
                     onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -623,7 +621,7 @@ class RideHomeHeader extends StatelessWidget {
                     return RideIconButton(
                       icon: Icons.notifications_none_rounded,
                       tooltip: 'الإشعارات',
-                      foregroundColor: const Color(0xFF102C50),
+                      foregroundColor: Theme.of(context).colorScheme.onSurface,
                       badgeCount: notifications.unreadCount,
                       onPressed: () =>
                           Get.toNamed<void>(RideRoutes.notifications),
@@ -644,7 +642,7 @@ class RideHomeHeader extends StatelessWidget {
                   borderRadius: BorderRadius.circular(AppRadius.pill),
                   border: Border.all(color: const Color(0x33C85637)),
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: <Widget>[
                     Icon(
@@ -656,7 +654,7 @@ class RideHomeHeader extends StatelessWidget {
                     Text(
                       'الخدمة غير متوفرة في منطقتك',
                       style: TextStyle(
-                        color: Color(0xFF102C50),
+                        color: Theme.of(context).colorScheme.onSurface,
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
                       ),
@@ -746,43 +744,11 @@ class _ServiceCarousel extends StatefulWidget {
 }
 
 class _ServiceCarouselState extends State<_ServiceCarousel> {
-  static const List<RideHomeService> _fallbackServices = <RideHomeService>[
-    RideHomeService(
-      code: 'transport',
-      name: 'نقل',
-      imageUrl: 'assets/images/services/transport.png',
-      rideServiceType: 'transport',
-    ),
-    RideHomeService(
-      code: 'delivery',
-      name: 'توصيل',
-      imageUrl: 'assets/images/services/delivery.png',
-      rideServiceType: 'delivery',
-    ),
-    RideHomeService(
-      code: 'rental',
-      name: 'تأجير',
-      imageUrl: 'assets/images/services/rental.png',
-      rideServiceType: null,
-    ),
-    RideHomeService(
-      code: 'scheduled',
-      name: 'رحلات مجدولة',
-      imageUrl: 'assets/images/services/scheduled.png',
-      rideServiceType: null,
-    ),
-  ];
-
   late final PageController _pageController;
   late int _page;
 
-  List<RideHomeService> get _services {
-    final values = Get.find<RideController>().homeServices;
-    if (values.isNotEmpty) return values;
-    return AppEnvironment.useDemoData
-        ? _fallbackServices
-        : const <RideHomeService>[];
-  }
+  List<RideHomeService> get _services =>
+      Get.find<RideController>().homeServices;
 
   @override
   void initState() {

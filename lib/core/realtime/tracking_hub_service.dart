@@ -89,6 +89,27 @@ class TrackingHubService extends GetxService {
     }
   }
 
+  /// Sends an authenticated passenger GPS sample for the current active ride.
+  /// The server validates the ride ownership, status, timestamp, accuracy,
+  /// and movement before forwarding it to the assigned driver and operations.
+  Future<bool> publishPassengerLocation(Map<String, Object?> payload) async {
+    await _ensureConnected();
+    final connection = _connection;
+    if (connection == null ||
+        connection.state != HubConnectionState.Connected) {
+      return false;
+    }
+    try {
+      await connection.invoke(
+        'PublishPassengerLocation',
+        args: <Object>[payload],
+      );
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
   Future<void> setNearbyDriverSubscription({
     required int? serviceKindId,
     required int? serviceCatalogItemId,
@@ -191,6 +212,7 @@ class TrackingHubService extends GetxService {
       'cashApprovalUpdated',
       'notificationCreated',
       'driverLocationUpdated',
+      'passengerLocationUpdated',
       'nearbyDriverLocationUpdated',
       'nearbyDriverAvailabilityChanged',
     ]) {

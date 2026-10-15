@@ -7,6 +7,7 @@ import '../../../core/config/app_environment.dart';
 import '../../../core/responsive/app_responsive.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
+import '../../../shared/widgets/app_text_field.dart';
 import '../controllers/ride_controller.dart';
 import '../ride_routes.dart';
 import '../widgets/ride_common_widgets.dart';
@@ -299,18 +300,14 @@ class RideRequestPage extends GetView<RideController> {
         showRoute: true,
         showMarker: false,
         panelMaxHeightFactor: .49,
+        allowPanelCollapse: true,
         top: const Align(
           alignment: AlignmentDirectional.topStart,
           child: RideBackButton(),
         ),
-        panelFooter: AppButton(
-          label: 'متابعة الطلب التجريبي',
-          onPressed: controller.driverFound,
-        ),
         panel: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: <Widget>[
-            const RidePanelHandle(),
             Center(
               child: SizedBox(
                 width: 66,
@@ -351,14 +348,6 @@ class RideRequestPage extends GetView<RideController> {
 class RideCancelPage extends GetView<RideController> {
   const RideCancelPage({super.key});
 
-  static const List<String> _reasons = <String>[
-    'انتظرت وقتاً طويلاً',
-    'غيّرت وجهتي',
-    'حجزت الرحلة بالخطأ',
-    'لم أتمكن من التواصل مع السائق',
-    'سبب آخر',
-  ];
-
   @override
   Widget build(BuildContext context) => RidePageFrame(
         title: 'إلغاء الرحلة',
@@ -366,7 +355,7 @@ class RideCancelPage extends GetView<RideController> {
           () => AppButton(
             label: 'تأكيد الإلغاء',
             variant: AppButtonVariant.danger,
-            isDisabled: controller.cancellationReason.value.isEmpty,
+            isDisabled: controller.cancellationReason.value.trim().length < 3,
             onPressed: () => controller.cancelActiveRide(
               controller.cancellationReason.value,
             ),
@@ -379,45 +368,17 @@ class RideCancelPage extends GetView<RideController> {
             children: <Widget>[
               const RideSectionHeader(
                 title: 'لماذا تريد الإلغاء؟',
-                subtitle:
-                    'يساعدنا اختيار السبب في تحسين تجربة الرحلات القادمة.',
+                subtitle: 'اكتب السبب ليُرسل مع طلب الإلغاء إلى الخادم.',
               ),
               const SizedBox(height: AppSpacing.lg),
-              Obx(
-                () => Column(
-                  children: _reasons
-                      .map(
-                        (reason) => AppCard(
-                          margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                          onTap: () =>
-                              controller.cancellationReason.value = reason,
-                          borderColor:
-                              controller.cancellationReason.value == reason
-                                  ? AppColors.primary
-                                  : null,
-                          child: Row(
-                            children: <Widget>[
-                              Expanded(
-                                child: Text(
-                                  reason,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              Radio<String>(
-                                value: reason,
-                                groupValue: controller.cancellationReason.value,
-                                activeColor: AppColors.primaryDark,
-                                onChanged: (value) => controller
-                                    .cancellationReason.value = value ?? '',
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(growable: false),
-                ),
+              AppTextField(
+                controller: controller.cancellationReasonController,
+                hint: 'اكتب سبب الإلغاء',
+                maxLines: 4,
+                minLines: 3,
+                textInputAction: TextInputAction.done,
+                onChanged: (value) =>
+                    controller.cancellationReason.value = value.trim(),
               ),
               AppButton(
                 label: 'العودة إلى الطلب',
@@ -438,8 +399,9 @@ class RequestThanksPage extends StatelessWidget {
         showBack: false,
         body: RideSuccessView(
           icon: Icons.favorite_rounded,
-          title: 'شكراً لإخبارنا',
-          message: 'تم إلغاء الطلب بنجاح، ولن تُخصم منك أي رسوم لهذه الرحلة.',
+          title: 'تم إرسال طلب الإلغاء',
+          message:
+              'أُوقفت الرحلة وسيراجع السائق أو الإدارة طلبك عند الحاجة. سيصلك إشعار بالقرار.',
           actionLabel: 'العودة إلى الرئيسية',
           action: () => Get.offAllNamed<void>(RideRoutes.homeTransport),
         ),

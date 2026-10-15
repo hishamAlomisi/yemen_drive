@@ -46,10 +46,11 @@ class ApiLocationSearchRepository implements LocationSearchRepository {
     if (result is ApiFailure<Object?>) _throwForFailure(result);
     if (result is! ApiSuccess<Object?> || result.data is! List) return const [];
     return (result.data as List)
-        .whereType<Map>()
+        .whereType<Map<Object?, Object?>>()
         .map((item) => _fromJson(Map<Object?, Object?>.from(item)))
-        .where((item) =>
-            item.location.latitude != 0 || item.location.longitude != 0)
+        .where(
+          (item) => item.location.latitude != 0 || item.location.longitude != 0,
+        )
         .toList(growable: false);
   }
 
@@ -72,7 +73,12 @@ class ApiLocationSearchRepository implements LocationSearchRepository {
     if (failure.problem.code == 'network_error') {
       throw const NoInternetException();
     }
-    throw LocationSearchRequestException(failure.problem.title);
+    final detail = failure.problem.detail?.trim();
+    throw LocationSearchRequestException(
+      detail == null || detail.isEmpty ? failure.problem.title : detail,
+      status: failure.problem.status,
+      code: failure.problem.code,
+    );
   }
 
   LocationSearchResult _fromJson(Map<Object?, Object?> data) =>
@@ -89,8 +95,33 @@ class ApiLocationSearchRepository implements LocationSearchRepository {
 }
 
 class LocationSearchRequestException implements Exception {
-  const LocationSearchRequestException(this.message);
+  const LocationSearchRequestException(
+    this.message, {
+    this.status = 0,
+    this.code,
+  });
+
   final String message;
+
+  final int status;
+
+  final String? code;
+
+  bool get requiresAuthentication {
+    final normalizedCode = code?.toLowerCase() ?? '';
+    final normalizedMessage = message.toLowerCase();
+    return status == 401 ||
+        normalizedCode.contains('unauth') ||
+        normalizedCode.contains('authentication') ||
+        normalizedCode.contains('login') ||
+        normalizedMessage.contains('تسجيل الدخول') ||
+        normalizedMessage.contains('سجل الدخول') ||
+        normalizedMessage.contains('login required') ||
+        normalizedMessage.contains('authentication required') ||
+        normalizedMessage.contains('not authenticated') ||
+        normalizedMessage.contains('must be logged');
+  }
+
   @override
   String toString() => message;
 }

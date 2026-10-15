@@ -204,7 +204,7 @@ class AboutPage extends StatelessWidget {
                 alignment: Alignment.center,
                 child: Icon(
                   Icons.local_taxi_rounded,
-                  color: Colors.black,
+                  color: Theme.of(context).colorScheme.onPrimary,
                   size: 54,
                 ),
               ),

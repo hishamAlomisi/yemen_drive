@@ -4,12 +4,12 @@ import '../../../core/network/api_client.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
 import '../controllers/chat_controller.dart';
-import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/notifications_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/ride_controller.dart';
 import '../controllers/safety_recording_controller.dart';
 import '../home/repositories/service_kind_repository.dart';
+import '../location_selection/controllers/location_selection_controller.dart';
 import '../location_selection/repositories/location_search_repository.dart';
 import '../location_selection/repositories/route_repository.dart';
 import '../negotiation/repositories/ride_negotiation_repository.dart';
@@ -39,10 +39,12 @@ class RideBinding extends Bindings {
         );
       }
       if (!Get.isRegistered<ServiceKindRepository>() &&
-          Get.isRegistered<ApiClient>())
+          Get.isRegistered<ApiClient>()) {
         Get.put<ServiceKindRepository>(
-            ApiServiceKindRepository(Get.find<ApiClient>()),
-            permanent: true);
+          ApiServiceKindRepository(Get.find<ApiClient>()),
+          permanent: true,
+        );
+      }
       Get.put<RideController>(
         RideController(
           Get.find<RideNegotiationRepository>(),
@@ -70,6 +72,7 @@ class RideBinding extends Bindings {
           Get.find<RouteRepository>(),
           Get.find<LocationSearchRepository>(),
           Get.find<ApiClient>(),
+          Get.find<AuthSessionService>(),
         ),
         permanent: true,
       );

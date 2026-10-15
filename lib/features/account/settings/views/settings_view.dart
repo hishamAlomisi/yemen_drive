@@ -190,7 +190,7 @@ class SettingsPage extends GetView<SettingsController> {
                         child: Icon(
                           Icons.check,
                           size: 14,
-                          color: Colors.white,
+                          color: AppColors.onColor(palette.colors.primary),
                         ),
                       ),
                       trailing: selected

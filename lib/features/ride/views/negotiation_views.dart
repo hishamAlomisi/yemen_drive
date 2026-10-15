@@ -69,7 +69,10 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
             showRoute: true,
             showMarker: false,
             showPassengerSearchRadar: controller.isSearchingForDriver.value,
-            fitPanelToContent: true,
+            // The driver-search details must leave the map visible on demand.
+            // The draggable surface resizes itself to the content after layout,
+            // then can be folded into its compact handle.
+            allowPanelCollapse: true,
             foregroundOverlay: const _FloatingDriverOffers(),
             panelFooter: _NegotiationSearchFooter(
               searching: controller.isSearchingForDriver.value,
@@ -115,7 +118,6 @@ class _NegotiationQuotePageState extends State<NegotiationQuotePage> {
                     : Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: <Widget>[
-                          const RidePanelHandle(),
                           RideSectionHeader(
                             title: 'suggest_trip_price'.tr,
                             subtitle: 'driver_offer_hint'.tr,

@@ -32,7 +32,7 @@ class AuthBrandMark extends StatelessWidget {
             child: Icon(
               Icons.local_taxi_rounded,
               size: size * .56,
-              color: AppColors.primaryDark,
+              color: Theme.of(context).colorScheme.primary,
             ),
           ),
           if (showName) ...<Widget>[
@@ -41,7 +41,7 @@ class AuthBrandMark extends StatelessWidget {
               'يمن درايف',
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w900,
-                    color: Colors.black,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
             ),
           ],
@@ -119,7 +119,10 @@ class _LocationPulse extends StatelessWidget {
             color: AppColors.primary,
             shape: BoxShape.circle,
           ),
-          child: Icon(Icons.location_on_rounded, color: Colors.black),
+          child: Icon(
+            Icons.location_on_rounded,
+            color: Theme.of(context).colorScheme.onPrimary,
+          ),
         ),
       );
 }

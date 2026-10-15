@@ -44,48 +44,51 @@ class AppBottomNav extends StatelessWidget {
       ];
 
   @override
-  Widget build(BuildContext context) => SafeArea(
-        top: false,
-        minimum: const EdgeInsets.fromLTRB(8, 0, 8, 6),
-        child: Material(
-          color: Colors.white,
-          elevation: 10,
-          borderRadius: BorderRadius.circular(24),
-          clipBehavior: Clip.antiAlias,
-          child: NavigationBarTheme(
-            data: NavigationBarThemeData(
-              backgroundColor: Colors.transparent,
-              indicatorColor: const Color(0xFF102C50),
-              indicatorShape: const StadiumBorder(),
-              iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>(
-                (states) => IconThemeData(
-                  color: states.contains(WidgetState.selected)
-                      ? Colors.white
-                      : const Color(0xFF607B95),
-                ),
-              ),
-              labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>(
-                (states) => TextStyle(
-                  color: states.contains(WidgetState.selected)
-                      ? const Color(0xFF102C50)
-                      : const Color(0xFF607B95),
-                  fontSize: 10,
-                  fontWeight: states.contains(WidgetState.selected)
-                      ? FontWeight.w800
-                      : FontWeight.w600,
-                ),
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(8, 0, 8, 6),
+      child: Material(
+        color: scheme.surface,
+        elevation: 10,
+        borderRadius: BorderRadius.circular(24),
+        clipBehavior: Clip.antiAlias,
+        child: NavigationBarTheme(
+          data: NavigationBarThemeData(
+            backgroundColor: Colors.transparent,
+            indicatorColor: scheme.primary,
+            indicatorShape: const StadiumBorder(),
+            iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>(
+              (states) => IconThemeData(
+                color: states.contains(WidgetState.selected)
+                    ? scheme.onPrimary
+                    : scheme.onSurface.withValues(alpha: .64),
               ),
             ),
-            child: NavigationBar(
-              selectedIndex: currentIndex,
-              onDestinationSelected: onTap,
-              destinations: destinations,
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              height: 72,
+            labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>(
+              (states) => TextStyle(
+                color: states.contains(WidgetState.selected)
+                    ? scheme.primary
+                    : scheme.onSurface.withValues(alpha: .64),
+                fontSize: 10,
+                fontWeight: states.contains(WidgetState.selected)
+                    ? FontWeight.w800
+                    : FontWeight.w600,
+              ),
             ),
           ),
+          child: NavigationBar(
+            selectedIndex: currentIndex,
+            onDestinationSelected: onTap,
+            destinations: destinations,
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+            height: 72,
+          ),
         ),
-      );
+      ),
+    );
+  }
 }

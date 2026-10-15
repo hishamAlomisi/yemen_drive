@@ -80,10 +80,10 @@ class PaymentMethodTile extends GetView<PaymentController> {
                     ),
                   ),
                   child: selected
-                      ? const Icon(
+                      ? Icon(
                           Icons.check_rounded,
                           size: 15,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         )
                       : null,
                 ),

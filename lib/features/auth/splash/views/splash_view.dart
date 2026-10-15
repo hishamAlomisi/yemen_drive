@@ -7,7 +7,7 @@ class SplashScreen extends StatelessWidget {
   Widget build(BuildContext context) => Directionality(
         textDirection: TextDirection.rtl,
         child: Scaffold(
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).colorScheme.surface,
           body: SafeArea(
             child: Stack(
               children: <Widget>[
@@ -29,7 +29,7 @@ class SplashScreen extends StatelessWidget {
                     child: SizedBox.square(
                       dimension: 24,
                       child: CircularProgressIndicator(
-                        color: Colors.black,
+                        color: Theme.of(context).colorScheme.primary,
                         strokeWidth: 2.5,
                       ),
                     ),

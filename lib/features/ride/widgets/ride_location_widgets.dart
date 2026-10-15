@@ -18,6 +18,8 @@ class RouteFieldsCard extends GetView<LocationController> {
     this.toFocusNode,
     this.onFromSubmitted,
     this.onToSubmitted,
+    this.onFromSearch,
+    this.onToSearch,
     this.onFromChanged,
     this.onToChanged,
     this.onFromTap,
@@ -35,6 +37,8 @@ class RouteFieldsCard extends GetView<LocationController> {
   final FocusNode? toFocusNode;
   final ValueChanged<String>? onFromSubmitted;
   final ValueChanged<String>? onToSubmitted;
+  final VoidCallback? onFromSearch;
+  final VoidCallback? onToSearch;
   final ValueChanged<String>? onFromChanged;
   final ValueChanged<String>? onToChanged;
   final VoidCallback? onFromTap;
@@ -69,7 +73,9 @@ class RouteFieldsCard extends GetView<LocationController> {
                   hint: 'نقطة الانطلاق',
                   readOnly: !allowEditing,
                   focusNode: fromFocusNode,
-                  textInputAction: TextInputAction.next,
+                  textInputAction: onFromSubmitted == null
+                      ? TextInputAction.next
+                      : TextInputAction.search,
                   onChanged: onFromChanged,
                   onSubmitted: onFromSubmitted,
                   onTap: onFromTap ??
@@ -83,9 +89,10 @@ class RouteFieldsCard extends GetView<LocationController> {
                   ),
                   // In the Arabic (RTL) interface the suffix is rendered on
                   // the left, which keeps the map-point icon on the right.
-                  suffixIcon: _ClearLocationFieldButton(
+                  suffixIcon: _RouteFieldActions(
                     textController: controller.fromController,
-                    onPressed: onClearFrom,
+                    onSearch: onFromSearch,
+                    onClear: onClearFrom ?? () => controller.clearRouteField(0),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
@@ -106,9 +113,10 @@ class RouteFieldsCard extends GetView<LocationController> {
                     foreground: Color(0xFFE54C5B),
                     background: Color(0xFFFFECEE),
                   ),
-                  suffixIcon: _ClearLocationFieldButton(
+                  suffixIcon: _RouteFieldActions(
                     textController: controller.toController,
-                    onPressed: onClearTo,
+                    onSearch: onToSearch,
+                    onClear: onClearTo ?? () => controller.clearRouteField(1),
                   ),
                 ),
               ],
@@ -120,50 +128,55 @@ class RouteFieldsCard extends GetView<LocationController> {
     return content;
   }
 
-  Widget _buildCompactFields(BuildContext context) => Column(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _CompactRouteField(
-            textController: controller.fromController,
-            focusNode: fromFocusNode,
-            label: 'من',
-            hint: 'حدد نقطة الانطلاق',
-            marker: const _RouteFieldMarkerIcon(
-              icon: Icons.my_location_rounded,
-              foreground: Color(0xFF18865A),
-              background: Color(0xFFE7F5EE),
-            ),
-            actionIcon: Icons.gps_fixed_rounded,
-            actionTooltip: 'نقطة الانطلاق',
-            onActivate: onFromTap,
-            onChanged: onFromChanged,
-            onSubmitted: onFromSubmitted,
-            onClear: onClearFrom ?? () => controller.clearRouteField(0),
-            fillColor: cardColor ?? Colors.white,
-            borderColor: cardBorderColor ?? const Color(0xFFE2EAF1),
+  Widget _buildCompactFields(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        _CompactRouteField(
+          textController: controller.fromController,
+          focusNode: fromFocusNode,
+          label: 'من',
+          hint: 'حدد نقطة الانطلاق',
+          marker: const _RouteFieldMarkerIcon(
+            icon: Icons.my_location_rounded,
+            foreground: Color(0xFF18865A),
+            background: Color(0xFFE7F5EE),
           ),
-          const SizedBox(height: 7),
-          _CompactRouteField(
-            textController: controller.toController,
-            focusNode: toFocusNode,
-            label: 'إلى',
-            hint: 'أدخل وجهتك',
-            marker: const _RouteFieldMarkerIcon(
-              icon: Icons.location_on_rounded,
-              foreground: Color(0xFFE54C5B),
-              background: Color(0xFFFFECEE),
-            ),
-            actionIcon: Icons.location_on_outlined,
-            actionTooltip: 'الوجهة',
-            onActivate: onToTap,
-            onChanged: onToChanged,
-            onSubmitted: onToSubmitted,
-            onClear: onClearTo ?? () => controller.clearRouteField(1),
-            fillColor: const Color(0xFFF5F8FB),
-            borderColor: const Color(0xFFE2EAF1),
+          actionIcon: Icons.gps_fixed_rounded,
+          actionTooltip: 'نقطة الانطلاق',
+          onActivate: onFromTap,
+          onChanged: onFromChanged,
+          onSubmitted: onFromSubmitted,
+          onSearch: onFromSearch,
+          onClear: onClearFrom ?? () => controller.clearRouteField(0),
+          fillColor: cardColor ?? scheme.surface,
+          borderColor: cardBorderColor ?? scheme.outline.withValues(alpha: .5),
+        ),
+        const SizedBox(height: 7),
+        _CompactRouteField(
+          textController: controller.toController,
+          focusNode: toFocusNode,
+          label: 'إلى',
+          hint: 'أدخل وجهتك',
+          marker: const _RouteFieldMarkerIcon(
+            icon: Icons.location_on_rounded,
+            foreground: Color(0xFFE54C5B),
+            background: Color(0xFFFFECEE),
           ),
-        ],
-      );
+          actionIcon: Icons.location_on_outlined,
+          actionTooltip: 'الوجهة',
+          onActivate: onToTap,
+          onChanged: onToChanged,
+          onSubmitted: onToSubmitted,
+          onSearch: onToSearch,
+          onClear: onClearTo ?? () => controller.clearRouteField(1),
+          fillColor: scheme.surfaceContainer,
+          borderColor: scheme.outline.withValues(alpha: .5),
+        ),
+      ],
+    );
+  }
 }
 
 class _CompactRouteField extends StatelessWidget {
@@ -181,6 +194,7 @@ class _CompactRouteField extends StatelessWidget {
     this.onActivate,
     this.onChanged,
     this.onSubmitted,
+    this.onSearch,
   });
 
   final TextEditingController textController;
@@ -193,6 +207,7 @@ class _CompactRouteField extends StatelessWidget {
   final VoidCallback? onActivate;
   final ValueChanged<String>? onChanged;
   final ValueChanged<String>? onSubmitted;
+  final VoidCallback? onSearch;
   final VoidCallback onClear;
   final Color fillColor;
   final Color borderColor;
@@ -204,7 +219,10 @@ class _CompactRouteField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final scheme = theme.colorScheme;
+    final muted = scheme.onSurface.withValues(alpha: .58);
     return Container(
       height: 48,
       padding: const EdgeInsetsDirectional.fromSTEB(6, 3, 7, 3),
@@ -225,7 +243,7 @@ class _CompactRouteField extends StatelessWidget {
                 Text(
                   label,
                   style: textTheme.labelSmall?.copyWith(
-                    color: const Color(0xFF8094A8),
+                    color: muted,
                     fontSize: 10,
                     height: 1.1,
                     fontWeight: FontWeight.w600,
@@ -234,7 +252,7 @@ class _CompactRouteField extends StatelessWidget {
                 TextField(
                   controller: textController,
                   focusNode: focusNode,
-                  textInputAction: label == 'من'
+                  textInputAction: onSubmitted == null && label == 'من'
                       ? TextInputAction.next
                       : TextInputAction.search,
                   onTap: onActivate,
@@ -242,7 +260,7 @@ class _CompactRouteField extends StatelessWidget {
                   onSubmitted: onSubmitted,
                   maxLines: 1,
                   style: textTheme.bodyMedium?.copyWith(
-                    color: const Color(0xFF102C50),
+                    color: scheme.onSurface,
                     fontSize: 14,
                     height: 1.2,
                     fontWeight: FontWeight.w700,
@@ -251,7 +269,7 @@ class _CompactRouteField extends StatelessWidget {
                     filled: false,
                     hintText: hint,
                     hintStyle: textTheme.bodyMedium?.copyWith(
-                      color: const Color(0xFF8094A8),
+                      color: muted,
                       fontSize: 14,
                       height: 1.2,
                       fontWeight: FontWeight.w500,
@@ -273,18 +291,41 @@ class _CompactRouteField extends StatelessWidget {
             padding: EdgeInsets.zero,
             tooltip: actionTooltip,
             onPressed: _activate,
-            icon: Icon(actionIcon, size: 19, color: const Color(0xFF52677C)),
+            icon: Icon(
+              actionIcon,
+              size: 19,
+              color: scheme.onSurface.withValues(alpha: .7),
+            ),
           ),
+          if (onSearch != null)
+            ValueListenableBuilder<TextEditingValue>(
+              valueListenable: textController,
+              builder: (context, value, _) => IconButton(
+                visualDensity: VisualDensity.compact,
+                constraints: const BoxConstraints.tightFor(
+                  width: 32,
+                  height: 34,
+                ),
+                padding: EdgeInsets.zero,
+                tooltip: 'بحث',
+                onPressed: value.text.trim().length >= 2 ? onSearch : null,
+                icon: Icon(
+                  Icons.search_rounded,
+                  size: 19,
+                  color: scheme.onSurface.withValues(alpha: .7),
+                ),
+              ),
+            ),
           IconButton(
             visualDensity: VisualDensity.compact,
             constraints: const BoxConstraints.tightFor(width: 30, height: 34),
             padding: EdgeInsets.zero,
             tooltip: 'مسح والبحث من جديد',
             onPressed: onClear,
-            icon: const Icon(
+            icon: Icon(
               Icons.close_rounded,
               size: 19,
-              color: Color(0xFF5B6C7D),
+              color: scheme.onSurface.withValues(alpha: .7),
             ),
           ),
         ],
@@ -318,26 +359,48 @@ class _RouteFieldMarkerIcon extends StatelessWidget {
       );
 }
 
-class _ClearLocationFieldButton extends StatelessWidget {
-  const _ClearLocationFieldButton({
+class _RouteFieldActions extends StatelessWidget {
+  const _RouteFieldActions({
     required this.textController,
-    required this.onPressed,
+    required this.onClear,
+    this.onSearch,
   });
 
   final TextEditingController textController;
-  final VoidCallback? onPressed;
+  final VoidCallback onClear;
+  final VoidCallback? onSearch;
 
   @override
   Widget build(BuildContext context) {
-    if (onPressed == null) return const SizedBox.shrink();
     return ValueListenableBuilder<TextEditingValue>(
       valueListenable: textController,
       builder: (context, value, _) {
-        if (value.text.isEmpty) return const SizedBox.shrink();
-        return IconButton(
-          tooltip: 'مسح والبحث من جديد',
-          icon: const Icon(Icons.close_rounded, size: 19),
-          onPressed: onPressed,
+        if (onSearch == null && value.text.isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return SizedBox(
+          width: onSearch == null
+              ? 44
+              : value.text.isEmpty
+                  ? 44
+                  : 88,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              if (onSearch != null)
+                IconButton(
+                  tooltip: 'بحث',
+                  icon: const Icon(Icons.search_rounded, size: 19),
+                  onPressed: value.text.trim().length >= 2 ? onSearch : null,
+                ),
+              if (value.text.isNotEmpty)
+                IconButton(
+                  tooltip: 'مسح والبحث من جديد',
+                  icon: const Icon(Icons.close_rounded, size: 19),
+                  onPressed: onClear,
+                ),
+            ],
+          ),
         );
       },
     );
@@ -366,9 +429,9 @@ class _InteractiveRouteFieldsOverlayState
   final FocusNode _toFocus = FocusNode();
   final LayerLink _fieldsLink = LayerLink();
   final GlobalKey _fieldsKey = GlobalKey();
-  Timer? _debounce;
   OverlayEntry? _suggestionsOverlay;
   String _query = '';
+  bool _showSubmittedResults = false;
 
   bool get _hasActiveFocus => _fromFocus.hasFocus || _toFocus.hasFocus;
 
@@ -377,15 +440,29 @@ class _InteractiveRouteFieldsOverlayState
     super.initState();
     _fromFocus.addListener(_refreshFocusState);
     _toFocus.addListener(_refreshFocusState);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_controller.resumeLocationSearchFromArguments(Get.arguments)) {
+        return;
+      }
+      _query = _controller.activeField.value == 0
+          ? _controller.fromController.text.trim()
+          : _controller.toController.text.trim();
+      _showSubmittedResults = true;
+      final focus = _controller.activeField.value == 0 ? _fromFocus : _toFocus;
+      focus.requestFocus();
+      _showSuggestions();
+      _suggestionsOverlay?.markNeedsBuild();
+      setState(() {});
+    });
   }
 
   void _refreshFocusState() {
-    if (!_hasActiveFocus) {
-      _debounce?.cancel();
+    if (!_hasActiveFocus && !_showSubmittedResults) {
       _query = '';
       _controller.cancelSearch();
       _hideSuggestions();
-    } else {
+    } else if (_hasActiveFocus || _showSubmittedResults) {
       _showSuggestions();
     }
     if (mounted) setState(() {});
@@ -393,7 +470,6 @@ class _InteractiveRouteFieldsOverlayState
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _hideSuggestions();
     _fromFocus.removeListener(_refreshFocusState);
     _toFocus.removeListener(_refreshFocusState);
@@ -404,14 +480,15 @@ class _InteractiveRouteFieldsOverlayState
 
   void _activate(int field) {
     _controller.activeField.value = field;
-    _controller.searchResults.clear();
+    _showSubmittedResults = false;
+    _controller.cancelSearch();
     _query = '';
     _showSuggestions();
     setState(() {});
   }
 
   void _clearAndFocus(int field) {
-    _debounce?.cancel();
+    _showSubmittedResults = false;
     _query = '';
     _controller.clearRouteField(field);
     final focus = field == 0 ? _fromFocus : _toFocus;
@@ -421,20 +498,40 @@ class _InteractiveRouteFieldsOverlayState
     setState(() {});
   }
 
-  void _search(int field, String value) {
+  void _updateQuery(int field, String value) {
     _controller.activeField.value = field;
+    _showSubmittedResults = false;
     _query = value.trim();
-    _debounce?.cancel();
-    _debounce = Timer(
-      const Duration(milliseconds: 400),
-      () => _controller.searchPlaces(value),
-    );
+    _controller.cancelSearch();
+    _suggestionsOverlay?.markNeedsBuild();
+    setState(() {});
+  }
+
+  void _submitSearch(int field, [String? submittedValue]) {
+    _controller.activeField.value = field;
+    final query = (submittedValue ??
+            (field == 0
+                ? _controller.fromController.text
+                : _controller.toController.text))
+        .trim();
+    _query = query;
+    _showSubmittedResults = query.length >= 2;
+    if (!_showSubmittedResults) {
+      _controller.cancelSearch();
+      _suggestionsOverlay?.markNeedsBuild();
+      setState(() {});
+      return;
+    }
+
+    _showSuggestions();
+    FocusScope.of(context).unfocus();
+    unawaited(_controller.searchPlaces(query));
     _suggestionsOverlay?.markNeedsBuild();
     setState(() {});
   }
 
   Future<void> _select(LocationSearchResult result) async {
-    _debounce?.cancel();
+    _showSubmittedResults = false;
     _query = '';
     _hideSuggestions();
     _fromFocus.unfocus();
@@ -444,7 +541,7 @@ class _InteractiveRouteFieldsOverlayState
   }
 
   Future<void> _selectRecent(RecentPlace place) async {
-    _debounce?.cancel();
+    _showSubmittedResults = false;
     _query = '';
     _hideSuggestions();
     _fromFocus.unfocus();
@@ -469,6 +566,7 @@ class _InteractiveRouteFieldsOverlayState
   }
 
   void _dismissSuggestions() {
+    _showSubmittedResults = false;
     _fromFocus.unfocus();
     _toFocus.unfocus();
     _hideSuggestions();
@@ -518,11 +616,13 @@ class _InteractiveRouteFieldsOverlayState
               final results = _controller.searchResults.toList();
               final savedPlaces = _controller.filteredSavedPlaces(_query);
               final hasQuery = _query.length >= 2;
-              final showEmpty = hasQuery &&
+              final showEmpty = _showSubmittedResults &&
+                  hasQuery &&
                   results.isEmpty &&
                   savedPlaces.isEmpty &&
                   !isSearching &&
-                  !searchFailed;
+                  !searchFailed &&
+                  !_controller.searchNeedsAuthentication.value;
               return Material(
                 color: Theme.of(context).colorScheme.surface,
                 elevation: 18,
@@ -623,8 +723,12 @@ class _InteractiveRouteFieldsOverlayState
           onToTap: () => _activate(1),
           onClearFrom: () => _clearAndFocus(0),
           onClearTo: () => _clearAndFocus(1),
-          onFromChanged: (value) => _search(0, value),
-          onToChanged: (value) => _search(1, value),
+          onFromChanged: (value) => _updateQuery(0, value),
+          onToChanged: (value) => _updateQuery(1, value),
+          onFromSubmitted: (value) => _submitSearch(0, value),
+          onToSubmitted: (value) => _submitSearch(1, value),
+          onFromSearch: () => _submitSearch(0),
+          onToSearch: () => _submitSearch(1),
         ),
       );
 }
@@ -715,14 +819,37 @@ class _LocationPickerSearchOverlayState
   final _searchFocusNode = FocusNode();
   final _controller = Get.find<LocationController>();
   String _query = '';
-  Timer? _debounce;
+  bool _hasSubmittedQuery = false;
 
   @override
   void dispose() {
-    _debounce?.cancel();
     _searchFocusNode.dispose();
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _updateQuery(String value) {
+    _query = value.trim();
+    _hasSubmittedQuery = false;
+    _controller.cancelSearch();
+    setState(() {});
+  }
+
+  void _submitSearch([String? submittedValue]) {
+    final query = (submittedValue ?? _searchController.text).trim();
+    _query = query;
+    _hasSubmittedQuery = query.length >= 2;
+    FocusScope.of(context).unfocus();
+    unawaited(_controller.searchPlaces(query));
+    setState(() {});
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _query = '';
+    _hasSubmittedQuery = false;
+    _controller.cancelSearch();
+    setState(() {});
   }
 
   @override
@@ -733,28 +860,22 @@ class _LocationPickerSearchOverlayState
             controller: _searchController,
             focusNode: _searchFocusNode,
             hint: 'ابحث عن مكان أو شارع',
-            prefixIcon: Icon(Icons.search_rounded),
+            textInputAction: TextInputAction.search,
+            prefixIcon: IconButton(
+              tooltip: 'بحث',
+              onPressed: _searchController.text.trim().length >= 2
+                  ? () => _submitSearch()
+                  : null,
+              icon: const Icon(Icons.search_rounded),
+            ),
             suffixIcon: _searchController.text.isEmpty
                 ? null
                 : IconButton(
                     icon: Icon(Icons.clear_rounded),
-                    onPressed: () {
-                      _searchController.clear();
-                      _query = '';
-                      _debounce?.cancel();
-                      _controller.searchPlaces('');
-                      setState(() {});
-                    },
+                    onPressed: _clearSearch,
                   ),
-            onChanged: (value) {
-              _query = value.trim();
-              _debounce?.cancel();
-              _debounce = Timer(
-                const Duration(milliseconds: 400),
-                () => _controller.searchPlaces(value),
-              );
-              setState(() {});
-            },
+            onChanged: _updateQuery,
+            onSubmitted: (value) => _submitSearch(value),
           ),
           Obx(() {
             if (_controller.isSearching.value) {
@@ -769,6 +890,7 @@ class _LocationPickerSearchOverlayState
             final savedPlaces = _controller.filteredSavedPlaces(_query);
             if (_controller.searchResults.isEmpty &&
                 savedPlaces.isEmpty &&
+                _hasSubmittedQuery &&
                 _query.length >= 2) {
               return AppCard(
                 child: Row(
@@ -802,9 +924,9 @@ class _LocationPickerSearchOverlayState
                       return RecentPlaceTile(
                         place: place,
                         onTap: () async {
-                          _debounce?.cancel();
                           _searchController.clear();
                           _query = '';
+                          _hasSubmittedQuery = false;
                           _searchFocusNode.unfocus();
                           setState(() {});
                           await _controller.selectPlace(place);
@@ -840,9 +962,9 @@ class _LocationPickerSearchOverlayState
                         overflow: TextOverflow.ellipsis,
                       ),
                       onTap: () async {
-                        _debounce?.cancel();
                         _searchController.clear();
                         _query = '';
+                        _hasSubmittedQuery = false;
                         _searchFocusNode.unfocus();
                         setState(() {});
                         await _controller.selectSearchResult(
@@ -864,17 +986,28 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
   final FocusNode _pickupFocus = FocusNode();
   final FocusNode _destinationFocus = FocusNode();
   late final LocationController _controller;
-
   @override
   void initState() {
     super.initState();
     _controller = Get.find<LocationController>();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _controller.resumeLocationSearchFromArguments(Get.arguments);
       final target =
           _controller.activeField.value == 0 ? _pickupFocus : _destinationFocus;
       target.requestFocus();
     });
+  }
+
+  void _updateQuery(int field) {
+    _controller.activeField.value = field;
+    _controller.cancelSearch();
+  }
+
+  void _submitSearch(int field, String query) {
+    _controller.activeField.value = field;
+    FocusScope.of(context).unfocus();
+    unawaited(_controller.searchPlaces(query));
   }
 
   @override
@@ -892,13 +1025,50 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
             allowEditing: true,
             fromFocusNode: _pickupFocus,
             toFocusNode: _destinationFocus,
-            onFromSubmitted: (_) {
-              _controller.activeField.value = 1;
-              _destinationFocus.requestFocus();
-            },
-            onToSubmitted: (_) => _controller.useTypedValue(),
+            onFromSubmitted: (value) => _submitSearch(0, value),
+            onToSubmitted: (value) => _submitSearch(1, value),
+            onFromSearch: () =>
+                _submitSearch(0, _controller.fromController.text),
+            onToSearch: () => _submitSearch(1, _controller.toController.text),
+            onFromChanged: (_) => _updateQuery(0),
+            onToChanged: (_) => _updateQuery(1),
           ),
           const SizedBox(height: AppSpacing.lg),
+          Obx(() {
+            final results = _controller.searchResults.toList();
+            if (results.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.lg),
+              child: AppCard(
+                padding: EdgeInsets.zero,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 280),
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: results.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final result = results[index];
+                      return ListTile(
+                        leading: const Icon(Icons.location_on_outlined),
+                        title: Text(
+                          result.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: Text(
+                          result.formattedAddress,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onTap: () => _controller.selectSearchResult(result),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            );
+          }),
           Text(
             'الأماكن الحديثة',
             style: Theme.of(

@@ -45,7 +45,8 @@ class LocationPermissionScreen extends GetView<LocationPermissionController> {
                                 ),
                                 child: Icon(
                                   Icons.my_location_rounded,
-                                  color: Colors.black,
+                                  color:
+                                      Theme.of(context).colorScheme.onPrimary,
                                 ),
                               ),
                             ),

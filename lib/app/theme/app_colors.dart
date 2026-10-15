@@ -14,6 +14,14 @@ abstract final class AppColors {
     secondary = colors.secondary;
   }
 
+  /// Returns a legible foreground for a solid colored surface.
+  /// This keeps icons and labels readable when the selected palette uses a
+  /// dark primary color in either light or dark mode.
+  static Color onColor(Color background) =>
+      ThemeData.estimateBrightnessForColor(background) == Brightness.dark
+          ? Colors.white
+          : Colors.black;
+
   static const Color success = Color(0xFF388E3C);
   static const Color warning = Color(0xFFF57F17);
   static const Color error = Color(0xFFD32F2F);

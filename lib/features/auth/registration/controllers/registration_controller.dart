@@ -21,22 +21,14 @@ class RegistrationController extends GetxController {
   final confirmPasswordController = TextEditingController();
   final profileNameController = TextEditingController();
   final streetController = TextEditingController();
+  final cityController = TextEditingController();
+  final districtController = TextEditingController();
   final isLoading = false.obs;
   final termsAccepted = false.obs;
   final obscurePassword = true.obs;
   final obscureConfirmation = true.obs;
   final selectedGender = ''.obs;
-  final selectedCity = ''.obs;
-  final selectedDistrict = ''.obs;
   final country = PhoneCountry.yemen.obs;
-  final cities = const <String>['صنعاء', 'ذمار', 'عدن', 'تعز', 'الحديدة'];
-  final districts = const <String>[
-    'وسط المدينة',
-    'الشمال',
-    'الشرق',
-    'الغرب',
-    'الجنوب'
-  ];
 
   String? _verificationToken;
   String? _challengeId;
@@ -45,8 +37,6 @@ class RegistrationController extends GetxController {
   void toggleTerms(bool? value) => termsAccepted.value = value ?? false;
   void selectCountry(PhoneCountry value) => country.value = value;
   void selectGender(String? value) => selectedGender.value = value ?? '';
-  void selectCity(String? value) => selectedCity.value = value ?? '';
-  void selectDistrict(String? value) => selectedDistrict.value = value ?? '';
 
   Future<void> submit() async {
     if (!(signUpFormKey.currentState?.validate() ?? false)) return;
@@ -90,8 +80,8 @@ class RegistrationController extends GetxController {
           phone: _draft.phone,
           gender: selectedGender.value,
           street: streetController.text.trim(),
-          city: selectedCity.value,
-          district: selectedDistrict.value,
+          city: cityController.text.trim(),
+          district: districtController.text.trim(),
         ),
         password: _password,
         verificationToken: _verificationToken,
@@ -157,6 +147,8 @@ class RegistrationController extends GetxController {
     confirmPasswordController.dispose();
     profileNameController.dispose();
     streetController.dispose();
+    cityController.dispose();
+    districtController.dispose();
     super.onClose();
   }
 }

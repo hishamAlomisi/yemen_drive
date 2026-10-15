@@ -43,7 +43,10 @@ class MapBackdrop extends StatelessWidget {
                     color: AppColors.primary,
                     shape: BoxShape.circle,
                   ),
-                  child: Icon(Icons.location_on_rounded, color: Colors.black),
+                  child: Icon(
+                    Icons.location_on_rounded,
+                    color: Theme.of(context).colorScheme.onPrimary,
+                  ),
                 ),
               ),
             ),

@@ -19,8 +19,7 @@ void main() {
   testWidgets('تفتح شاشة تسجيل الدخول دون اتصال شبكي', (
     WidgetTester tester,
   ) async {
-    AppEnvironment.configure(
-        flavor: 'test', baseUrl: 'http://localhost:5080/api');
+    AppEnvironment.configure(baseUrl: 'http://localhost:5080/api');
     final storage = Get.put<SecureStorageService>(SecureStorageService());
     await Get.putAsync<ApiClient>(() => ApiClient(storage).init());
     await tester.pumpWidget(

@@ -23,11 +23,12 @@ class ProfileController extends GetxController {
     isLoading.value = true;
     try {
       final profile = await _repository.get();
+      if(profile!=null){
       nameController.text = profile.name ?? '';
       displayName.value = nameController.text;
       phoneController.text = profile.phone ?? '';
       addressController.text = profile.street ?? '';
-      gender.value = profile.gender ?? '';
+      gender.value = profile.gender ?? '';}
     } finally {
       isLoading.value = false;
     }

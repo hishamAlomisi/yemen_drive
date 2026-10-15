@@ -9,7 +9,9 @@ class ThemeService extends GetxService {
   static const String _key = 'theme_mode';
   static const String _paletteKey = 'app_palette';
   final GetStorage _storage = GetStorage();
-  final Rx<ThemeMode> mode = ThemeMode.system.obs;
+  // The application must start in the light theme unless the passenger has
+  // explicitly selected another mode and it was saved on this device.
+  final Rx<ThemeMode> mode = ThemeMode.light.obs;
   final Rx<AppPalette> palette = AppPalette.blueGold.obs;
 
   Future<ThemeService> init() async {
@@ -17,7 +19,7 @@ class ThemeService extends GetxService {
     mode.value = switch (saved) {
       'light' => ThemeMode.light,
       'dark' => ThemeMode.dark,
-      _ => ThemeMode.system,
+      _ => ThemeMode.light,
     };
     palette.value = switch (_storage.read<String>(_paletteKey)) {
       'yemenDrive' => AppPalette.yemenDrive,

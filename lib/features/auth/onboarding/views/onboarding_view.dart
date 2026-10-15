@@ -66,7 +66,8 @@ class OnboardingScreen extends GetView<OnboardingController> {
                       onPressed: controller.next,
                       style: FilledButton.styleFrom(
                         backgroundColor: AppColors.primary,
-                        foregroundColor: Colors.black,
+                        foregroundColor:
+                            Theme.of(context).colorScheme.onPrimary,
                         minimumSize: const Size.square(58),
                         padding: EdgeInsets.zero,
                         shape: const CircleBorder(),

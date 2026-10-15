@@ -19,12 +19,13 @@ class AuthBackdrop extends StatelessWidget {
   final VoidCallback? onBack;
   final bool showHeaderActions;
 
-  static const Color _navy = Color(0xFF102C50);
-
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.sizeOf(context).height;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
     final backAction = _HeaderAction(
       icon: isRtl ? Icons.arrow_forward_rounded : Icons.arrow_back_rounded,
       tooltip: 'back'.tr,
@@ -38,25 +39,32 @@ class AuthBackdrop extends StatelessWidget {
     );
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: const SystemUiOverlayStyle(
+      value: SystemUiOverlayStyle(
         statusBarColor: Colors.transparent,
-        statusBarIconBrightness: Brightness.dark,
-        systemNavigationBarColor: Color(0xFFF5F8FB),
-        systemNavigationBarIconBrightness: Brightness.dark,
+        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+        systemNavigationBarColor: scheme.surface,
+        systemNavigationBarIconBrightness:
+            isDark ? Brightness.light : Brightness.dark,
       ),
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          const DecoratedBox(
+          DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
-                colors: <Color>[
-                  Color(0xFFEAF5FF),
-                  Color(0xFFFAFCFF),
-                  Color(0xFFF5F8FB),
-                ],
+                colors: isDark
+                    ? <Color>[
+                        theme.scaffoldBackgroundColor,
+                        scheme.surface,
+                        theme.scaffoldBackgroundColor,
+                      ]
+                    : const <Color>[
+                        Color(0xFFEAF5FF),
+                        Color(0xFFFAFCFF),
+                        Color(0xFFF5F8FB),
+                      ],
                 stops: <double>[0, .56, 1],
               ),
             ),
@@ -156,14 +164,15 @@ class _HeaderAction extends StatelessWidget {
           clipBehavior: Clip.none,
           children: <Widget>[
             Material(
-              color: Colors.white.withValues(alpha: .96),
+              color:
+                  Theme.of(context).colorScheme.surface.withValues(alpha: .96),
               shape: const CircleBorder(),
               elevation: 5,
               shadowColor: const Color(0x33102C50),
               child: IconButton(
                 tooltip: tooltip,
                 onPressed: onPressed,
-                color: AuthBackdrop._navy,
+                color: Theme.of(context).colorScheme.onSurface,
                 icon: Icon(icon, size: 25),
               ),
             ),

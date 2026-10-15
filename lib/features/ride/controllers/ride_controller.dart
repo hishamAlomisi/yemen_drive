@@ -4,7 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
-    show Icons, TextPainter, TextSpan, TextStyle;
+    show Icons, TextEditingController, TextPainter, TextSpan, TextStyle;
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
@@ -54,11 +54,9 @@ class RideController extends GetxController {
   final RxList<RideVehicle> catalogVehicles = <RideVehicle>[].obs;
   final RxBool isCatalogLoading = false.obs;
   final RxString catalogError = ''.obs;
-  final RxBool isUsingCatalogFallback = true.obs;
   final RxInt bottomNavigationIndex = 0.obs;
   final RxInt homeServiceIndex = (-1).obs;
-  final RxList<RideHomeService> homeServices =
-      <RideHomeService>[...demoHomeServices].obs;
+  final RxList<RideHomeService> homeServices = <RideHomeService>[].obs;
   final RxBool autoStartTransport = RidePreferences.autoStartTransport.obs;
   final RxBool isSearchingForDriver = false.obs;
   final RxBool isDriverAssigned = false.obs;
@@ -69,6 +67,7 @@ class RideController extends GetxController {
       Rxn<Map<String, Object?>>();
   final RxnInt cashShortfallApprovalToOpen = RxnInt();
   final RxString cancellationReason = ''.obs;
+  final cancellationReasonController = TextEditingController();
   final Rx<NegotiationStatus> negotiationStatus = NegotiationStatus.idle.obs;
   final RxString quoteError = ''.obs;
   final Rxn<RideQuote> quote = Rxn<RideQuote>();
@@ -88,7 +87,6 @@ class RideController extends GetxController {
   /// Drivers that have received the current request, ordered by arrival.
   final RxList<NearbyDriver> requestRecipients = <NearbyDriver>[].obs;
   final Rxn<NearbyDriver> selectedNearbyDriver = Rxn<NearbyDriver>();
-  final Rxn<BitmapDescriptor> _nearbyDriverIcon = Rxn<BitmapDescriptor>();
   final RxMap<String, BitmapDescriptor> _nearbyDriverPhotoIcons =
       <String, BitmapDescriptor>{}.obs;
   final Rxn<BitmapDescriptor> _approachingCarIcon = Rxn<BitmapDescriptor>();
@@ -104,10 +102,10 @@ class RideController extends GetxController {
   final RxInt trackingNextStepDistanceMeters = 0.obs;
   StreamSubscription<TrackingHubEvent>? _hubEventSubscription;
   StreamSubscription<void>? _hubConnectionSubscription;
-  Timer? _trackingTimer;
   Timer? _recipientTimer;
   Timer? _offersDeadlineTimer;
   StreamSubscription<Position>? _passengerPositionSubscription;
+  bool _passengerLocationPermissionNoticeShown = false;
   Timer? _driverMarkerAnimationTimer;
   DriverTrackingSnapshot? _driverAnimationStart;
   DriverTrackingSnapshot? _driverAnimationTarget;
@@ -133,9 +131,6 @@ class RideController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    if (!AppEnvironment.useDemoData) {
-      homeServices.clear();
-    }
     unawaited(loadServiceCatalog());
     unawaited(_loadHomeServices());
     unawaited(_loadTrackingIcons());
@@ -336,7 +331,7 @@ class RideController extends GetxController {
 
   Future<void> _loadHomeServices() async {
     final serviceKinds = _serviceKinds;
-    if (serviceKinds == null || AppEnvironment.useDemoData) return;
+    if (serviceKinds == null) return;
     try {
       final values = await serviceKinds.getServices();
       homeServices.assignAll(values);
@@ -378,7 +373,6 @@ class RideController extends GetxController {
     if (newKindId == null) {
       _catalogRequestId++;
       isCatalogLoading.value = false;
-      isUsingCatalogFallback.value = AppEnvironment.useDemoData;
       return;
     }
     unawaited(loadServiceCatalog(requestedKindId: newKindId));
@@ -389,28 +383,13 @@ class RideController extends GetxController {
     await RidePreferences.setAutoStartTransport(value);
   }
 
-  List<RideVehicle> get vehicles =>
-      isUsingCatalogFallback.value ? _fallbackVehicles : catalogVehicles;
+  List<RideVehicle> get vehicles => catalogVehicles;
 
   List<RideVehicleType> get availableVehicleTypes {
     final types = <RideVehicleType>{
       for (final vehicle in vehicles) vehicle.type,
     };
     return RideVehicleType.values.where(types.contains).toList(growable: false);
-  }
-
-  List<RideVehicle> get _fallbackVehicles {
-    if (serviceType.value != RideServiceType.delivery) {
-      return demoRideVehicles;
-    }
-    final deliveryVehicles = demoRideVehicles
-        .where(
-          (vehicle) =>
-              vehicle.type == RideVehicleType.bike ||
-              vehicle.type == RideVehicleType.cycle,
-        )
-        .toList(growable: false);
-    return deliveryVehicles.isEmpty ? demoRideVehicles : deliveryVehicles;
   }
 
   Future<void> loadServiceCatalog({int? requestedKindId}) async {
@@ -420,11 +399,9 @@ class RideController extends GetxController {
 
     if (!_canUseCatalogApi || targetKindId == null) {
       catalogVehicles.clear();
-      isUsingCatalogFallback.value = AppEnvironment.useDemoData;
+      catalogError.value = 'تعذر تحديد الخدمة المطلوبة.';
       return;
     }
-
-    isUsingCatalogFallback.value = false;
     isCatalogLoading.value = true;
     try {
       final services = await _catalogRepository!.getServices(
@@ -442,11 +419,9 @@ class RideController extends GetxController {
           .toList(growable: false);
       if (matchingServices.isEmpty) {
         catalogVehicles.clear();
-        isUsingCatalogFallback.value = false;
         catalogError.value = 'لا توجد خدمات متاحة لهذا النوع حاليًا.';
       } else {
         catalogVehicles.assignAll(matchingServices);
-        isUsingCatalogFallback.value = false;
       }
     } catch (_) {
       if (requestId != _catalogRequestId ||
@@ -454,8 +429,7 @@ class RideController extends GetxController {
         return;
       }
       catalogVehicles.clear();
-      isUsingCatalogFallback.value = AppEnvironment.useDemoData;
-      catalogError.value = 'تعذّر تحميل الخدمات، تم عرض الخيارات المحفوظة.';
+      catalogError.value = 'تعذّر تحميل الخدمات، حاول مرة أخرى.';
     } finally {
       if (requestId == _catalogRequestId) {
         isCatalogLoading.value = false;
@@ -466,7 +440,6 @@ class RideController extends GetxController {
   bool get _canUseCatalogApi =>
       _catalogRepository != null &&
       AppEnvironment.isConfigured &&
-      !AppEnvironment.useDemoData &&
       !AppEnvironment.baseUrl.contains('example.com');
 
   Set<Marker> nearbyDriverMarkersFor({
@@ -486,7 +459,6 @@ class RideController extends GetxController {
               consumeTapEvents: true,
               onTap: () => onTap(driver),
               icon: _nearbyDriverPhotoIcons[driver.id] ??
-                  _nearbyDriverIcon.value ??
                   BitmapDescriptor.defaultMarkerWithHue(
                     BitmapDescriptor.hueAzure,
                   ),
@@ -631,14 +603,6 @@ class RideController extends GetxController {
       nearbyDrivers.clear();
       return;
     }
-    if (AppEnvironment.useDemoData) {
-      if (Get.isRegistered<TrackingHubService>()) {
-        unawaited(
-            Get.find<TrackingHubService>().clearNearbyDriverSubscription());
-      }
-      loadDemoNearbyDrivers(center: origin);
-      return;
-    }
     final requestId = ++_nearbyDriversRequestId;
     try {
       final selected = selectedVehicle.value;
@@ -665,7 +629,6 @@ class RideController extends GetxController {
               drivers.map((driver) => int.tryParse(driver.id)).whereType<int>(),
         );
       }
-      unawaited(_loadDemoDriverIcon());
       for (final driver in drivers) {
         unawaited(_loadDriverPhotoMarker(driver));
       }
@@ -682,162 +645,11 @@ class RideController extends GetxController {
     }
   }
 
-  void loadDemoNearbyDrivers({LatLng? center}) {
-    _loadDemoDriverIcon();
-    final location = Get.find<LocationController>();
-    final origin = center ?? location.pickup.value;
-    if (origin == null) {
-      nearbyDrivers.clear();
-      return;
-    }
-    // Keep demo drivers deterministic and close enough to fit in one map view.
-    final distancesKm = <double>[.18, .32, .48, .65, .82, 1.0, 1.18, 1.4];
-    final bearings = <double>[0, 45, 90, 135, 180, 225, 270, 315];
-    LatLng nearbyPoint(int index) {
-      final distanceMeters = distancesKm[index] * 1000;
-      final bearing = bearings[index] * math.pi / 180;
-      final latitudeDelta = distanceMeters * math.cos(bearing) / 111320.0;
-      final longitudeScale = 111320.0 *
-          math.cos(origin.latitude * math.pi / 180).abs().clamp(.2, 1.0);
-      final longitudeDelta =
-          distanceMeters * math.sin(bearing) / longitudeScale;
-      return LatLng(
-        origin.latitude + latitudeDelta,
-        origin.longitude + longitudeDelta,
-      );
-    }
-
-    nearbyDrivers.assignAll(<NearbyDriver>[
-      NearbyDriver(
-        id: 'nearby-1',
-        name: 'محمد علي',
-        location: RideCoordinate(
-          latitude: nearbyPoint(0).latitude,
-          longitude: nearbyPoint(0).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.car,
-        rating: 4.9,
-        vehicleModel: 'Toyota Yaris 2023',
-        plateNumber: '01 - 45872',
-        completedTrips: 1248,
-      ),
-      NearbyDriver(
-        id: 'nearby-2',
-        name: 'أحمد صالح',
-        location: RideCoordinate(
-          latitude: nearbyPoint(1).latitude,
-          longitude: nearbyPoint(1).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.taxi,
-        rating: 4.8,
-        vehicleModel: 'Hyundai Accent 2022',
-        plateNumber: '01 - 79314',
-        completedTrips: 936,
-      ),
-      NearbyDriver(
-        id: 'nearby-3',
-        name: 'عبدالله حسن',
-        location: RideCoordinate(
-          latitude: nearbyPoint(2).latitude,
-          longitude: nearbyPoint(2).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.car,
-        rating: 4.7,
-        vehicleModel: 'Kia Rio 2021',
-        plateNumber: '01 - 32689',
-        completedTrips: 711,
-      ),
-      NearbyDriver(
-        id: 'nearby-4',
-        name: 'خالد محمد',
-        location: RideCoordinate(
-          latitude: nearbyPoint(3).latitude,
-          longitude: nearbyPoint(3).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.taxi,
-        rating: 4.6,
-        vehicleModel: 'Toyota Corolla 2022',
-        plateNumber: '01 - 61428',
-        completedTrips: 602,
-      ),
-      NearbyDriver(
-        id: 'nearby-5',
-        name: 'سامر أحمد',
-        location: RideCoordinate(
-          latitude: nearbyPoint(4).latitude,
-          longitude: nearbyPoint(4).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.car,
-        rating: 4.5,
-        vehicleModel: 'Hyundai Elantra 2021',
-        plateNumber: '01 - 78215',
-        completedTrips: 488,
-      ),
-      NearbyDriver(
-        id: 'nearby-6',
-        name: 'مازن علي',
-        location: RideCoordinate(
-          latitude: nearbyPoint(5).latitude,
-          longitude: nearbyPoint(5).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.car,
-        rating: 4.4,
-        vehicleModel: 'Kia Cerato 2020',
-        plateNumber: '01 - 29541',
-        completedTrips: 371,
-      ),
-      NearbyDriver(
-        id: 'nearby-7',
-        name: 'ياسر عبدالله',
-        location: RideCoordinate(
-          latitude: nearbyPoint(6).latitude,
-          longitude: nearbyPoint(6).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.taxi,
-        rating: 4.3,
-        vehicleModel: 'Suzuki Dzire 2022',
-        plateNumber: '01 - 83672',
-        completedTrips: 295,
-      ),
-      NearbyDriver(
-        id: 'nearby-8',
-        name: 'فارس حسن',
-        location: RideCoordinate(
-          latitude: nearbyPoint(7).latitude,
-          longitude: nearbyPoint(7).longitude,
-        ),
-        photoUrl: '',
-        vehicleType: RideVehicleType.car,
-        rating: 4.2,
-        vehicleModel: 'Toyota Vitz 2020',
-        plateNumber: '01 - 94713',
-        completedTrips: 214,
-      ),
-    ]);
-  }
-
   void closeNearbyDriverCard() => selectedNearbyDriver.value = null;
 
   void selectNearbyDriver(NearbyDriver driver) {
     if (selectedNearbyDriver.value?.id == driver.id) return;
     selectedNearbyDriver.value = driver;
-  }
-
-  Future<void> _loadDemoDriverIcon() async {
-    try {
-      final bytes = await rootBundle.load(
-        'assets/images/branding/yemen_drive_logo.png',
-      );
-      final icon = await _buildDriverMarkerIcon(bytes.buffer.asUint8List());
-      if (icon != null) _nearbyDriverIcon.value = icon;
-    } catch (_) {}
   }
 
   Future<void> _loadDriverPhotoMarker(NearbyDriver driver) async {
@@ -1123,42 +935,6 @@ class RideController extends GetxController {
     )
     ..close();
 
-  void startDemoTracking() {
-    _trackingTimer?.cancel();
-    final location = Get.find<LocationController>();
-    final points = location.routePoints.isNotEmpty
-        ? location.routePoints.toList(growable: false)
-        : <LatLng>[
-            location.pickup.value ?? const LatLng(15.3694, 44.1910),
-            location.destination.value ?? const LatLng(15.3567, 44.2066),
-          ];
-    var index = 0;
-    trackedPassenger.value = RideCoordinate(
-      latitude: points.first.latitude,
-      longitude: points.first.longitude,
-    );
-    _startPassengerPositionTracking();
-    _trackingTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
-      if (points.isEmpty) return;
-      final point = points[index.clamp(0, points.length - 1)];
-      trackedDriver.value = DriverTrackingSnapshot(
-        driverId: 'demo-driver',
-        location: RideCoordinate(
-          latitude: point.latitude,
-          longitude: point.longitude,
-        ),
-        heading:
-            index + 1 < points.length ? _bearing(point, points[index + 1]) : 0,
-        updatedAt: DateTime.now(),
-      );
-      trackedPassenger.value = RideCoordinate(
-        latitude: point.latitude,
-        longitude: point.longitude,
-      );
-      if (index < points.length - 1) index++;
-    });
-  }
-
   Future<void> _startPassengerPositionTracking() async {
     try {
       if (!await Geolocator.isLocationServiceEnabled()) return;
@@ -1168,44 +944,80 @@ class RideController extends GetxController {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
+        _showPassengerLocationPermissionNotice(permission);
         return;
       }
       await _passengerPositionSubscription?.cancel();
       _passengerPositionSubscription = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          distanceFilter: 5,
-        ),
+        locationSettings: _passengerLocationStreamSettings(),
       ).listen((position) {
         final current = RideCoordinate(
           latitude: position.latitude,
           longitude: position.longitude,
         );
         trackedPassenger.value = current;
-        final rideId = _requestId;
+        final rideId = int.tryParse(_requestId ?? '');
         final now = DateTime.now();
-        if (!AppEnvironment.useDemoData &&
-            rideId != null &&
+        final accuracy = position.accuracy;
+        if (rideId != null &&
+            accuracy.isFinite &&
+            accuracy > 0 &&
+            accuracy <= 75 &&
             (_lastPassengerLocationPublished == null ||
                 now.difference(_lastPassengerLocationPublished!) >=
-                    const Duration(seconds: 8))) {
+                    const Duration(seconds: 8)) &&
+            Get.isRegistered<TrackingHubService>()) {
           _lastPassengerLocationPublished = now;
-          unawaited(_repository.publishPassengerLocation(
-            rideId,
-            current,
-            bearing: position.heading,
-            speed: position.speed,
+          final heading = position.heading;
+          final speed = position.speed;
+          unawaited(Get.find<TrackingHubService>().publishPassengerLocation(
+            <String, Object?>{
+              'rideId': rideId,
+              'latitude': current.latitude,
+              'longitude': current.longitude,
+              'accuracy': accuracy,
+              'observedAtUtc': position.timestamp.toUtc().toIso8601String(),
+              if (heading.isFinite && heading >= 0 && heading < 360)
+                'bearing': heading,
+              if (speed.isFinite && speed >= 0 && speed <= 75) 'speed': speed,
+            },
           ));
         }
       });
     } catch (_) {
-      // Demo tracking remains active when a device does not provide location.
+      // Location tracking resumes when location services become available.
     }
   }
 
-  double _bearing(LatLng from, LatLng to) {
-    final deltaLongitude = to.longitude - from.longitude;
-    return (deltaLongitude >= 0 ? 90 : 270).toDouble();
+  LocationSettings _passengerLocationStreamSettings() {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 5,
+        intervalDuration: const Duration(seconds: 3),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'يمن درايف يتتبع الرحلة',
+          notificationText: 'يستمر تحديث موقعك أثناء الرحلة النشطة.',
+          notificationChannelName: 'تتبع الرحلة',
+          notificationIcon: AndroidResource(name: 'ic_stat_yemendrive'),
+          setOngoing: true,
+        ),
+      );
+    }
+
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      distanceFilter: 5,
+    );
+  }
+
+  void _showPassengerLocationPermissionNotice(LocationPermission permission) {
+    if (_passengerLocationPermissionNoticeShown || isClosed) return;
+    _passengerLocationPermissionNoticeShown = true;
+    final message = permission == LocationPermission.deniedForever
+        ? 'لن يتم تحديث موقعك أثناء الرحلة لأن صلاحية الموقع غير متاحة.'
+        : 'لم تُمنح صلاحية الموقع، لذلك لن يتم تحديث موقعك أثناء الرحلة.';
+    Get.snackbar('تتبع الرحلة غير مفعل', message);
   }
 
   void selectService(RideServiceType value) {
@@ -1244,7 +1056,6 @@ class RideController extends GetxController {
       );
       return;
     }
-    if (AppEnvironment.useDemoData) loadDemoNearbyDrivers();
     hasSelectedTransport.value = false;
     final selected = homeServiceIndex.value >= 0 &&
             homeServiceIndex.value < homeServices.length
@@ -1256,20 +1067,8 @@ class RideController extends GetxController {
     } else if (selected != null) {
       Get.snackbar(selected.name, 'هذا النوع سيُتاح قريبًا.');
     } else {
-      switch (homeServiceIndex.value) {
-        case 0:
-          selectService(RideServiceType.transport);
-          Get.toNamed<void>(RideRoutes.locationPicker);
-        case 1:
-          selectService(RideServiceType.delivery);
-          Get.toNamed<void>(RideRoutes.locationPicker);
-        case 2:
-          Get.toNamed<void>(RideRoutes.locationPicker);
-        case 3:
-          Get.toNamed<void>(RideRoutes.locationPicker);
-        default:
-          Get.snackbar('اختر الخدمة', 'حدد نوع الخدمة أولًا للمتابعة.');
-      }
+      Get.snackbar('لا توجد خدمات متاحة',
+          'انتظر تحميل الخدمات من الخادم ثم حاول مرة أخرى.');
     }
   }
 
@@ -1875,7 +1674,6 @@ class RideController extends GetxController {
           'لم يُرسل طلب الإلغاء. تحقق من الاتصال ثم حاول مرة أخرى.');
       return;
     }
-    _trackingTimer?.cancel();
     await _passengerPositionSubscription?.cancel();
     trackedDriver.value = null;
     trackedPassenger.value = null;
@@ -1889,13 +1687,11 @@ class RideController extends GetxController {
     _offersDeadlineTimer?.cancel();
     isSearchingForDriver.value = false;
     isDriverAssigned.value = true;
-    if (AppEnvironment.useDemoData) startDemoTracking();
-    if (!AppEnvironment.useDemoData) startRealTracking();
+    startRealTracking();
     Get.offNamed<void>(RideRoutes.driverLocation);
   }
 
   void startRealTracking() {
-    _trackingTimer?.cancel();
     final rideId = int.tryParse(_requestId ?? '');
     unawaited(() async {
       if (rideId != null && Get.isRegistered<TrackingHubService>()) {
@@ -1968,8 +1764,6 @@ class RideController extends GetxController {
   }
 
   void _stopRealTracking() {
-    _trackingTimer?.cancel();
-    _trackingTimer = null;
     _driverMarkerAnimationTimer?.cancel();
     _driverMarkerAnimationTimer = null;
     _passengerPositionSubscription?.cancel();
@@ -2135,12 +1929,15 @@ class RideController extends GetxController {
   }
 
   void prepareNewRide() {
+    // The passenger foreground location service is only needed while a ride
+    // is active. Stop it before clearing the request id so it cannot keep
+    // consuming GPS after the rider returns to the booking flow.
+    _stopRealTracking();
     _recipientTimer?.cancel();
-    _driverMarkerAnimationTimer?.cancel();
-    _driverMarkerAnimationTimer = null;
     _offersDeadlineTimer?.cancel();
     ++_offersWatchGeneration;
     _requestId = null;
+    _lastPassengerLocationPublished = null;
     if (Get.isRegistered<TrackingHubService>()) {
       unawaited(
           Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
@@ -2162,6 +1959,7 @@ class RideController extends GetxController {
     customerPaymentEnabled.value = false;
     cashCollectionApproval.value = null;
     cancellationReason.value = '';
+    cancellationReasonController.clear();
     isSearchingForDriver.value = false;
     trackingRoutePoints.clear();
     trackingRouteDistanceMeters.value = 0;
@@ -2210,11 +2008,11 @@ class RideController extends GetxController {
   void onClose() {
     _hubEventSubscription?.cancel();
     _hubConnectionSubscription?.cancel();
-    _trackingTimer?.cancel();
     _driverMarkerAnimationTimer?.cancel();
     _recipientTimer?.cancel();
     _offersDeadlineTimer?.cancel();
     _passengerPositionSubscription?.cancel();
+    cancellationReasonController.dispose();
     super.onClose();
   }
 }

@@ -13,58 +13,74 @@ class LoginView extends GetView<LoginController> {
   const LoginView({super.key});
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.transparent,
-        resizeToAvoidBottomInset: true,
-        body: LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            final height = constraints.maxHeight;
-            final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-            final shortScreen = height < 700;
-            final panelHeight = keyboardOpen
-                ? height * .94
-                : height * (shortScreen ? .59 : .55);
-            final bottomGap =
-                keyboardOpen ? 0.0 : height * (shortScreen ? .24 : .28);
+  Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardOpen = keyboardInset > 0;
 
-            return Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                Positioned.fill(
-                  child: const AuthBackdrop(showHeaderActions: false),
-                ),
-                Positioned(
-                  left: 14,
-                  right: 14,
-                  bottom: bottomGap,
-                  height: panelHeight,
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween<double>(begin: 0, end: 1),
-                    duration: const Duration(milliseconds: 440),
-                    curve: Curves.easeOutCubic,
-                    builder: (context, progress, child) => Transform.translate(
-                      offset:
-                          Offset(0, (1 - progress) * (panelHeight + bottomGap)),
-                      child: child,
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      // Keep the backdrop at its natural size, then move the form into the
+      // visible space above the keyboard. Resizing the whole stack compressed
+      // the card and clipped its lower controls on short screens.
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          const Positioned.fill(
+            child: AuthBackdrop(showHeaderActions: false),
+          ),
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(
+              top: keyboardOpen ? MediaQuery.paddingOf(context).top : 0,
+              bottom: keyboardInset,
+            ),
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final height = constraints.maxHeight;
+                final shortScreen = height < 700;
+                final panelHeight =
+                    keyboardOpen ? height : height * (shortScreen ? .59 : .55);
+                final bottomGap =
+                    keyboardOpen ? 0.0 : height * (shortScreen ? .24 : .28);
+
+                return Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      start: 14,
+                      end: 14,
+                      bottom: bottomGap,
                     ),
-                    child: Obx(
-                      () => _LoginPanel(
-                        controller: controller,
-                        country: controller.signInCountry.value,
-                        obscurePassword: controller.obscurePassword.value,
-                        rememberMe: controller.rememberMe.value,
-                        isLoading: controller.isLoading.value,
-                        onCreateAccount: () =>
-                            Get.offNamed<void>(AuthRoutes.signUp),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        height: panelHeight,
+                        child: Obx(
+                          () => _LoginPanel(
+                            controller: controller,
+                            country: controller.signInCountry.value,
+                            obscurePassword: controller.obscurePassword.value,
+                            rememberMe: controller.rememberMe.value,
+                            isLoading: controller.isLoading.value,
+                            onCreateAccount: () =>
+                                Get.offNamed<void>(AuthRoutes.signUp),
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            );
-          },
-        ),
-      );
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _LoginPanel extends StatelessWidget {
@@ -84,43 +100,52 @@ class _LoginPanel extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onCreateAccount;
 
-  static const Color _navy = Color(0xFF102C50);
-  static const Color _blue = Color(0xFF087AC1);
-  static const Color _cyan = Color(0xFF159FCB);
   static const Color _hint = Color(0xFF8298B1);
   static const Color _border = Color(0xFFC9DFFC);
 
   @override
   Widget build(BuildContext context) {
     final baseTheme = Theme.of(context);
+    final scheme = baseTheme.colorScheme;
+    final isDark = baseTheme.brightness == Brightness.dark;
+    final accent = scheme.primary;
+    final panelColor = isDark
+        ? scheme.surface.withValues(alpha: .98)
+        : Colors.white.withValues(alpha: .98);
+    final fieldColor =
+        isDark ? scheme.surfaceContainerHigh : const Color(0xFFF9FCFF);
+    final foreground = scheme.onSurface;
+    final hintColor = isDark ? scheme.onSurface.withValues(alpha: .62) : _hint;
+    final borderColor =
+        isDark ? scheme.onSurface.withValues(alpha: .20) : _border;
     final fieldBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(24),
-      borderSide: const BorderSide(color: _border, width: 1.35),
+      borderSide: BorderSide(color: borderColor, width: 1.35),
     );
     final fieldTheme = baseTheme.copyWith(
-      colorScheme: baseTheme.colorScheme.copyWith(primary: _blue),
+      colorScheme: scheme.copyWith(primary: accent),
       textTheme: baseTheme.textTheme.copyWith(
         bodyLarge: baseTheme.textTheme.bodyLarge?.copyWith(
-          color: _navy,
+          color: foreground,
           fontSize: 17,
         ),
       ),
       inputDecorationTheme: baseTheme.inputDecorationTheme.copyWith(
         filled: true,
-        fillColor: const Color(0xFFF9FCFF),
+        fillColor: fieldColor,
         contentPadding: const EdgeInsetsDirectional.symmetric(
           horizontal: 18,
           vertical: 14,
         ),
-        hintStyle: const TextStyle(
-          color: _hint,
+        hintStyle: TextStyle(
+          color: hintColor,
           fontSize: 16,
           fontWeight: FontWeight.w500,
         ),
         border: fieldBorder,
         enabledBorder: fieldBorder,
         focusedBorder: fieldBorder.copyWith(
-          borderSide: const BorderSide(color: _blue, width: 1.8),
+          borderSide: BorderSide(color: accent, width: 1.8),
         ),
         errorBorder: fieldBorder.copyWith(
           borderSide: const BorderSide(color: Color(0xFFD94B55), width: 1.4),
@@ -132,13 +157,18 @@ class _LoginPanel extends StatelessWidget {
     );
 
     return Material(
-      color: Colors.white.withValues(alpha: .98),
+      color: panelColor,
       elevation: 12,
       shadowColor: const Color(0x29102C50),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(42),
-        side: const BorderSide(color: Color(0x99FFFFFF), width: 1.2),
+        side: BorderSide(
+          color: isDark
+              ? scheme.onSurface.withValues(alpha: .14)
+              : const Color(0x99FFFFFF),
+          width: 1.2,
+        ),
       ),
       child: Theme(
         data: fieldTheme,
@@ -158,7 +188,7 @@ class _LoginPanel extends StatelessWidget {
                     child: TextButton(
                       onPressed: () => Get.back<void>(),
                       style: TextButton.styleFrom(
-                        foregroundColor: _blue,
+                        foregroundColor: accent,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         minimumSize: const Size(48, 34),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -188,8 +218,8 @@ class _LoginPanel extends StatelessWidget {
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       'sign_in_title'.tr,
-                      style: const TextStyle(
-                        color: _navy,
+                      style: TextStyle(
+                        color: foreground,
                         fontSize: 28,
                         height: 1.25,
                         fontWeight: FontWeight.w800,
@@ -230,14 +260,14 @@ class _LoginPanel extends StatelessWidget {
                             horizontal: -3,
                             vertical: -3,
                           ),
-                          activeColor: _blue,
+                          activeColor: accent,
                           checkboxShape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(5),
                           ),
                           title: Text(
                             'remember_me'.tr,
-                            style: const TextStyle(
-                              color: _navy,
+                            style: TextStyle(
+                              color: foreground,
                               fontSize: 14,
                               fontWeight: FontWeight.w500,
                             ),
@@ -249,7 +279,7 @@ class _LoginPanel extends StatelessWidget {
                             onPressed: () =>
                                 Get.toNamed<void>(AuthRoutes.recoveryIdentity),
                             style: TextButton.styleFrom(
-                              foregroundColor: _cyan,
+                              foregroundColor: accent,
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 4,
                                 vertical: 2,

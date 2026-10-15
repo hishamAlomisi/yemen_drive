@@ -176,7 +176,10 @@ class RecoveryMethodCard extends StatelessWidget {
           CircleAvatar(
             radius: 24,
             backgroundColor: primary,
-            child: const Icon(Icons.sms_outlined, color: Colors.black),
+            child: Icon(
+              Icons.sms_outlined,
+              color: Theme.of(context).colorScheme.onPrimary,
+            ),
           ),
           const SizedBox(width: 14),
           Expanded(

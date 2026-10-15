@@ -21,6 +21,9 @@ class RideMapShell extends StatelessWidget {
     this.overlay,
     this.foregroundOverlay,
     this.floatingAction,
+    this.mapAction,
+    this.mapActionTop = 154,
+    this.mapActionAtStart = false,
     this.processBar,
     this.processStep,
     this.processBarTop = 82,
@@ -35,6 +38,7 @@ class RideMapShell extends StatelessWidget {
     this.panelBottomMargin = 0,
     this.panelColor,
     this.panelElevation = 12,
+    this.allowPanelCollapse = false,
     this.embedded = false,
     super.key,
   });
@@ -46,6 +50,9 @@ class RideMapShell extends StatelessWidget {
   final Widget? overlay;
   final Widget? foregroundOverlay;
   final Widget? floatingAction;
+  final Widget? mapAction;
+  final double mapActionTop;
+  final bool mapActionAtStart;
   final Widget? processBar;
   final int? processStep;
   final double processBarTop;
@@ -60,6 +67,7 @@ class RideMapShell extends StatelessWidget {
   final double panelBottomMargin;
   final Color? panelColor;
   final double panelElevation;
+  final bool allowPanelCollapse;
   final bool embedded;
 
   @override
@@ -104,6 +112,13 @@ class RideMapShell extends StatelessWidget {
                 ? processBarTop + 72
                 : 12,
           ),
+        if (mapAction != null)
+          PositionedDirectional(
+            top: MediaQuery.paddingOf(context).top + mapActionTop,
+            start: mapActionAtStart ? 16 : null,
+            end: mapActionAtStart ? null : 16,
+            child: mapAction!,
+          ),
         if (!showPanel)
           const SizedBox.shrink()
         else if (fitPanelToContent)
@@ -123,6 +138,7 @@ class RideMapShell extends StatelessWidget {
             maxHeightFactor: panelMaxHeightFactor,
             panelColor: panelColor,
             panelElevation: panelElevation,
+            allowPanelCollapse: allowPanelCollapse,
           ),
         if (foregroundOverlay != null)
           Positioned.fill(child: foregroundOverlay!),
@@ -154,6 +170,7 @@ class _AdaptiveDraggablePanel extends StatefulWidget {
     required this.maxHeightFactor,
     required this.panelColor,
     required this.panelElevation,
+    required this.allowPanelCollapse,
   });
 
   final Widget panel;
@@ -161,6 +178,7 @@ class _AdaptiveDraggablePanel extends StatefulWidget {
   final double maxHeightFactor;
   final Color? panelColor;
   final double panelElevation;
+  final bool allowPanelCollapse;
 
   @override
   State<_AdaptiveDraggablePanel> createState() =>
@@ -168,10 +186,17 @@ class _AdaptiveDraggablePanel extends StatefulWidget {
 }
 
 class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
-  static const double _minHeightFactor = .14;
+  static const double _defaultMinHeightFactor = .14;
+  static const double _collapsibleMinHeightFactor = .12;
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
   double? _lastTarget;
+  bool _isCollapsed = false;
+  bool _isPanelAnimationInProgress = false;
+
+  double get _minHeightFactor => widget.allowPanelCollapse
+      ? _collapsibleMinHeightFactor
+      : _defaultMinHeightFactor;
 
   @override
   void dispose() {
@@ -180,7 +205,7 @@ class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
   }
 
   void _fitToContent(Size size) {
-    if (!_sheetController.isAttached || !mounted) return;
+    if (_isCollapsed || !_sheetController.isAttached || !mounted) return;
     final screenHeight = MediaQuery.sizeOf(context).height;
     final footerHeight = widget.panelFooter == null ? 0.0 : 76.0;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
@@ -200,24 +225,113 @@ class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
     });
   }
 
+  Future<void> _togglePanel() async {
+    if (!_sheetController.isAttached) return;
+    final collapse = !_isCollapsed;
+    setState(() {
+      _isCollapsed = collapse;
+      _isPanelAnimationInProgress = true;
+    });
+    try {
+      await _sheetController.animateTo(
+        collapse ? _minHeightFactor : widget.maxHeightFactor,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+      );
+    } finally {
+      if (mounted) setState(() => _isPanelAnimationInProgress = false);
+    }
+  }
+
+  bool _onSheetNotification(DraggableScrollableNotification notification) {
+    if (!widget.allowPanelCollapse || _isPanelAnimationInProgress) {
+      return false;
+    }
+    final collapsed = notification.extent <= _minHeightFactor + .012;
+    if (collapsed != _isCollapsed && mounted) {
+      setState(() => _isCollapsed = collapsed);
+    }
+    return false;
+  }
+
   @override
-  Widget build(BuildContext context) => DraggableScrollableSheet(
-        controller: _sheetController,
-        initialChildSize: widget.maxHeightFactor,
-        minChildSize: _minHeightFactor,
-        maxChildSize: widget.maxHeightFactor,
-        snap: true,
-        snapSizes: <double>[_minHeightFactor, widget.maxHeightFactor],
-        builder: (context, scrollController) => _PanelSurface(
-          panel: widget.panel,
-          panelFooter: widget.panelFooter,
-          scrollController: scrollController,
-          expandContent: true,
-          onPanelSizeChanged: _fitToContent,
-          panelColor: widget.panelColor,
-          panelElevation: widget.panelElevation,
+  Widget build(BuildContext context) =>
+      NotificationListener<DraggableScrollableNotification>(
+        onNotification: _onSheetNotification,
+        child: DraggableScrollableSheet(
+          controller: _sheetController,
+          initialChildSize: widget.maxHeightFactor,
+          minChildSize: _minHeightFactor,
+          maxChildSize: widget.maxHeightFactor,
+          snap: true,
+          snapSizes: <double>[_minHeightFactor, widget.maxHeightFactor],
+          builder: (context, scrollController) => _PanelSurface(
+            panel: widget.panel,
+            panelFooter: widget.panelFooter,
+            scrollController: scrollController,
+            expandContent: true,
+            onPanelSizeChanged: _fitToContent,
+            panelHeader: widget.allowPanelCollapse
+                ? _PanelCollapseHandle(
+                    isCollapsed: _isCollapsed,
+                    onPressed: _togglePanel,
+                  )
+                : null,
+            isCollapsed: _isCollapsed,
+            panelColor: widget.panelColor,
+            panelElevation: widget.panelElevation,
+          ),
         ),
       );
+}
+
+class _PanelCollapseHandle extends StatelessWidget {
+  const _PanelCollapseHandle({
+    required this.isCollapsed,
+    required this.onPressed,
+  });
+
+  final bool isCollapsed;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.onSurface.withValues(alpha: .3);
+    final label = isCollapsed ? 'إظهار تفاصيل الرحلة' : 'طي تفاصيل الرحلة';
+    return Semantics(
+      button: true,
+      label: label,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 7),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Container(
+                width: 42,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: color,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                isCollapsed
+                    ? Icons.keyboard_arrow_up_rounded
+                    : Icons.keyboard_arrow_down_rounded,
+                color: color,
+                semanticLabel: label,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _ContentSizedPanel extends StatelessWidget {
@@ -275,6 +389,8 @@ class _PanelSurface extends StatelessWidget {
     required this.panelElevation,
     this.scrollController,
     this.onPanelSizeChanged,
+    this.panelHeader,
+    this.isCollapsed = false,
   });
 
   final Widget panel;
@@ -284,6 +400,8 @@ class _PanelSurface extends StatelessWidget {
   final double panelElevation;
   final ScrollController? scrollController;
   final ValueChanged<Size>? onPanelSizeChanged;
+  final Widget? panelHeader;
+  final bool isCollapsed;
 
   @override
   Widget build(BuildContext context) {
@@ -293,11 +411,18 @@ class _PanelSurface extends StatelessWidget {
         ResponsiveContext(context).responsiveValue(phone: 16, tablet: 28),
         10,
         ResponsiveContext(context).responsiveValue(phone: 16, tablet: 28),
-        panelFooter == null ? AppSpacing.md : AppSpacing.sm,
+        panelFooter == null || isCollapsed ? AppSpacing.md : AppSpacing.sm,
       ),
-      child: _SizeReporter(
-        onSizeChanged: onPanelSizeChanged,
-        child: panel,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          if (panelHeader != null) panelHeader!,
+          if (!isCollapsed)
+            _SizeReporter(
+              onSizeChanged: onPanelSizeChanged,
+              child: panel,
+            ),
+        ],
       ),
     );
     return Align(
@@ -319,7 +444,7 @@ class _PanelSurface extends StatelessWidget {
                   Expanded(child: content)
                 else
                   Flexible(child: content),
-                if (panelFooter != null)
+                if (panelFooter != null && !isCollapsed)
                   Container(
                     width: double.infinity,
                     padding: EdgeInsets.fromLTRB(
@@ -440,10 +565,7 @@ class _DefaultRideMapState extends State<_DefaultRideMap> {
   @override
   Widget build(BuildContext context) {
     if (!Get.isRegistered<LocationController>()) {
-      return AppGoogleMap(
-        showDemoMarker: widget.showMarker,
-        showDemoRoute: widget.showRoute,
-      );
+      return const AppGoogleMap();
     }
     final controller = Get.find<LocationController>();
     return Obx(() {
@@ -475,8 +597,6 @@ class _DefaultRideMapState extends State<_DefaultRideMap> {
             : null,
         focusBoundsPadding: 104,
         mapPadding: radarMapPadding,
-        showDemoMarker: widget.showMarker,
-        showDemoRoute: widget.showRoute,
       );
     });
   }

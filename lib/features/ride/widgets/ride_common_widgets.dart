@@ -170,8 +170,9 @@ class RideIconButton extends StatelessWidget {
                           child: Center(
                               child: Text(
                                   '${badgeCount! > 99 ? '99+' : badgeCount}',
-                                  style: const TextStyle(
-                                      color: Colors.white,
+                                  style: TextStyle(
+                                      color: AppColors.onColor(
+                                          AppColors.secondary),
                                       fontSize: 10,
                                       fontWeight: FontWeight.w800))),
                         ),

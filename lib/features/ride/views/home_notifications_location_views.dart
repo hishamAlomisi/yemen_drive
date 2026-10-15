@@ -144,6 +144,7 @@ class _LocationPickerOverlayState extends State<_LocationPickerOverlay> {
 
   Future<void> _showMapTypeOptions() async {
     final selected = widget.controller.mapType.value;
+    final scheme = Theme.of(context).colorScheme;
     const options = <(MapType, String, IconData)>[
       (MapType.normal, 'الخريطة العادية', Icons.map_outlined),
       (MapType.satellite, 'القمر الصناعي', Icons.satellite_alt_outlined),
@@ -154,232 +155,242 @@ class _LocationPickerOverlayState extends State<_LocationPickerOverlay> {
       context: context,
       useSafeArea: true,
       showDragHandle: true,
-      backgroundColor: Colors.white,
+      backgroundColor: scheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            const Padding(
-              padding: EdgeInsetsDirectional.only(start: 8, bottom: 8),
-              child: Text(
-                'طبقات الخريطة',
-                style: TextStyle(
-                  color: Color(0xFF102C50),
-                  fontSize: 18,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            ...options.map((option) {
-              final (type, label, icon) = option;
-              final isSelected = selected == type;
-              return ListTile(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                leading: Icon(
-                  icon,
-                  color: isSelected
-                      ? const Color(0xFF087AC1)
-                      : const Color(0xFF607B95),
-                ),
-                title: Text(
-                  label,
-                  style: const TextStyle(
-                    color: Color(0xFF102C50),
-                    fontWeight: FontWeight.w700,
+      builder: (context) {
+        final sheetScheme = Theme.of(context).colorScheme;
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              Padding(
+                padding: EdgeInsetsDirectional.only(start: 8, bottom: 8),
+                child: Text(
+                  'طبقات الخريطة',
+                  style: TextStyle(
+                    color: sheetScheme.onSurface,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
                   ),
                 ),
-                trailing: isSelected
-                    ? const Icon(
-                        Icons.check_circle_rounded,
-                        color: Color(0xFF087AC1),
-                      )
-                    : null,
-                onTap: () {
-                  widget.controller.mapType.value = type;
-                  Get.back<void>();
-                },
-              );
-            }),
-          ],
-        ),
-      ),
+              ),
+              ...options.map((option) {
+                final (type, label, icon) = option;
+                final isSelected = selected == type;
+                return ListTile(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  leading: Icon(
+                    icon,
+                    color: isSelected
+                        ? sheetScheme.primary
+                        : sheetScheme.onSurface.withValues(alpha: .62),
+                  ),
+                  title: Text(
+                    label,
+                    style: TextStyle(
+                      color: sheetScheme.onSurface,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  trailing: isSelected
+                      ? Icon(
+                          Icons.check_circle_rounded,
+                          color: sheetScheme.primary,
+                        )
+                      : null,
+                  onTap: () {
+                    widget.controller.mapType.value = type;
+                    Get.back<void>();
+                  },
+                );
+              }),
+            ],
+          ),
+        );
+      },
     );
   }
 
   @override
-  Widget build(BuildContext context) => Stack(
-        children: <Widget>[
-          const _SkylineMapBackdrop(),
-          Obx(() {
-            final serviceUnavailable =
-                widget.controller.serviceAreaAvailable.value == false;
-            final topOffset = widget.showBackButton
-                ? 12.0
-                : serviceUnavailable
-                    ? 142.0
-                    : 112.0;
-            return Positioned(
-              top: MediaQuery.paddingOf(context).top + topOffset,
-              left: 16,
-              right: 16,
-              child: Align(
-                alignment: Alignment.topCenter,
-                child: ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 360),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: <Widget>[
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: const Color(0xF2FFFFFF),
-                          borderRadius: BorderRadius.circular(22),
-                          border: Border.all(color: const Color(0xFFD2E3F0)),
-                          boxShadow: const <BoxShadow>[
-                            BoxShadow(
-                              color: Color(0x24102C50),
-                              blurRadius: 20,
-                              offset: Offset(0, 7),
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Stack(
+      children: <Widget>[
+        const _SkylineMapBackdrop(),
+        Obx(() {
+          final serviceUnavailable =
+              widget.controller.serviceAreaAvailable.value == false;
+          final topOffset = widget.showBackButton
+              ? 12.0
+              : serviceUnavailable
+                  ? 142.0
+                  : 112.0;
+          return Positioned(
+            top: MediaQuery.paddingOf(context).top + topOffset,
+            left: 16,
+            right: 16,
+            child: Align(
+              alignment: Alignment.topCenter,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 360),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.surface.withValues(alpha: .95),
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(
+                          color: scheme.outline.withValues(alpha: .55),
+                        ),
+                        boxShadow: <BoxShadow>[
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: .14),
+                            blurRadius: 20,
+                            offset: Offset(0, 7),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(22),
+                        child: BackdropFilter(
+                          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                          child: Padding(
+                            padding: const EdgeInsets.all(9),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: <Widget>[
+                                const InteractiveRouteFieldsOverlay(),
+                                const SizedBox(height: 9),
+                                _buildFindDriverButton(context),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 7),
+                    RideProcessStepper(
+                      currentStep: 1,
+                      compact: true,
+                      surfaceColor: scheme.surface.withValues(alpha: .94),
+                      foregroundColor: scheme.onSurface,
+                      activeColor: scheme.primary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        }),
+        if (widget.showBackButton)
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + 16,
+            right: 16,
+            child: RideIconButton(
+              iconWidget: const DirectionalArrowIcon(forward: false),
+              tooltip: 'عودة',
+              onPressed: Get.back<void>,
+            ),
+          ),
+        Positioned(
+          right: 16,
+          bottom: MediaQuery.paddingOf(context).bottom + 20,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              RideIconButton(
+                icon: Icons.my_location_rounded,
+                tooltip: 'تحديد موقعي',
+                onPressed: widget.controller.useCurrentLocation,
+              ),
+              const SizedBox(height: 10),
+              RideIconButton(
+                icon: Icons.layers_outlined,
+                tooltip: 'طبقات الخريطة',
+                onPressed: _showMapTypeOptions,
+              ),
+            ],
+          ),
+        ),
+        Positioned(
+          left: 16,
+          bottom: MediaQuery.paddingOf(context).bottom + 172,
+          width: 310,
+          child: IgnorePointer(
+            ignoring: !_showSaved,
+            child: AnimatedSlide(
+              offset: _showSaved ? Offset.zero : const Offset(-.18, .08),
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              child: AnimatedOpacity(
+                opacity: _showSaved ? 1 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: Material(
+                  color: Theme.of(context).colorScheme.surface,
+                  elevation: 14,
+                  borderRadius: BorderRadius.circular(14),
+                  clipBehavior: Clip.antiAlias,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Row(
+                          children: <Widget>[
+                            const Expanded(
+                              child: Text(
+                                'الأماكن المحفوظة',
+                                style: TextStyle(fontWeight: FontWeight.w900),
+                              ),
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              tooltip: 'إغلاق',
+                              onPressed: () =>
+                                  setState(() => _showSaved = false),
+                              icon: Icon(Icons.close_rounded),
                             ),
                           ],
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(22),
-                          child: BackdropFilter(
-                            filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                            child: Padding(
-                              padding: const EdgeInsets.all(9),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: <Widget>[
-                                  const InteractiveRouteFieldsOverlay(),
-                                  const SizedBox(height: 9),
-                                  _buildFindDriverButton(context),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      RideProcessStepper(
-                        currentStep: 1,
-                        compact: true,
-                        surfaceColor: const Color(0xEFFFFFFF),
-                        foregroundColor: const Color(0xFF102C50),
-                        activeColor: const Color(0xFF087AC1),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
-          if (widget.showBackButton)
-            Positioned(
-              top: MediaQuery.paddingOf(context).top + 16,
-              right: 16,
-              child: RideIconButton(
-                iconWidget: const DirectionalArrowIcon(forward: false),
-                tooltip: 'عودة',
-                onPressed: Get.back<void>,
-              ),
-            ),
-          Positioned(
-            right: 16,
-            bottom: MediaQuery.paddingOf(context).bottom + 20,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                RideIconButton(
-                  icon: Icons.my_location_rounded,
-                  tooltip: 'تحديد موقعي',
-                  foregroundColor: const Color(0xFF102C50),
-                  onPressed: widget.controller.useCurrentLocation,
-                ),
-                const SizedBox(height: 10),
-                RideIconButton(
-                  icon: Icons.layers_outlined,
-                  tooltip: 'طبقات الخريطة',
-                  foregroundColor: const Color(0xFF102C50),
-                  onPressed: _showMapTypeOptions,
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            left: 16,
-            bottom: MediaQuery.paddingOf(context).bottom + 172,
-            width: 310,
-            child: IgnorePointer(
-              ignoring: !_showSaved,
-              child: AnimatedSlide(
-                offset: _showSaved ? Offset.zero : const Offset(-.18, .08),
-                duration: const Duration(milliseconds: 260),
-                curve: Curves.easeOutCubic,
-                child: AnimatedOpacity(
-                  opacity: _showSaved ? 1 : 0,
-                  duration: const Duration(milliseconds: 200),
-                  child: Material(
-                    color: Theme.of(context).colorScheme.surface,
-                    elevation: 14,
-                    borderRadius: BorderRadius.circular(14),
-                    clipBehavior: Clip.antiAlias,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Row(
-                            children: <Widget>[
-                              const Expanded(
-                                child: Text(
-                                  'الأماكن المحفوظة',
-                                  style: TextStyle(fontWeight: FontWeight.w900),
-                                ),
-                              ),
-                              IconButton(
-                                visualDensity: VisualDensity.compact,
-                                tooltip: 'إغلاق',
-                                onPressed: () =>
-                                    setState(() => _showSaved = false),
-                                icon: Icon(Icons.close_rounded),
-                              ),
-                            ],
-                          ),
-                          const RecentPlacesList(),
-                        ],
-                      ),
+                        const RecentPlacesList(),
+                      ],
                     ),
                   ),
                 ),
               ),
             ),
           ),
-          Positioned(
-            left: 16,
-            bottom: MediaQuery.paddingOf(context).bottom + 104,
-            child: RideIconButton(
-              icon: _showSaved ? Icons.close_rounded : Icons.bookmark_rounded,
-              tooltip: _showSaved ? 'إغلاق الأماكن' : 'الأماكن المحفوظة',
-              onPressed: () => setState(() => _showSaved = !_showSaved),
-            ),
+        ),
+        Positioned(
+          left: 16,
+          bottom: MediaQuery.paddingOf(context).bottom + 104,
+          child: RideIconButton(
+            icon: _showSaved ? Icons.close_rounded : Icons.bookmark_rounded,
+            tooltip: _showSaved ? 'إغلاق الأماكن' : 'الأماكن المحفوظة',
+            onPressed: () => setState(() => _showSaved = !_showSaved),
           ),
-        ],
-      );
+        ),
+      ],
+    );
+  }
 
   Widget _buildFindDriverButton(BuildContext context) => Obx(() {
+        final scheme = Theme.of(context).colorScheme;
         final enabled = widget.controller.canContinueLocationFlow;
-        final foreground = enabled ? Colors.white : const Color(0xFF6F8295);
+        final foreground = enabled
+            ? scheme.onPrimary
+            : scheme.onSurface.withValues(alpha: .42);
         final background =
-            enabled ? const Color(0xFF102C50) : const Color(0xFFDCE6EF);
+            enabled ? scheme.primary : scheme.onSurface.withValues(alpha: .12);
 
         return Semantics(
           button: true,
@@ -689,52 +700,65 @@ class _SkylineMapBackdrop extends StatelessWidget {
   const _SkylineMapBackdrop();
 
   @override
-  Widget build(BuildContext context) => Positioned(
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 248,
-        child: IgnorePointer(
-          child: ExcludeSemantics(
-            child: Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                const DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: <Color>[
-                        Color(0xBFEAF5FF),
-                        Color(0x8AEAF5FF),
-                        Color(0x55F5F8FB),
-                        Color(0x00F5F8FB),
-                      ],
-                      stops: <double>[0, .38, .76, 1],
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: 248,
+      child: IgnorePointer(
+        child: ExcludeSemantics(
+          child: Stack(
+            fit: StackFit.expand,
+            children: <Widget>[
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: isDark
+                        ? <Color>[
+                            scheme.surface.withValues(alpha: .86),
+                            scheme.surface.withValues(alpha: .56),
+                            theme.scaffoldBackgroundColor
+                                .withValues(alpha: .32),
+                            theme.scaffoldBackgroundColor.withValues(alpha: 0),
+                          ]
+                        : const <Color>[
+                            Color(0xBFEAF5FF),
+                            Color(0x8AEAF5FF),
+                            Color(0x55F5F8FB),
+                            Color(0x00F5F8FB),
+                          ],
+                    stops: <double>[0, .38, .76, 1],
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: AspectRatio(
+                  aspectRatio: 800 / 267,
+                  child: Opacity(
+                    opacity: .62,
+                    child: Image.asset(
+                      'assets/images/branding/sanaa_city_skyline.png',
+                      fit: BoxFit.fill,
+                      filterQuality: FilterQuality.high,
                     ),
                   ),
                 ),
-                Positioned(
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  child: AspectRatio(
-                    aspectRatio: 800 / 267,
-                    child: Opacity(
-                      opacity: .62,
-                      child: Image.asset(
-                        'assets/images/branding/sanaa_city_skyline.png',
-                        fit: BoxFit.fill,
-                        filterQuality: FilterQuality.high,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
-      );
+      ),
+    );
+  }
 }
 
 class _NotificationTile extends StatelessWidget {

@@ -40,8 +40,8 @@ class ApiProfileRepository implements ProfileRepository {
 
     if (result is! ApiSuccess){
 
-      throw StateError('تعذر تحميل الملف الشخصي.');
-
+      //throw StateError('تعذر تحميل الملف الشخصي.');
+return ProfileData();
     }
 
     return _parse(result.data);

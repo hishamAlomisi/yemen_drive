@@ -16,14 +16,20 @@ class ApiOffersRepository implements OffersRepository {
     if (result is! ApiSuccess || result.data is! List) return const [];
     return (result.data as List)
         .whereType<Map>()
-        .map((item) => RideOffer(
-              id: '${item['id'] ?? ''}',
-              title: '${item['title'] ?? item['name'] ?? 'عرض تجريبي'}',
-              discount: '${item['discount'] ?? ''}',
-              code: '${item['code'] ?? ''}',
-              description: '${item['description'] ?? ''}',
-              expiryLabel: '${item['expiresAtUtc'] ?? ''}',
-            ))
+        .map((item) {
+          final title =
+              (item['title'] ?? item['name'])?.toString().trim() ?? '';
+          if (title.isEmpty) return null;
+          return RideOffer(
+            id: item['id']?.toString() ?? '',
+            title: title,
+            discount: item['discount']?.toString() ?? '',
+            code: item['code']?.toString() ?? '',
+            description: item['description']?.toString() ?? '',
+            expiryLabel: item['expiresAtUtc']?.toString() ?? '',
+          );
+        })
+        .whereType<RideOffer>()
         .toList(growable: false);
   }
 }

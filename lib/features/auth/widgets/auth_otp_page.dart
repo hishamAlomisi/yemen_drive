@@ -22,52 +22,72 @@ class AuthOtpPage extends StatelessWidget {
   final VoidCallback onVerify;
   final Widget? resendAction;
 
-  static const Color _navy = Color(0xFF102C50);
   static const Color _blue = Color(0xFF087AC1);
   static const Color _cyan = Color(0xFF159FCB);
-  static const Color _hint = Color(0xFF8298B1);
-  static const Color _border = Color(0xFFC9DFFC);
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        backgroundColor: Colors.transparent,
-        resizeToAvoidBottomInset: true,
-        body: LayoutBuilder(
-          builder: (BuildContext context, BoxConstraints constraints) {
-            final height = constraints.maxHeight;
-            final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-            final shortScreen = height < 700;
-            final panelHeight = keyboardOpen
-                ? height * .94
-                : height * (shortScreen ? .62 : .57);
-            final bottomGap =
-                keyboardOpen ? 0.0 : height * (shortScreen ? .22 : .26);
+  Widget build(BuildContext context) {
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
+    final keyboardOpen = keyboardInset > 0;
 
-            return Stack(
-              fit: StackFit.expand,
-              children: <Widget>[
-                const Positioned.fill(
-                  child: AuthBackdrop(showHeaderActions: false),
-                ),
-                Positioned(
-                  left: 14,
-                  right: 14,
-                  bottom: bottomGap,
-                  height: panelHeight,
-                  child: _OtpPanel(
-                    title: title,
-                    subtitle: subtitle,
-                    codeField: codeField,
-                    isLoading: isLoading,
-                    onVerify: onVerify,
-                    resendAction: resendAction,
+    return Scaffold(
+      backgroundColor: Colors.transparent,
+      resizeToAvoidBottomInset: false,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          const Positioned.fill(
+            child: AuthBackdrop(showHeaderActions: false),
+          ),
+          AnimatedPadding(
+            duration: const Duration(milliseconds: 180),
+            curve: Curves.easeOutCubic,
+            padding: EdgeInsets.only(
+              top: keyboardOpen ? MediaQuery.paddingOf(context).top : 0,
+              bottom: keyboardInset,
+            ),
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                final height = constraints.maxHeight;
+                final shortScreen = height < 700;
+                final panelHeight =
+                    keyboardOpen ? height : height * (shortScreen ? .62 : .57);
+                final bottomGap =
+                    keyboardOpen ? 0.0 : height * (shortScreen ? .22 : .26);
+
+                return Align(
+                  alignment: Alignment.bottomCenter,
+                  child: Padding(
+                    padding: EdgeInsetsDirectional.only(
+                      start: 14,
+                      end: 14,
+                      bottom: bottomGap,
+                    ),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        height: panelHeight,
+                        child: _OtpPanel(
+                          title: title,
+                          subtitle: subtitle,
+                          codeField: codeField,
+                          isLoading: isLoading,
+                          onVerify: onVerify,
+                          resendAction: resendAction,
+                        ),
+                      ),
+                    ),
                   ),
-                ),
-              ],
-            );
-          },
-        ),
-      );
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _OtpPanel extends StatelessWidget {
@@ -87,50 +107,64 @@ class _OtpPanel extends StatelessWidget {
   final VoidCallback onVerify;
   final Widget? resendAction;
 
-  static const Color _navy = AuthOtpPage._navy;
-  static const Color _blue = AuthOtpPage._blue;
-  static const Color _hint = AuthOtpPage._hint;
-  static const Color _border = AuthOtpPage._border;
-
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = theme.brightness == Brightness.dark;
+    final accent = scheme.primary;
+    final foreground = scheme.onSurface;
+    final hintColor = isDark
+        ? scheme.onSurface.withValues(alpha: .62)
+        : const Color(0xFF8298B1);
+    final borderColor = isDark
+        ? scheme.onSurface.withValues(alpha: .20)
+        : const Color(0xFFC9DFFC);
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(20),
-      borderSide: const BorderSide(color: _border, width: 1.35),
+      borderSide: BorderSide(color: borderColor, width: 1.35),
     );
     final themedChild = Theme(
-      data: Theme.of(context).copyWith(
-        colorScheme: Theme.of(context).colorScheme.copyWith(primary: _blue),
-        textTheme: Theme.of(context).textTheme.copyWith(
-              bodyLarge: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: _navy,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-        inputDecorationTheme: Theme.of(context).inputDecorationTheme.copyWith(
-              filled: true,
-              fillColor: const Color(0xFFF9FCFF),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 14,
-              ),
-              hintStyle: const TextStyle(color: _hint, fontSize: 16),
-              border: inputBorder,
-              enabledBorder: inputBorder,
-              focusedBorder: inputBorder.copyWith(
-                borderSide: const BorderSide(color: _blue, width: 1.8),
-              ),
-            ),
+      data: theme.copyWith(
+        colorScheme: scheme.copyWith(primary: accent),
+        textTheme: theme.textTheme.copyWith(
+          bodyLarge: theme.textTheme.bodyLarge?.copyWith(
+            color: foreground,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+          filled: true,
+          fillColor:
+              isDark ? scheme.surfaceContainerHigh : const Color(0xFFF9FCFF),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 14,
+          ),
+          hintStyle: TextStyle(color: hintColor, fontSize: 16),
+          border: inputBorder,
+          enabledBorder: inputBorder,
+          focusedBorder: inputBorder.copyWith(
+            borderSide: BorderSide(color: accent, width: 1.8),
+          ),
+        ),
       ),
       child: Material(
-        color: Colors.white.withValues(alpha: .98),
+        color: isDark
+            ? scheme.surface.withValues(alpha: .98)
+            : Colors.white.withValues(alpha: .98),
         elevation: 12,
         shadowColor: const Color(0x29102C50),
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(42),
-          side: const BorderSide(color: Color(0x99FFFFFF), width: 1.2),
+          side: BorderSide(
+            color: isDark
+                ? scheme.onSurface.withValues(alpha: .14)
+                : const Color(0x99FFFFFF),
+            width: 1.2,
+          ),
         ),
         child: LayoutBuilder(
           builder: (context, constraints) => SingleChildScrollView(
@@ -148,7 +182,7 @@ class _OtpPanel extends StatelessWidget {
                     child: TextButton(
                       onPressed: () => Get.back<void>(),
                       style: TextButton.styleFrom(
-                        foregroundColor: _blue,
+                        foregroundColor: accent,
                         padding: const EdgeInsets.symmetric(horizontal: 4),
                         minimumSize: const Size(48, 34),
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -173,8 +207,8 @@ class _OtpPanel extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     title,
-                    style: const TextStyle(
-                      color: _navy,
+                    style: TextStyle(
+                      color: foreground,
                       fontSize: 27,
                       height: 1.25,
                       fontWeight: FontWeight.w800,
@@ -183,8 +217,8 @@ class _OtpPanel extends StatelessWidget {
                   const SizedBox(height: 7),
                   Text(
                     subtitle,
-                    style: const TextStyle(
-                      color: _hint,
+                    style: TextStyle(
+                      color: hintColor,
                       fontSize: 15,
                       height: 1.5,
                       fontWeight: FontWeight.w500,

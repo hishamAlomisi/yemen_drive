@@ -15,24 +15,3 @@ class RideHomeService {
   final bool isDefault;
   final int sortOrder;
 }
-
-const demoHomeServices = <RideHomeService>[
-  RideHomeService(
-      code: 'transport',
-      name: 'نقل',
-      imageUrl: 'assets/images/services/transport.png',
-      rideServiceType: 'transport'),
-  RideHomeService(
-      code: 'delivery',
-      name: 'توصيل',
-      imageUrl: 'assets/images/services/delivery.png',
-      rideServiceType: 'delivery'),
-  RideHomeService(
-      code: 'rental',
-      name: 'تأجير',
-      imageUrl: 'assets/images/services/rental.png'),
-  RideHomeService(
-      code: 'scheduled',
-      name: 'رحلات مجدولة',
-      imageUrl: 'assets/images/services/scheduled.png'),
-];
