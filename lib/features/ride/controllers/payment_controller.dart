@@ -22,6 +22,7 @@ class PaymentController extends GetxController {
   final RxBool rideCompletedByDriver = false.obs;
   final RxInt cashRequestStatus = (-1).obs;
   final RxBool isPaying = false.obs;
+  final RxBool isSubmittingReview = false.obs;
   final RxDouble rating = 0.0.obs;
   final TextEditingController reviewController = TextEditingController();
   StreamSubscription<TrackingHubEvent>? _hubEventSubscription;
@@ -140,7 +141,8 @@ class PaymentController extends GetxController {
     _hubEventSubscription?.cancel();
     _hubConnectionSubscription?.cancel();
     if (Get.isRegistered<TrackingHubService>()) {
-      unawaited(Get.find<TrackingHubService>().setUserEventListening(this, false));
+      unawaited(
+          Get.find<TrackingHubService>().setUserEventListening(this, false));
     }
     reviewController.dispose();
     super.onClose();
@@ -303,5 +305,38 @@ class PaymentController extends GetxController {
 
   void setRating(double value) => rating.value = value;
 
-  void submitReview() => Get.offAllNamed<void>(RideRoutes.rideThanks);
+  Future<void> submitReview() async {
+    if (rating.value < 1 || rating.value > 5) {
+      Get.snackbar('اختر التقييم', 'حدد عدد النجوم قبل إرسال التقييم.');
+      return;
+    }
+    final rideId = _ride.currentRideId;
+    if (rideId == null || isSubmittingReview.value) {
+      Get.snackbar('تعذر إرسال التقييم', 'لم يتم العثور على الرحلة الحالية.');
+      return;
+    }
+
+    isSubmittingReview.value = true;
+    try {
+      final result = await _api.execute<Object?>(
+        model: 'DriverRatingModel',
+        operation: 'add',
+        data: <String, Object?>{
+          'rideId': int.tryParse(rideId),
+          'score': rating.value,
+          'comment': reviewController.text.trim(),
+        },
+      );
+      if (result is! ApiSuccess) {
+        throw const FormatException('تعذر حفظ تقييم السائق. حاول مرة أخرى.');
+      }
+      Get.offAllNamed<void>(RideRoutes.rideThanks);
+    } catch (_) {
+      Get.snackbar('تعذر إرسال التقييم', 'تحقق من الاتصال ثم حاول مرة أخرى.');
+    } finally {
+      isSubmittingReview.value = false;
+    }
+  }
+
+  void skipReview() => Get.offAllNamed<void>(RideRoutes.rideThanks);
 }

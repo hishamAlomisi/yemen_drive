@@ -964,10 +964,14 @@ class RideReviewPage extends GetView<PaymentController> {
   @override
   Widget build(BuildContext context) => RidePageFrame(
         title: 'تقييم الرحلة',
-        footer: AppButton(
-          label: 'إرسال التقييم',
-          onPressed: controller.submitReview,
-        ),
+        footer: Obx(() => AppButton(
+              label: controller.isSubmittingReview.value
+                  ? 'جارٍ إرسال التقييم…'
+                  : 'إرسال التقييم',
+              onPressed: controller.isSubmittingReview.value
+                  ? null
+                  : controller.submitReview,
+            )),
         body: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.lg),
           child: Column(
@@ -982,7 +986,7 @@ class RideReviewPage extends GetView<PaymentController> {
               ),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'كيف كانت رحلتك مع محمد؟',
+                'كيف كانت تجربتك مع السائق؟',
                 textAlign: TextAlign.center,
                 style: Theme.of(
                   context,
@@ -990,7 +994,7 @@ class RideReviewPage extends GetView<PaymentController> {
               ),
               const SizedBox(height: AppSpacing.xs),
               const Text(
-                'تويوتا كامري · ر س د 4821',
+                'يساعد تقييمك في تحسين جودة الرحلات.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.md),
@@ -1018,7 +1022,7 @@ class RideReviewPage extends GetView<PaymentController> {
               AppButton(
                 label: 'تخطي الآن',
                 variant: AppButtonVariant.text,
-                onPressed: () => Get.offAllNamed<void>(RideRoutes.rideThanks),
+                onPressed: controller.skipReview,
               ),
             ],
           ),

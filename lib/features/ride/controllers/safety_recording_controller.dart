@@ -9,8 +9,8 @@ import '../../../core/network/api_client.dart';
 import '../../../core/network/api_models.dart';
 import 'ride_controller.dart';
 
-/// Records PCM audio only after an explicit in-ride consent and forwards it
-/// directly to the authenticated safety endpoint in bounded chunks.
+/// Records PCM audio only after explicit in-ride consent and uploads ordered
+/// 20-second segments to the authenticated safety endpoint.
 class SafetyRecordingController extends GetxController {
   SafetyRecordingController(this._api, this._ride);
 
@@ -23,11 +23,13 @@ class SafetyRecordingController extends GetxController {
   final BytesBuilder _buffer = BytesBuilder(copy: false);
   final Stopwatch _stopwatch = Stopwatch();
   StreamSubscription<Uint8List>? _audioSubscription;
+  Timer? _segmentUploadTimer;
   Future<void> _uploadQueue = Future<void>.value();
   int? _recordingId;
   int _nextSequence = 0;
 
-  static const int _chunkBytes = 64 * 1024;
+  static const Duration _segmentUploadInterval = Duration(seconds: 20);
+  static const int _maxSegmentBytes = 1024 * 1024;
 
   Future<bool> start() async {
     if (isWorking.value || isRecording.value) return false;
@@ -78,8 +80,14 @@ class SafetyRecordingController extends GetxController {
         onError: (_) => _stopAfterStreamFailure(),
         cancelOnError: true,
       );
+      _segmentUploadTimer?.cancel();
+      _segmentUploadTimer = Timer.periodic(_segmentUploadInterval, (_) {
+        if (isRecording.value) unawaited(_flushBuffer());
+      });
       return true;
     } on Object {
+      _segmentUploadTimer?.cancel();
+      _segmentUploadTimer = null;
       final recordingId = _recordingId;
       if (recordingId != null) {
         try {
@@ -110,17 +118,31 @@ class SafetyRecordingController extends GetxController {
   Future<void> stop() async {
     if (!isRecording.value || isWorking.value) return;
     isWorking.value = true;
+    _segmentUploadTimer?.cancel();
+    _segmentUploadTimer = null;
+    _stopwatch.stop();
     try {
+      // Stop capturing immediately when the user taps Stop. Then drain the
+      // final stream events and upload the remaining partial segment.
+      try {
+        await _recorder.stop();
+      } on Object {
+        error.value = 'توقف التسجيل، لكن تعذر إغلاق الميكروفون بشكل طبيعي.';
+      }
       await _audioSubscription?.cancel();
       _audioSubscription = null;
+      isRecording.value = false;
       await _flushBuffer();
       await _uploadQueue;
-      await _recorder.stop();
       await _finalizeRemote();
     } on Object {
       error.value = 'توقف التسجيل، لكن تعذر تأكيد حفظه على الخادم.';
+      try {
+        await _finalizeRemote();
+      } on Object {
+        // Keep the local stopped state even when final confirmation is offline.
+      }
     } finally {
-      _stopwatch.stop();
       _recordingId = null;
       isRecording.value = false;
       isWorking.value = false;
@@ -129,39 +151,79 @@ class SafetyRecordingController extends GetxController {
 
   Future<String?> createLiveShareLink() async {
     final rideId = int.tryParse(_ride.currentRideId ?? '');
-    if (rideId == null) { error.value = 'لا توجد رحلة نشطة لمشاركتها.'; return null; }
+    if (rideId == null) {
+      error.value = 'لا توجد رحلة نشطة لمشاركتها.';
+      return null;
+    }
     try {
-      final result = await _api.execute<Object?>(model: 'RideSafetyShareModel', operation: 'add', data: <String, Object?>{'rideId': rideId});
-      if (result is! ApiSuccess<Object?> || result.data is! Map) { error.value = _failureMessage(result); return null; }
+      final result = await _api.execute<Object?>(
+          model: 'RideSafetyShareModel',
+          operation: 'add',
+          data: <String, Object?>{'rideId': rideId});
+      if (result is! ApiSuccess<Object?> || result.data is! Map) {
+        error.value = _failureMessage(result);
+        return null;
+      }
       final path = '${(result.data as Map)['linkPath'] ?? ''}';
-      if (path.isEmpty) { error.value = 'تعذر إنشاء رابط مشاركة الرحلة.'; return null; }
+      if (path.isEmpty) {
+        error.value = 'تعذر إنشاء رابط مشاركة الرحلة.';
+        return null;
+      }
       final base = Uri.parse(_api.dio.options.baseUrl);
       return '${base.scheme}://${base.authority}$path';
-    } on Object { error.value = 'تعذر إنشاء رابط مشاركة الرحلة.'; return null; }
+    } on Object {
+      error.value = 'تعذر إنشاء رابط مشاركة الرحلة.';
+      return null;
+    }
   }
 
   Future<bool> raiseSafetyAlert() async {
     final rideId = int.tryParse(_ride.currentRideId ?? '');
-    if (rideId == null) { error.value = 'لا توجد رحلة نشطة لإرسال بلاغ السلامة.'; return false; }
+    if (rideId == null) {
+      error.value = 'لا توجد رحلة نشطة لإرسال بلاغ السلامة.';
+      return false;
+    }
     try {
-      final result = await _api.execute<Object?>(model: 'SafetyIncidentModel', operation: 'add', data: <String, Object?>{'rideId': rideId});
+      final result = await _api.execute<Object?>(
+          model: 'SafetyIncidentModel',
+          operation: 'add',
+          data: <String, Object?>{'rideId': rideId});
       if (result is ApiSuccess<Object?>) return true;
-      error.value = _failureMessage(result); return false;
-    } on Object { error.value = 'تعذر إرسال بلاغ السلامة. اتصل بالطوارئ إذا كنت في خطر مباشر.'; return false; }
+      error.value = _failureMessage(result);
+      return false;
+    } on Object {
+      error.value =
+          'تعذر إرسال بلاغ السلامة. اتصل بالطوارئ إذا كنت في خطر مباشر.';
+      return false;
+    }
   }
 
-  Future<bool> addEmergencyContact(String name, String phone, String relationship) async {
+  Future<bool> addEmergencyContact(
+      String name, String phone, String relationship) async {
     try {
-      final result = await _api.execute<Object?>(model: 'EmergencyContactModel', operation: 'add', data: <String, Object?>{'name': name.trim(), 'phoneNumber': phone.trim(), 'relationship': relationship.trim()});
+      final result = await _api.execute<Object?>(
+          model: 'EmergencyContactModel',
+          operation: 'add',
+          data: <String, Object?>{
+            'name': name.trim(),
+            'phoneNumber': phone.trim(),
+            'relationship': relationship.trim()
+          });
       if (result is ApiSuccess<Object?>) return true;
-      error.value = _failureMessage(result); return false;
-    } on Object { error.value = 'تعذر حفظ جهة الطوارئ.'; return false; }
+      error.value = _failureMessage(result);
+      return false;
+    } on Object {
+      error.value = 'تعذر حفظ جهة الطوارئ.';
+      return false;
+    }
   }
 
   void _onAudio(Uint8List bytes) {
     if (!isRecording.value) return;
     _buffer.add(bytes);
-    if (_buffer.length >= _chunkBytes) unawaited(_flushBuffer());
+    // Keep a hard ceiling in case Android delays the periodic timer while the
+    // app is backgrounded. At 16 kHz mono PCM16, 1 MiB is about 32 seconds.
+    if (_buffer.length >= _maxSegmentBytes) unawaited(_flushBuffer());
   }
 
   Future<void> _flushBuffer() async {
@@ -179,13 +241,16 @@ class SafetyRecordingController extends GetxController {
     try {
       await _uploadQueue;
     } on Object {
-      error.value = 'تعذر رفع مقطع السلامة. تم إيقاف التسجيل لحماية سلامة السجل.';
+      error.value =
+          'تعذر رفع مقطع السلامة. تم إيقاف التسجيل لحماية سلامة السجل.';
       await _stopAfterStreamFailure();
     }
   }
 
   Future<void> _stopAfterStreamFailure() async {
     if (!isRecording.value) return;
+    _segmentUploadTimer?.cancel();
+    _segmentUploadTimer = null;
     await _audioSubscription?.cancel();
     _audioSubscription = null;
     await _recorder.stop();
@@ -211,12 +276,15 @@ class SafetyRecordingController extends GetxController {
     );
   }
 
-  String _failureMessage(ApiResult<Object?> result) => result is ApiFailure<Object?>
-      ? result.problem.title
-      : 'تعذر بدء تسجيل السلامة.';
+  String _failureMessage(ApiResult<Object?> result) =>
+      result is ApiFailure<Object?>
+          ? result.problem.title
+          : 'تعذر بدء تسجيل السلامة.';
 
   @override
   void onClose() {
+    _segmentUploadTimer?.cancel();
+    _segmentUploadTimer = null;
     unawaited(_audioSubscription?.cancel());
     unawaited(_recorder.dispose());
     super.onClose();

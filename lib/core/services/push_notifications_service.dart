@@ -313,7 +313,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
           channelDescription: 'تحديثات الرحلات والدفع والحساب',
           importance: Importance.high,
           priority: Priority.high,
-          icon: 'ic_stat_yemendrive',
+          icon: 'ic_launcher',
           category: AndroidNotificationCategory.status,
           styleInformation: BigTextStyleInformation(
             notification.body ?? '',
