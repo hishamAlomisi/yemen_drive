@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/cache/persistent_network_image.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../../../shared/widgets/directional_arrow.dart';
@@ -515,7 +516,7 @@ class _DriverPhoto extends StatelessWidget {
                   'assets/images/branding/yemen_drive_logo.png',
                   fit: BoxFit.cover,
                 )
-              : Image.network(
+              : PersistentNetworkImage(
                   driver.photoUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => const Icon(
@@ -931,7 +932,7 @@ class _ServiceImage extends StatelessWidget {
     }
     final remote = value.startsWith('http://') || value.startsWith('https://');
     return remote
-        ? Image.network(value,
+        ? PersistentNetworkImage(value,
             fit: BoxFit.contain,
             errorBuilder: (_, __, ___) =>
                 const Icon(Icons.image_not_supported_outlined))

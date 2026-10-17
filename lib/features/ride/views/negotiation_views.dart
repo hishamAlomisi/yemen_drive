@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/cache/persistent_network_image.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../controllers/ride_controller.dart';
 import '../models/ride_models.dart';
@@ -450,7 +451,7 @@ class _DriverRecipientAvatar extends StatelessWidget {
         ),
         child: ClipOval(
           child: driver.photoUrl.isNotEmpty
-              ? Image.network(
+              ? PersistentNetworkImage(
                   driver.photoUrl,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => _DriverInitial(

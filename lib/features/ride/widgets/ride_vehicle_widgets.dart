@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/config/app_environment.dart';
+import '../../../core/cache/persistent_network_image.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../controllers/ride_controller.dart';
@@ -85,7 +86,7 @@ class CatalogTransportListCard extends StatelessWidget {
                           size: 34,
                           color: colors.primary,
                         )
-                      : Image.network(
+                      : PersistentNetworkImage(
                           source,
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) => Icon(
@@ -407,7 +408,7 @@ class _VehicleImage extends StatelessWidget {
   Widget build(BuildContext context) {
     final remoteUrl = _httpImageUrl(source);
     if (remoteUrl == null) return fallback;
-    return Image.network(
+    return PersistentNetworkImage(
       remoteUrl,
       fit: BoxFit.contain,
       filterQuality: FilterQuality.high,

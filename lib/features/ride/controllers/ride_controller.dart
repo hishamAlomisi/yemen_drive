@@ -1,16 +1,17 @@
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
     show Icons, TextEditingController, TextPainter, TextSpan, TextStyle;
-import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../core/config/app_environment.dart';
+import '../../../core/cache/persistent_network_image.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
@@ -815,10 +816,10 @@ class RideController extends GetxController {
         normalizedPhotoUrl.isEmpty ||
         _nearbyDriverPhotoIcons.containsKey(normalizedId)) return;
     try {
-      final uri = Uri.tryParse(normalizedPhotoUrl);
-      if (uri == null || !uri.hasScheme) return;
-      final bytes = await NetworkAssetBundle(uri).load('');
-      final icon = await _buildDriverMarkerIcon(bytes.buffer.asUint8List());
+      final imageFile =
+          await PersistentNetworkImageCache.fileFor(normalizedPhotoUrl);
+      final bytes = await imageFile.readAsBytes();
+      final icon = await _buildDriverMarkerIcon(bytes);
       if (icon != null) _nearbyDriverPhotoIcons[normalizedId] = icon;
     } catch (_) {
       // A missing profile image must not hide the driver marker.

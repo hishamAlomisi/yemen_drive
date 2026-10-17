@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/cache/persistent_network_image.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../controllers/payment_controller.dart';
 
@@ -43,7 +44,7 @@ class PaymentMethodTile extends GetView<PaymentController> {
                   ),
                   child: imageUrl == null || imageUrl!.isEmpty
                       ? Icon(icon, color: AppColors.primaryDark)
-                      : Image.network(imageUrl!,
+                      : PersistentNetworkImage(imageUrl!,
                           fit: BoxFit.contain,
                           errorBuilder: (_, __, ___) =>
                               Icon(icon, color: AppColors.primaryDark)),

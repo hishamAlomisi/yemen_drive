@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
+import '../../../core/cache/persistent_network_image.dart';
 import '../../../core/responsive/app_responsive.dart';
 import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/app_button.dart';
@@ -248,11 +249,22 @@ class AccountChoiceTile extends StatelessWidget {
 }
 
 class _ChoiceLogo extends StatelessWidget {
-  const _ChoiceLogo({required this.imageUrl, required this.icon, required this.selected});
-  final String? imageUrl; final IconData icon; final bool selected;
-  @override Widget build(BuildContext context) {
-    if (imageUrl == null || imageUrl!.isEmpty) return Icon(icon, color: selected ? AppColors.primaryDark : null);
-    return SizedBox(width: 32, height: 32, child: Image.network(imageUrl!, fit: BoxFit.contain, errorBuilder: (_, __, ___) => Icon(icon, color: selected ? AppColors.primaryDark : null)));
+  const _ChoiceLogo(
+      {required this.imageUrl, required this.icon, required this.selected});
+  final String? imageUrl;
+  final IconData icon;
+  final bool selected;
+  @override
+  Widget build(BuildContext context) {
+    if (imageUrl == null || imageUrl!.isEmpty)
+      return Icon(icon, color: selected ? AppColors.primaryDark : null);
+    return SizedBox(
+        width: 32,
+        height: 32,
+        child: PersistentNetworkImage(imageUrl!,
+            fit: BoxFit.contain,
+            errorBuilder: (_, __, ___) =>
+                Icon(icon, color: selected ? AppColors.primaryDark : null)));
   }
 }
 
