@@ -86,7 +86,9 @@ List<GetPage<dynamic>> get accountPages => <GetPage<dynamic>>[
       GetPage<dynamic>(
         name: AccountRoutes.menu,
         page: SideMenuPage.new,
-        binding: AccountBinding(),
+        bindings: <Bindings>[AccountBinding(), ProfileBinding()],
+        opaque: false,
+        transition: Transition.rightToLeft,
       ),
       GetPage<dynamic>(
         name: AccountRoutes.historyUpcoming,

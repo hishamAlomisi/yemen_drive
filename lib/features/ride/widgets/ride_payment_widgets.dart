@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
 import '../../../app/theme/app_colors.dart';
-import '../../../app/theme/app_spacing.dart';
 import '../../../core/cache/persistent_network_image.dart';
-import '../../../shared/widgets/app_card.dart';
 import '../controllers/payment_controller.dart';
 
 class PaymentMethodTile extends GetView<PaymentController> {
@@ -26,71 +24,36 @@ class PaymentMethodTile extends GetView<PaymentController> {
   @override
   Widget build(BuildContext context) => Obx(() {
         final selected = controller.selectedMethod.value == id;
-        final enabled = !controller.cashPaymentConfirmed.value;
-        return Opacity(
-          opacity: enabled ? 1 : .52,
-          child: AppCard(
-            margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-            onTap: enabled ? () => controller.selectMethod(id) : null,
-            borderColor: selected ? AppColors.primary : null,
-            child: Row(
-              children: <Widget>[
-                Container(
-                  width: 46,
-                  height: 46,
-                  decoration: BoxDecoration(
-                    color: AppColors.primary.withValues(alpha: .15),
-                    borderRadius: BorderRadius.circular(AppRadius.sm),
-                  ),
-                  child: imageUrl == null || imageUrl!.isEmpty
-                      ? Icon(icon, color: AppColors.primaryDark)
-                      : PersistentNetworkImage(imageUrl!,
-                          fit: BoxFit.contain,
-                          errorBuilder: (_, __, ___) =>
-                              Icon(icon, color: AppColors.primaryDark)),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        title,
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        subtitle,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                ),
-                AnimatedContainer(
-                  duration: const Duration(milliseconds: 180),
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: selected ? AppColors.primary : Colors.transparent,
-                    border: Border.all(
-                      color: selected
-                          ? AppColors.primary
-                          : Theme.of(context).colorScheme.outline,
-                      width: 2,
-                    ),
-                  ),
-                  child: selected
-                      ? Icon(
-                          Icons.check_rounded,
-                          size: 15,
-                          color: Theme.of(context).colorScheme.onPrimary,
-                        )
-                      : null,
-                ),
-              ],
+        final enabled = !controller.cashPaymentConfirmed.value &&
+            !controller.isPaying.value;
+        final colors = Theme.of(context).colorScheme;
+        return Column(
+          children: <Widget>[
+            ListTile(
+              enabled: enabled,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+              leading: SizedBox(
+                width: 32,
+                height: 32,
+                child: imageUrl == null || imageUrl!.isEmpty
+                    ? Icon(icon, color: colors.onSurface)
+                    : PersistentNetworkImage(imageUrl!,
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => Icon(icon)),
+              ),
+              title: Text(title, style: Theme.of(context).textTheme.bodyLarge),
+              subtitle:
+                  Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+              trailing: Icon(
+                  selected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
+                  color: selected ? colors.onSurface : colors.outline),
+              onTap: enabled ? () => controller.selectMethod(id) : null,
             ),
-          ),
+            const Divider(height: 1),
+          ],
         );
       });
 }

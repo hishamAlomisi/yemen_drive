@@ -16,6 +16,7 @@ import '../../models/ride_models.dart';
 import '../../ride_routes.dart';
 import '../repositories/location_search_repository.dart';
 import '../repositories/route_repository.dart';
+import '../views/location_access_page.dart';
 
 class LocationController extends GetxController {
   LocationController(
@@ -57,6 +58,8 @@ class LocationController extends GetxController {
   final RxBool searchFailed = false.obs;
   final RxBool searchNeedsAuthentication = false.obs;
   final RxBool isAddressLoading = false.obs;
+  final RxBool isChoosingMapPoint = false.obs;
+  Completer<bool>? _mapSelection;
   final TextEditingController addressNameController = TextEditingController();
   final TextEditingController streetController = TextEditingController();
   final TextEditingController detailsController = TextEditingController();
@@ -306,11 +309,10 @@ class LocationController extends GetxController {
   }
 
   Future<void> selectMapPoint(LatLng point) async {
-    if (!await _ensureLocationPermission()) return;
     FocusManager.instance.primaryFocus?.unfocus();
     cancelSearch();
     Future<void>? routeRequest;
-    if (activeField.value == 0 || pickup.value == null) {
+    if (activeField.value == 0) {
       pickup.value = point;
       pickupIsCurrentLocation.value = false;
       routePoints.clear();
@@ -332,57 +334,110 @@ class LocationController extends GetxController {
     }
     if (routeRequest != null) await routeRequest;
     await _fitSelectedRoute();
+    if (isChoosingMapPoint.value) {
+      isChoosingMapPoint.value = false;
+      _mapSelection?.complete(true);
+      _mapSelection = null;
+    }
   }
 
-  Future<void> useCurrentLocation() async {
+  Future<void> useCurrentLocation({
+    bool silently = false,
+    int field = 0,
+    bool closeSearchPage = false,
+  }) async {
     if (isLocating.value) return;
     isLocating.value = true;
     try {
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        Get.snackbar('الموقع غير مفعل', 'فعّل خدمة الموقع في الجهاز أولًا.');
-        return;
-      }
+      var enabled = await Geolocator.isLocationServiceEnabled();
       var permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+      if (!silently && (!enabled || permission == LocationPermission.denied || permission == LocationPermission.deniedForever)) {
+        final granted = await Get.to<bool>(() => const LocationAccessPage());
+        if (granted != true) return;
+        enabled = await Geolocator.isLocationServiceEnabled();
+        permission = await Geolocator.checkPermission();
       }
+      if (!enabled) return;
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
         locationPermissionBlocked.value = true;
-        Get.snackbar(
-          'تعذر الوصول للموقع',
-          'امنح التطبيق صلاحية الموقع للمتابعة.',
-        );
+        if (!silently) {
+          Get.snackbar(
+            'تعذر الوصول للموقع',
+            'امنح التطبيق صلاحية الموقع لاستخدام موقعي الحالي.',
+          );
+        }
         return;
       }
       locationPermissionBlocked.value = false;
-      final position = await Geolocator.getCurrentPosition();
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          timeLimit: Duration(seconds: 15),
+        ),
+      );
+      // A delayed initial GPS fix must not replace a manually chosen origin.
+      if (silently && pickup.value != null) return;
       final point = LatLng(position.latitude, position.longitude);
       FocusManager.instance.primaryFocus?.unfocus();
       cancelSearch();
-      pickup.value = point;
-      pickupIsCurrentLocation.value = true;
-      routePoints.clear();
-      routeDistanceMeters.value = 0;
-      routeDurationSeconds.value = 0;
-      fromController.text = 'تم تحديد موقعي الحالي';
-      pickupArea.value = 'موقعي الحالي';
-      activeField.value = 1;
-      await enrichPickupAddress(point);
+      if (field == 0) {
+        pickup.value = point;
+        pickupIsCurrentLocation.value = true;
+        routePoints.clear();
+        routeDistanceMeters.value = 0;
+        routeDurationSeconds.value = 0;
+        fromController.text = 'تم تحديد موقعي الحالي';
+        pickupArea.value = 'موقعي الحالي';
+        activeField.value = 1;
+        await enrichPickupAddress(point);
+      } else {
+        destination.value = point;
+        _clearDestinationAddressFields();
+        routePoints.clear();
+        routeDistanceMeters.value = 0;
+        routeDurationSeconds.value = 0;
+        toController.text = 'موقعي الحالي';
+        confirmedDestination.value = toController.text;
+        destinationArea.value = 'موقعي الحالي';
+        await enrichDestinationAddress(point);
+      }
       await _animateMap(CameraUpdate.newLatLngZoom(point, 16));
-      if (destination.value != null) await _loadDrivingRoute();
+      if (hasCompleteRoute) await _loadDrivingRoute();
+      if (closeSearchPage && Get.currentRoute == RideRoutes.locationSearch) {
+        Get.back<bool>(result: true);
+      }
+    } catch (_) {
+      if (!silently) {
+        Get.snackbar(
+          'تعذر تحديد موقعي الحالي',
+          'حاول مرة أخرى، أو ابحث عن نقطة الانطلاق واخترها يدويًا.',
+        );
+      }
     } finally {
       isLocating.value = false;
     }
   }
 
-  void startSearch({int field = 1}) {
-    if (locationPermissionBlocked.value || pickup.value == null) {
-      _showLocationPermissionMessage();
-      return;
-    }
+  Future<bool> startSearch({int field = 1}) async {
+    // Searching and choosing coordinates do not require device GPS access.
     activeField.value = field;
-    Get.toNamed<void>(RideRoutes.locationSearch);
+    final selected = await Get.toNamed<dynamic>(RideRoutes.locationSearch);
+    if (isChoosingMapPoint.value && _mapSelection != null) {
+      return _mapSelection!.future;
+    }
+    return selected == true;
+  }
+
+  void choosePointOnMap() {
+    _mapSelection = Completer<bool>();
+    isChoosingMapPoint.value = true;
+    Get.back<bool>(result: false);
+  }
+
+  void cancelMapSelection() {
+    isChoosingMapPoint.value = false;
+    _mapSelection?.complete(false);
+    _mapSelection = null;
   }
 
   Future<void> searchPlaces(String query) async {
@@ -528,7 +583,7 @@ class LocationController extends GetxController {
   /// Clears one editable route field and invalidates only the route data that
   /// depended on it. The map screen owns the focus request so this method can
   /// also be reused by non-interactive route fields safely.
-  void clearRouteField(int field) {
+  void clearRouteField(int field, {bool clearText = true}) {
     activeField.value = field;
     cancelSearch();
     _routeRequestId++;
@@ -541,14 +596,14 @@ class LocationController extends GetxController {
       pickup.value = null;
       pickupIsCurrentLocation.value = false;
       pickupArea.value = '';
-      fromController.clear();
+      if (clearText) fromController.clear();
       return;
     }
 
     destination.value = null;
     destinationArea.value = '';
     confirmedDestination.value = '';
-    toController.clear();
+    if (clearText) toController.clear();
     _clearDestinationAddressFields();
   }
 
@@ -556,7 +611,6 @@ class LocationController extends GetxController {
     LocationSearchResult result, {
     bool closeSearchPage = true,
   }) async {
-    if (activeField.value == 0 && !await _ensureLocationPermission()) return;
     if (activeField.value == 0) {
       pickup.value = result.location;
       pickupIsCurrentLocation.value = false;
@@ -581,7 +635,7 @@ class LocationController extends GetxController {
       destinationArea.value = _areaOrFallback(result, 'منطقة الوجهة المحددة');
     }
     searchResults.clear();
-    if (closeSearchPage) Get.back<void>();
+    if (closeSearchPage) Get.back<bool>(result: true);
     if (hasCompleteRoute) await _loadDrivingRoute();
     await _fitSelectedRoute();
   }
@@ -590,6 +644,7 @@ class LocationController extends GetxController {
     isAddressLoading.value = true;
     try {
       final result = await _searchRepository.reverseGeocode(point);
+      if (destination.value != point) return;
       if (result != null) {
         final displayName = _displayLocationName(result);
         if (displayName.isNotEmpty) {
@@ -616,13 +671,14 @@ class LocationController extends GetxController {
       );
     } catch (_) {
     } finally {
-      isAddressLoading.value = false;
+      if (destination.value == point) isAddressLoading.value = false;
     }
   }
 
   Future<void> enrichPickupAddress(LatLng point) async {
     try {
       final result = await _searchRepository.reverseGeocode(point);
+      if (pickup.value != point) return;
       if (result != null) {
         final displayName = _displayLocationName(result);
         if (displayName.isNotEmpty) fromController.text = displayName;
@@ -655,7 +711,6 @@ class LocationController extends GetxController {
   }
 
   Future<void> selectPlace(RecentPlace place) async {
-    if (activeField.value == 0 && !await _ensureLocationPermission()) return;
     FocusManager.instance.primaryFocus?.unfocus();
     cancelSearch();
     final value = place.kind == 'recent' ? place.title : place.address;
@@ -683,9 +738,11 @@ class LocationController extends GetxController {
       await _loadDrivingRoute();
       await _fitSelectedRoute();
     }
-    if (!hasDrivingRoute) {
+    if (Get.currentRoute == RideRoutes.locationSearch) {
+      Get.back<bool>(result: true);
+    }
+    if (destination.value == null) {
       await _fitSelectedRoute();
-      if (Get.currentRoute == RideRoutes.locationSearch) Get.back<void>();
       Get.snackbar('تم تحديد نقطة الانطلاق', 'حدد الوجهة للمتابعة');
     }
   }
@@ -816,21 +873,7 @@ class LocationController extends GetxController {
   Future<void> ensureInitialPickupLocation() async {
     if (_initialLocationRequested || pickup.value != null) return;
     _initialLocationRequested = true;
-    await useCurrentLocation();
-  }
-
-  Future<bool> _ensureLocationPermission() async {
-    if (pickup.value != null && !locationPermissionBlocked.value) return true;
-    await useCurrentLocation();
-    return pickup.value != null && !locationPermissionBlocked.value;
-  }
-
-  void _showLocationPermissionMessage() {
-    Get.snackbar(
-      'صلاحية الموقع مطلوبة',
-      'امنح التطبيق صلاحية الوصول لموقعك الحالي لتحديد نقطة الانطلاق والمتابعة.',
-      duration: const Duration(seconds: 5),
-    );
+    await useCurrentLocation(silently: true);
   }
 
   String _areaOrFallback(LocationSearchResult result, String fallback) {

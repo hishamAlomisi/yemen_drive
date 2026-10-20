@@ -3,9 +3,9 @@ import 'package:flutter/material.dart';
 import 'app_palette.dart';
 
 abstract final class AppColors {
-  static Color primary = AppPaletteColors.blueGold.primary;
-  static Color primaryDark = AppPaletteColors.blueGold.primaryDark;
-  static Color secondary = AppPaletteColors.blueGold.secondary;
+  static Color primary = AppPaletteColors.lime.primary;
+  static Color primaryDark = AppPaletteColors.lime.primaryDark;
+  static Color secondary = AppPaletteColors.lime.secondary;
 
   static void setPalette(AppPalette palette) {
     final colors = palette.colors;

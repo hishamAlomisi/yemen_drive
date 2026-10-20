@@ -7,7 +7,7 @@ abstract final class AppTheme {
   static ThemeData get light => lightFor();
 
   static ThemeData lightFor({
-    AppPalette palette = AppPalette.blueGold,
+    AppPalette palette = AppPalette.lime,
   }) =>
       _build(
         brightness: Brightness.light,
@@ -22,7 +22,7 @@ abstract final class AppTheme {
   static ThemeData get dark => darkFor();
 
   static ThemeData darkFor({
-    AppPalette palette = AppPalette.blueGold,
+    AppPalette palette = AppPalette.lime,
   }) =>
       _build(
         brightness: Brightness.dark,
@@ -70,7 +70,7 @@ abstract final class AppTheme {
       brightness: brightness,
       colorScheme: colorScheme,
       scaffoldBackgroundColor: background,
-      fontFamily: 'BeINArabic',
+      fontFamily: 'NotoSansArabic',
       fontFamilyFallback: const <String>[
         'Tajawal',
         'Cairo',
@@ -84,29 +84,39 @@ abstract final class AppTheme {
     );
     return base.copyWith(
       textTheme: textTheme.copyWith(
-        headlineLarge: textTheme.headlineLarge?.copyWith(
-          fontWeight: FontWeight.w800,
-          height: 1.2,
-        ),
-        headlineSmall: textTheme.headlineSmall?.copyWith(
-          fontWeight: FontWeight.w700,
-          height: 1.25,
-        ),
-        titleLarge: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-        bodyLarge: textTheme.bodyLarge?.copyWith(height: 1.5),
-        bodyMedium: textTheme.bodyMedium?.copyWith(height: 1.5),
-        bodySmall: textTheme.bodySmall?.copyWith(color: muted, height: 1.45),
+        headlineLarge: textTheme.headlineLarge
+            ?.copyWith(fontSize: 30, fontWeight: FontWeight.w700, height: 1.35),
+        headlineMedium: textTheme.headlineMedium
+            ?.copyWith(fontSize: 26, fontWeight: FontWeight.w700, height: 1.35),
+        headlineSmall: textTheme.headlineSmall
+            ?.copyWith(fontSize: 22, fontWeight: FontWeight.w600, height: 1.4),
+        titleLarge: textTheme.titleLarge
+            ?.copyWith(fontSize: 20, fontWeight: FontWeight.w600, height: 1.4),
+        titleMedium: textTheme.titleMedium
+            ?.copyWith(fontSize: 16, fontWeight: FontWeight.w600, height: 1.45),
+        titleSmall: textTheme.titleSmall
+            ?.copyWith(fontSize: 14, fontWeight: FontWeight.w500, height: 1.45),
+        bodyLarge: textTheme.bodyLarge
+            ?.copyWith(fontSize: 16, fontWeight: FontWeight.w400, height: 1.5),
+        bodyMedium: textTheme.bodyMedium
+            ?.copyWith(fontSize: 14, fontWeight: FontWeight.w400, height: 1.5),
+        bodySmall: textTheme.bodySmall
+            ?.copyWith(fontSize: 12, color: muted, height: 1.4),
+        labelLarge: textTheme.labelLarge
+            ?.copyWith(fontSize: 16, fontWeight: FontWeight.w500),
+        labelMedium: textTheme.labelMedium
+            ?.copyWith(fontSize: 13, fontWeight: FontWeight.w500),
       ),
       appBarTheme: AppBarTheme(
         elevation: 0,
         centerTitle: true,
         scrolledUnderElevation: 0,
-        backgroundColor: Colors.transparent,
+        backgroundColor: surface,
         foregroundColor: onSurface,
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surface,
+        fillColor: surfaceAlt,
         prefixIconColor: muted,
         suffixIconColor: muted,
         contentPadding: const EdgeInsets.symmetric(
@@ -115,11 +125,11 @@ abstract final class AppTheme {
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: border),
+          borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: border),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -179,7 +189,10 @@ abstract final class AppTheme {
         style: IconButton.styleFrom(foregroundColor: onSurface),
       ),
       textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(foregroundColor: colors.primary),
+        style: TextButton.styleFrom(
+            foregroundColor: brightness == Brightness.light
+                ? colors.primaryDark
+                : colors.primary),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(

@@ -106,7 +106,7 @@ class CatalogTransportListCard extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w600,
                             ),
                       ),
                       const SizedBox(height: 4),
@@ -185,7 +185,7 @@ class VehiclePreviewCard extends StatelessWidget {
                             'موصى به',
                             style: TextStyle(
                               color: AppColors.primaryDark,
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w600,
                               fontSize: 12,
                             ),
                           ),
@@ -196,7 +196,7 @@ class VehiclePreviewCard extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style:
                             Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w900,
+                                  fontWeight: FontWeight.w600,
                                 ),
                       ),
                       const SizedBox(height: 5),
@@ -214,7 +214,7 @@ class VehiclePreviewCard extends StatelessWidget {
                   )
                       .textTheme
                       .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w900),
+                      ?.copyWith(fontWeight: FontWeight.w600),
                 ),
               ],
             ),
@@ -320,7 +320,7 @@ class VehicleFeature extends StatelessWidget {
               children: <Widget>[
                 Icon(icon, color: AppColors.primaryDark),
                 const SizedBox(height: 6),
-                Text(value, style: TextStyle(fontWeight: FontWeight.w800)),
+                Text(value, style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
                 Text(label, style: Theme.of(context).textTheme.bodySmall),
               ],

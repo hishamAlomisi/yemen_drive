@@ -206,6 +206,7 @@ class TrackingHubService extends GetxService {
       'rideUnavailable',
       'offerReceived',
       'offerUpdated',
+      'rideRequestViewed',
       'rideStatusUpdated',
       'rideMessageCreated',
       'paymentUpdated',

@@ -73,7 +73,7 @@ class ComplaintPage extends GetView<ComplaintController> {
             const SizedBox(height: AppSpacing.md),
             AccountInfoBanner(
               text:
-                  'تُعامل جميع الشكاوى بسرية، ويمكن إضافة رفع صور أو مرفقات عند ربط خدمة الملفات.',
+                  'اذكر رقم الرحلة والتفاصيل التي تساعد فريق الدعم على مراجعة شكواك.',
               icon: Icons.privacy_tip_outlined,
             ),
           ],

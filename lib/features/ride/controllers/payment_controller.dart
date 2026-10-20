@@ -12,10 +12,16 @@ import 'ride_controller.dart';
 class PaymentController extends GetxController {
   final ApiClient _api = Get.find<ApiClient>();
   final RideController _ride = Get.find<RideController>();
-  final RxString selectedMethod = 'cash'.obs;
+  RxString get selectedMethod => _ride.preferredPaymentMethod;
   final RxBool useWalletBalance = false.obs;
   final RxDouble walletBalance = 0.0.obs;
   final RxDouble totalDue = 0.0.obs;
+  final RxDouble waitingFee = 0.0.obs;
+  final RxDouble baseFare = 0.0.obs;
+  final RxDouble routeChangeFees = 0.0.obs;
+  final RxDouble routeCompletedFare = 0.0.obs;
+  final RxDouble serviceFeeAmount = 0.0.obs;
+  final RxString summaryRideId = ''.obs;
   final RxDouble cancellationFee = 0.0.obs;
   final RxBool cashPaymentConfirmed = false.obs;
   final RxBool paymentCompleted = false.obs;
@@ -30,7 +36,11 @@ class PaymentController extends GetxController {
   bool _summaryLoading = false;
   bool _summaryRefreshRequested = false;
 
-  void selectMethod(String id) => selectedMethod.value = id;
+  void selectMethod(String id) {
+    if (!cashPaymentConfirmed.value && !isPaying.value) {
+      selectedMethod.value = id;
+    }
+  }
 
   @override
   void onReady() {
@@ -87,9 +97,17 @@ class PaymentController extends GetxController {
       final storedTotal = _number(ride['totalAmount'] ?? values['totalAmount']);
       final fare = _number(ride['customerPrice'] ?? ride['serverPrice']);
       final serviceFee = _number(ride['serviceFee'] ?? values['serviceFee']);
+      if (_ride.currentRideId != rideId) return;
+      waitingFee.value = _number(ride['waitingFee']);
+      routeChangeFees.value = _number(ride['routeChangeFees']);
+      routeCompletedFare.value = _number(ride['routeCompletedFare']);
+      baseFare.value = fare;
+      summaryRideId.value = rideId;
+      serviceFeeAmount.value = serviceFee;
       // Older development rides can predate the total snapshot. The agreed
       // fare plus its stored fee remains the authoritative display fallback.
-      totalDue.value = storedTotal > 0 ? storedTotal : fare + serviceFee;
+      totalDue.value =
+          storedTotal > 0 ? storedTotal : fare + serviceFee + waitingFee.value;
       cancellationFee.value = _number(ride['cancellationFee']);
       final rideStatus = '${ride['status'] ?? values['status'] ?? ''}';
       rideCompletedByDriver.value =
@@ -154,8 +172,8 @@ class PaymentController extends GetxController {
       return;
     }
     if (selectedMethod.value != 'wallet') {
-      Get.snackbar(
-          'وسيلة غير متاحة', 'هذه الوسيلة ستتاح عند ربط مزود دفع معتمد.');
+      Get.snackbar('وسيلة غير متاحة',
+          'الدفع بهذه الوسيلة غير متاح حالياً. اختر النقد أو محفظة يمن درايف.');
       return;
     }
     final rideId = _ride.currentRideId;

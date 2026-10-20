@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:get/get.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/cache/persistent_network_image.dart';
 import '../../../core/responsive/app_responsive.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/app_scaffold.dart';
-import '../account_routes.dart';
 
 class AccountPageTemplate extends StatelessWidget {
   const AccountPageTemplate({
@@ -62,37 +59,11 @@ class AccountPageTemplate extends StatelessWidget {
       child: AppScaffold(
         title: title,
         showBack: showBack,
+        backgroundColor: Theme.of(context).colorScheme.surface,
         actions: actions,
         body: body,
-        bottomNavigationBar: bottomNavIndex == null
-            ? null
-            : Directionality(
-                textDirection: Directionality.of(context),
-                child: AppBottomNav(
-                  currentIndex: bottomNavIndex!,
-                  onTap: (index) => _navigateFromBottomBar(
-                    currentIndex: bottomNavIndex!,
-                    nextIndex: index,
-                  ),
-                ),
-              ),
       ),
     );
-  }
-
-  void _navigateFromBottomBar({
-    required int currentIndex,
-    required int nextIndex,
-  }) {
-    if (currentIndex == nextIndex) return;
-    final route = switch (nextIndex) {
-      0 => '/home',
-      1 => AccountRoutes.favourites,
-      2 => AccountRoutes.wallet,
-      3 => AccountRoutes.offers,
-      _ => AccountRoutes.profile,
-    };
-    Get.offNamed<void>(route);
   }
 }
 
@@ -152,51 +123,48 @@ class AccountListTile extends StatelessWidget {
   final EdgeInsetsGeometry padding;
 
   @override
-  Widget build(BuildContext context) => AppCard(
-        padding: EdgeInsets.zero,
-        onTap: onTap,
-        child: Padding(
-          padding: padding,
-          child: Row(
-            children: <Widget>[
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color:
-                      (iconColor ?? AppColors.primary).withValues(alpha: .14),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
+  Widget build(BuildContext context) => Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: InkWell(
+          onTap: onTap,
+          child: Padding(
+            padding: padding,
+            child: Row(
+              children: <Widget>[
+                SizedBox(
+                  width: 30,
+                  height: 42,
+                  child: Icon(
+                    icon,
+                    color: iconColor ?? Theme.of(context).colorScheme.onSurface,
+                    size: 22,
+                  ),
                 ),
-                child: Icon(
-                  icon,
-                  color: iconColor ?? AppColors.primaryDark,
-                  size: 22,
-                ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: <Widget>[
-                    Text(
-                      title,
-                      style: TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    if (subtitle != null) ...<Widget>[
-                      const SizedBox(height: 3),
+                const SizedBox(width: AppSpacing.sm),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
                       Text(
-                        subtitle!,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
+                        title,
+                        style: Theme.of(context).textTheme.bodyLarge,
                       ),
+                      if (subtitle != null) ...<Widget>[
+                        const SizedBox(height: 3),
+                        Text(
+                          subtitle!,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.xs),
-              trailing ?? Icon(Icons.arrow_back_ios_new_rounded, size: 16),
-            ],
+                const SizedBox(width: AppSpacing.xs),
+                trailing ?? const Icon(Icons.chevron_left, size: 20),
+              ],
+            ),
           ),
         ),
       );

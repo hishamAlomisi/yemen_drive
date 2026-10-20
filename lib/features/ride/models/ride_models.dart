@@ -25,6 +25,10 @@ class RideQuote {
     required this.maxPrice,
     required this.priceStep,
     this.serviceFee = 0,
+    this.pricingQuoteToken,
+    this.waitingFreeMinutes = 0,
+    this.waitingPricePerMinute = 0,
+    this.waitingMaxFee = 0,
     required this.currency,
   });
 
@@ -33,7 +37,14 @@ class RideQuote {
   final double maxPrice;
   final double priceStep;
   final double serviceFee;
+  final String? pricingQuoteToken;
+  final int waitingFreeMinutes;
+  final double waitingPricePerMinute;
+  final double waitingMaxFee;
   final String currency;
+
+  // PricingModel and settlement add the fixed service fee to the ride fare.
+  double totalForFare(double fare) => fare + serviceFee;
 
   Map<String, Object?> toJson() => <String, Object?>{
         'suggestedPrice': suggestedPrice,
@@ -59,9 +70,12 @@ class RideRequestDraft {
     this.destinationAddressName = '',
     this.destinationStreet = '',
     this.destinationDetails = '',
+    this.moreThanFourPassengers = false,
+    this.passengerNotes = '',
     this.routeDistanceMeters,
     this.routeDurationSeconds,
     this.idempotencyKey,
+    this.pricingQuoteToken,
   });
 
   final String pickup;
@@ -77,9 +91,34 @@ class RideRequestDraft {
   final String destinationAddressName;
   final String destinationStreet;
   final String destinationDetails;
+  final bool moreThanFourPassengers;
+  final String passengerNotes;
   final int? routeDistanceMeters;
   final int? routeDurationSeconds;
   final String? idempotencyKey;
+  final String? pricingQuoteToken;
+
+  RideRequestDraft withPrice(double price) => RideRequestDraft(
+        pickup: pickup,
+        destination: destination,
+        pickupCoordinate: pickupCoordinate,
+        destinationCoordinate: destinationCoordinate,
+        serviceKindId: serviceKindId,
+        serviceCatalogItemId: serviceCatalogItemId,
+        customerId: customerId,
+        offeredPrice: price,
+        pickupAddress: pickupAddress,
+        destinationAddress: destinationAddress,
+        destinationAddressName: destinationAddressName,
+        destinationStreet: destinationStreet,
+        destinationDetails: destinationDetails,
+        moreThanFourPassengers: moreThanFourPassengers,
+        passengerNotes: passengerNotes,
+        routeDistanceMeters: routeDistanceMeters,
+        routeDurationSeconds: routeDurationSeconds,
+        idempotencyKey: idempotencyKey,
+        pricingQuoteToken: pricingQuoteToken,
+      );
 
   Map<String, Object?> toJson() => <String, Object?>{
         'pickup': pickup,
@@ -94,6 +133,8 @@ class RideRequestDraft {
         'destinationAddressName': destinationAddressName,
         'destinationStreet': destinationStreet,
         'destinationDetails': destinationDetails,
+        'moreThanFourPassengers': moreThanFourPassengers,
+        'passengerNotes': passengerNotes,
         if (routeDistanceMeters != null)
           'routeDistanceMeters': routeDistanceMeters,
         if (routeDurationSeconds != null)
@@ -110,6 +151,14 @@ class RideSearchStartResult {
 
   final String rideId;
   final int? recipientCount;
+}
+
+class RideRequestViewer {
+  const RideRequestViewer(
+      {required this.driverId, required this.name, this.photoUrl});
+  final String driverId;
+  final String name;
+  final String? photoUrl;
 }
 
 class NearbyDriver {
@@ -165,6 +214,7 @@ class DriverOffer {
     this.status = DriverOfferStatus.pending,
     this.expiresAt,
     this.createdAt,
+    this.photoUrl,
   });
 
   final String id;
@@ -176,6 +226,7 @@ class DriverOffer {
   final DriverOfferStatus status;
   final DateTime? expiresAt;
   final DateTime? createdAt;
+  final String? photoUrl;
 
   DriverOffer copyWith({
     DriverOfferStatus? status,
@@ -192,6 +243,7 @@ class DriverOffer {
         status: status ?? this.status,
         expiresAt: expiresAt ?? this.expiresAt,
         createdAt: createdAt ?? this.createdAt,
+        photoUrl: photoUrl,
       );
 }
 

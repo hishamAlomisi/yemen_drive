@@ -48,7 +48,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     _messaging = FirebaseMessaging.instance;
     await _localNotifications.initialize(
       settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        android: AndroidInitializationSettings('ic_stat_yemendrive'),
       ),
       onDidReceiveNotificationResponse: (response) {
         _openPayload(response.payload);
@@ -271,7 +271,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
 
   void _debugRegistrationFailure(String operation, Object error) {
     if (!kDebugMode) return;
-    debugPrint('Push registration failed during $operation: ${error.runtimeType}');
+    debugPrint(
+        'Push registration failed during $operation: ${error.runtimeType}');
   }
 
   void _debugRegistrationState(
@@ -280,10 +281,10 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     bool? messagingAvailable,
   }) {
     if (!kDebugMode) return;
-    final availability = messagingAvailable == null
-        ? ''
-        : ', messaging=$messagingAvailable';
-    debugPrint('Push registration $state: authenticated=$authenticated$availability');
+    final availability =
+        messagingAvailable == null ? '' : ', messaging=$messagingAvailable';
+    debugPrint(
+        'Push registration $state: authenticated=$authenticated$availability');
   }
 
   @override
@@ -313,7 +314,9 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
           channelDescription: 'تحديثات الرحلات والدفع والحساب',
           importance: Importance.high,
           priority: Priority.high,
-          icon: 'ic_launcher',
+          icon: 'ic_stat_yemendrive',
+          largeIcon:
+              const DrawableResourceAndroidBitmap('ic_brand_notification'),
           category: AndroidNotificationCategory.status,
           styleInformation: BigTextStyleInformation(
             notification.body ?? '',

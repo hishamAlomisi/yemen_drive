@@ -7,8 +7,8 @@ import '../../../core/config/app_environment.dart';
 import '../../../core/responsive/app_responsive.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
-import '../../../shared/widgets/app_text_field.dart';
 import '../controllers/ride_controller.dart';
+import '../booking/views/ride_search_view.dart';
 import '../ride_routes.dart';
 import '../widgets/ride_common_widgets.dart';
 import '../widgets/ride_map_shell.dart';
@@ -246,7 +246,7 @@ class VehicleDetailsPage extends GetView<RideController> {
                         style: Theme.of(context)
                             .textTheme
                             .headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w900),
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 5),
                       Text(vehicle.description),
@@ -324,7 +324,7 @@ class RideRequestPage extends GetView<RideController> {
               textAlign: TextAlign.center,
               style: Theme.of(
                 context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
@@ -349,42 +349,55 @@ class RideCancelPage extends GetView<RideController> {
   const RideCancelPage({super.key});
 
   @override
-  Widget build(BuildContext context) => RidePageFrame(
-        title: 'إلغاء الرحلة',
-        footer: Obx(
+  Widget build(BuildContext context) => RideMapShell(
+        showRoute: true,
+        showRouteGuide: false,
+        showMarker: false,
+        panelMaxHeightFactor: .86,
+        panelFooter: Obx(
           () => AppButton(
-            label: 'تأكيد الإلغاء',
-            variant: AppButtonVariant.danger,
-            isDisabled: controller.cancellationReason.value.trim().length < 3,
-            onPressed: () => controller.cancelActiveRide(
-              controller.cancellationReason.value,
-            ),
+            label: 'تخطي',
+            variant: AppButtonVariant.secondary,
+            isDisabled: controller.isCancellingRide.value,
+            onPressed: () => Get.back<void>(),
           ),
         ),
-        body: SingleChildScrollView(
+        panel: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: <Widget>[
-              const RideSectionHeader(
-                title: 'لماذا تريد الإلغاء؟',
-                subtitle: 'اكتب السبب ليُرسل مع طلب الإلغاء إلى الخادم.',
-              ),
+              Row(children: [
+                Expanded(
+                    child: Text('لماذا تريد الإلغاء؟',
+                        style: Theme.of(context).textTheme.headlineSmall)),
+                Obx(() => IconButton(
+                    onPressed: controller.isCancellingRide.value
+                        ? null
+                        : () => Get.back<void>(),
+                    icon: const Icon(Icons.close))),
+              ]),
+              const SearchRequestViewers(),
               const SizedBox(height: AppSpacing.lg),
-              AppTextField(
-                controller: controller.cancellationReasonController,
-                hint: 'اكتب سبب الإلغاء',
-                maxLines: 4,
-                minLines: 3,
-                textInputAction: TextInputAction.done,
-                onChanged: (value) =>
-                    controller.cancellationReason.value = value.trim(),
+              ...[
+                'عدم وجود سائقين قريبين',
+                'ارتفاع الأجرة',
+                'طلب عن طريق الخطأ',
+                'نقطة الإقلال أو الوجهة خاطئة',
+                'لم أتلق عروضًا من سائقين',
+                'سبب آخر'
+              ].map(
+                (reason) => Obx(() => ListTile(
+                      title: Text(reason),
+                      leading: const Icon(Icons.help_outline),
+                      trailing: const Icon(Icons.chevron_left),
+                      enabled: !controller.isCancellingRide.value,
+                      onTap: () => controller.cancelActiveRide(reason),
+                    )),
               ),
-              AppButton(
-                label: 'العودة إلى الطلب',
-                variant: AppButtonVariant.text,
-                onPressed: () => Get.back<void>(),
-              ),
+              Obx(() => controller.isCancellingRide.value
+                  ? const LinearProgressIndicator()
+                  : const SizedBox.shrink()),
             ],
           ),
         ),

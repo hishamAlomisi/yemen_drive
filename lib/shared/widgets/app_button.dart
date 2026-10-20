@@ -49,7 +49,7 @@ class AppButton extends StatelessWidget {
     final verticalPadding = switch (size) {
       AppButtonSize.small => 10.0,
       AppButtonSize.medium => 13.0,
-      AppButtonSize.large => 16.0,
+      AppButtonSize.large => 14.0,
     };
     final border = variant == AppButtonVariant.outline
         ? BorderSide(
@@ -82,7 +82,8 @@ class AppButton extends StatelessWidget {
                     label,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.w500),
                   ),
                 ),
                 if (trailing != null) ...<Widget>[

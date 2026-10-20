@@ -42,6 +42,9 @@ flutter:
   assets:
     - assets/images/branding/
   fonts:
+    - family: NotoSansArabic
+      fonts:
+        - asset: assets/fonts/NotoSansArabic.ttf
     - family: BeINArabic
       fonts:
         - asset: assets/fonts/bein_ar_regular.ttf

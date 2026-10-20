@@ -4,6 +4,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
 import '../controllers/chat_controller.dart';
+import '../booking/controllers/booking_controller.dart';
 import '../controllers/notifications_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/ride_controller.dart';
@@ -74,6 +75,13 @@ class RideBinding extends Bindings {
           Get.find<ApiClient>(),
           Get.find<AuthSessionService>(),
         ),
+        permanent: true,
+      );
+    }
+    if (!Get.isRegistered<BookingController>()) {
+      Get.put<BookingController>(
+        BookingController(
+            Get.find<RideController>(), Get.find<LocationController>()),
         permanent: true,
       );
     }

@@ -13,8 +13,9 @@ abstract interface class RideNegotiationRepository {
   });
 
   Future<RideSearchStartResult> createRequest(RideRequestDraft draft);
-  Future<int> restartSearch(String requestId);
-  Future<void> closeSearch(String requestId, {bool exhausted = false});
+  Future<int> restartSearch(String requestId, {double? customerPrice});
+  Future<List<RideRequestViewer>> getRequestViewers(String requestId);
+  Future<void> closeSearch(String requestId, {bool exhausted = false, String? reason});
   DriverOffer? mapRealtimeOffer(Map<String, Object?> event);
   NearbyDriver? mapRealtimeNearbyDriver(Map<String, Object?> event);
   Future<void> acceptOffer(String requestId, String offerId);
@@ -56,6 +57,10 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         'serviceCatalogItemId': serviceCatalogItemId,
         'distanceKm': distanceKm ?? _distance(pickup, destination),
         'durationMinutes': durationMinutes ?? 0,
+        'pickupLatitude': pickup.latitude,
+        'pickupLongitude': pickup.longitude,
+        'destinationLatitude': destination.latitude,
+        'destinationLongitude': destination.longitude,
       },
     );
     if (result is! ApiSuccess) {
@@ -69,8 +74,12 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     }
     return RideQuote(
       suggestedPrice: amount,
-      minPrice: amount,
-      maxPrice: amount,
+      minPrice: _number(body['minPrice'] ?? amount),
+      maxPrice: _number(body['maxPrice'] ?? amount),
+      pricingQuoteToken: body['pricingQuoteToken']?.toString(),
+      waitingFreeMinutes: _number(body['waitingFreeMinutes']).toInt(),
+      waitingPricePerMinute: _number(body['waitingPricePerMinute']),
+      waitingMaxFee: _number(body['waitingMaxFee']),
       priceStep: 100,
       serviceFee: _number(body['serviceFee']),
       currency: body['currency']?.toString() ?? 'ر.ي',
@@ -94,7 +103,10 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         'destinationLatitude': draft.destinationCoordinate.latitude,
         'destinationLongitude': draft.destinationCoordinate.longitude,
         'customerPrice': draft.offeredPrice,
+        'pricingQuoteToken': draft.pricingQuoteToken,
         'idempotencyKey': draft.idempotencyKey,
+        'moreThanFourPassengers': draft.moreThanFourPassengers,
+        'passengerNotes': draft.passengerNotes,
       },
     );
     if (result is ApiFailure) {
@@ -118,11 +130,14 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<int> restartSearch(String requestId) async {
+  Future<int> restartSearch(String requestId, {double? customerPrice}) async {
     final result = await _client.execute<Object?>(
       model: 'RideSearchActionModel',
       operation: 'update',
-      data: <String, Object?>{'rideId': requestId},
+      data: <String, Object?>{
+        'rideId': requestId,
+        if (customerPrice != null) 'customerPrice': customerPrice
+      },
     );
     if (result is ApiFailure) {
       throw FormatException(_failureMessage(result.problem));
@@ -132,13 +147,32 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<void> closeSearch(String requestId, {bool exhausted = false}) async {
+  Future<List<RideRequestViewer>> getRequestViewers(String requestId) async {
+    final result = await _client.execute<Object?>(
+        model: 'RideSearchViewModel',
+        operation: 'get',
+        data: {'rideId': requestId});
+    if (result is! ApiSuccess || result.data is! List) {
+      throw const FormatException('تعذر تحميل مشاهدات الطلب.');
+    }
+    return (result.data as List)
+        .whereType<Map<Object?, Object?>>()
+        .map((item) => RideRequestViewer(
+            driverId: '${item['driverId']}',
+            name: '${item['name'] ?? ''}',
+            photoUrl: item['photoUrl']?.toString()))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> closeSearch(String requestId, {bool exhausted = false, String? reason}) async {
     final result = await _client.execute<Object?>(
       model: 'RideSearchActionModel',
       operation: 'cancel',
       data: <String, Object?>{
         'rideId': requestId,
         'exhausted': exhausted,
+        if (reason != null) 'reason': reason,
       },
     );
     if (result is ApiFailure) {
@@ -160,6 +194,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       status: _offerStatus(item['status']),
       expiresAt: _serverUtcDateTime(item['expiresAtUtc']),
       createdAt: _serverUtcDateTime(item['createdAtUtc']),
+      photoUrl: item['photoUrl']?.toString(),
     );
   }
 

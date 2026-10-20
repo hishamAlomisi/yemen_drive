@@ -30,6 +30,7 @@ class RideMapShell extends StatelessWidget {
     this.showPanel = true,
     this.bottomNavigationBar,
     this.showRoute = false,
+    this.showRouteGuide = true,
     this.showMarker = true,
     this.showPassengerSearchRadar = false,
     this.fitPanelToContent = false,
@@ -37,7 +38,7 @@ class RideMapShell extends StatelessWidget {
     this.panelHorizontalMargin = 0,
     this.panelBottomMargin = 0,
     this.panelColor,
-    this.panelElevation = 12,
+    this.panelElevation = 0,
     this.allowPanelCollapse = false,
     this.embedded = false,
     super.key,
@@ -59,6 +60,7 @@ class RideMapShell extends StatelessWidget {
   final Widget? bottomNavigationBar;
   final bool showPanel;
   final bool showRoute;
+  final bool showRouteGuide;
   final bool showMarker;
   final bool showPassengerSearchRadar;
   final bool fitPanelToContent;
@@ -90,7 +92,7 @@ class RideMapShell extends StatelessWidget {
               child: top!,
             ),
           ),
-        if (processBar != null || processStep != null)
+        if (processBar != null)
           Positioned(
             top: MediaQuery.paddingOf(context).top + processBarTop,
             left: 16,
@@ -106,7 +108,9 @@ class RideMapShell extends StatelessWidget {
               ),
             ),
           ),
-        if (showRoute && Get.isRegistered<LocationController>())
+        if (showRoute &&
+            showRouteGuide &&
+            Get.isRegistered<LocationController>())
           _RouteMapGuide(
             topOffset: (processBar != null || processStep != null)
                 ? processBarTop + 72
@@ -433,7 +437,7 @@ class _PanelSurface extends StatelessWidget {
           color: panelColor ?? Theme.of(context).colorScheme.surface,
           elevation: panelElevation,
           shadowColor: Colors.black26,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppPalette { yemenDrive, blueGold, midnightBurgundy, modern }
+enum AppPalette { yemenDrive, blueGold, midnightBurgundy, modern, lime }
 
 extension AppPaletteLabels on AppPalette {
   String get label => switch (this) {
@@ -8,6 +8,7 @@ extension AppPaletteLabels on AppPalette {
         AppPalette.blueGold => 'الهوية الزرقاء الذهبية',
         AppPalette.midnightBurgundy => 'العنابي الليلي',
         AppPalette.modern => 'ثيم مودرن',
+        AppPalette.lime => 'التصميم الجديد',
       };
 }
 
@@ -44,6 +45,22 @@ class AppPaletteColors {
   final Color? darkText;
   final Color? darkMuted;
   final Color? border;
+
+  static const AppPaletteColors lime = AppPaletteColors(
+    primary: Color(0xFFC1F11D),
+    primaryDark: Color(0xFF526B00),
+    secondary: Color(0xFF252525),
+    lightBackground: Color(0xFFF4F4F0),
+    lightSurface: Color(0xFFFFFFFF),
+    lightSurfaceAlt: Color(0xFFF2F3EE),
+    lightText: Color(0xFF202020),
+    lightMuted: Color(0xFF777973),
+    darkBackground: Color(0xFF141512),
+    darkSurface: Color(0xFF20221D),
+    darkSurfaceAlt: Color(0xFF2C2F27),
+    darkText: Color(0xFFF6F7F2),
+    darkMuted: Color(0xFFB9BDB0),
+  );
 
   static const AppPaletteColors yemenDrive = AppPaletteColors(
     primary: Color(0xFFFBC02D),
@@ -88,5 +105,6 @@ extension AppPaletteValues on AppPalette {
         AppPalette.blueGold => AppPaletteColors.blueGold,
         AppPalette.midnightBurgundy => AppPaletteColors.midnightBurgundy,
         AppPalette.modern => AppPaletteColors.modern,
+        AppPalette.lime => AppPaletteColors.lime,
       };
 }

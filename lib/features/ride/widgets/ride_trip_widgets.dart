@@ -11,14 +11,79 @@ import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../account/account_routes.dart';
 import '../controllers/ride_controller.dart';
+import '../controllers/payment_controller.dart';
 import '../controllers/safety_recording_controller.dart';
 import '../ride_routes.dart';
 import 'ride_common_widgets.dart';
 
+class RideSafetyPage extends StatelessWidget {
+  const RideSafetyPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => RidePageFrame(
+        title: 'مركز الأمان',
+        body: ListView(
+          padding: const EdgeInsets.symmetric(vertical: 24),
+          children: [
+            CircleAvatar(
+              radius: 44,
+              backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+              child: Icon(Icons.shield_outlined,
+                  size: 44, color: Theme.of(context).colorScheme.onSurface),
+            ),
+            const SizedBox(height: 20),
+            Text('رحلتك بأمان',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            const Text(
+                'راجع بيانات السائق والمركبة قبل الركوب، وأضف شخصاً تثق به إلى جهات الطوارئ.',
+                textAlign: TextAlign.center),
+            const SizedBox(height: 28),
+            ListTile(
+              leading: const Icon(Icons.support_agent_outlined),
+              title: const Text('المساعدة والدعم'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => Get.toNamed<void>(AccountRoutes.help),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.contacts_outlined),
+              title: const Text('إضافة جهة اتصال للطوارئ'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => Get.dialog<bool>(_EmergencyContactDialog(
+                controller: Get.find<SafetyRecordingController>(),
+              )),
+            ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.report_outlined),
+              title: const Text('الإبلاغ عن مشكلة'),
+              trailing: const Icon(Icons.chevron_left),
+              onTap: () => Get.toNamed<void>(AccountRoutes.complaint),
+            ),
+            const SizedBox(height: 24),
+            Obx(() {
+              final ride = Get.find<RideController>();
+              return ride.isDriverAssigned.value
+                  ? AppButton(
+                      label: 'أمان الرحلة الحالية',
+                      leading: const Icon(Icons.shield_outlined),
+                      onPressed: () =>
+                          Get.toNamed<void>(RideRoutes.driverLocation))
+                  : const Text(
+                      'أثناء الرحلة ستجد أدوات المشاركة وتسجيل السلامة وطلب المساعدة في شاشة رحلتك.',
+                      textAlign: TextAlign.center);
+            }),
+          ],
+        ),
+      );
+}
+
 class DriverCard extends StatelessWidget {
   const DriverCard({
     this.showActions = true,
-    this.status = 'سيصل خلال 3 دقائق',
+    this.status = 'متابعة حالة الرحلة',
     super.key,
   });
 
@@ -57,7 +122,7 @@ class DriverCard extends StatelessWidget {
                           driverName,
                           style:
                               Theme.of(context).textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w600,
                                   ),
                         ),
                         const SizedBox(height: 3),
@@ -75,17 +140,20 @@ class DriverCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Column(
+                  Flexible(
+                      child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: <Widget>[
                       Text(
                         vehicle,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 3),
                       const Text(''),
                     ],
-                  ),
+                  )),
                 ],
               ),
               const SizedBox(height: AppSpacing.md),
@@ -192,7 +260,7 @@ class RouteSummaryCard extends StatelessWidget {
                   fromLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w800),
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 SizedBox(height: compact ? 10 : 18),
                 Text('إلى', style: Theme.of(context).textTheme.bodySmall),
@@ -200,7 +268,7 @@ class RouteSummaryCard extends StatelessWidget {
                   toLabel,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontWeight: FontWeight.w800),
+                  style: TextStyle(fontWeight: FontWeight.w600),
                 ),
               ],
             ),
@@ -222,8 +290,7 @@ class TripMetricRow extends StatelessWidget {
             ? draft!.routeDistanceMeters! / 1000
             : ride.routeDistanceKm.value;
         final durationSeconds = draft?.routeDurationSeconds;
-        final price = ride.acceptedOffer.value?.price ??
-            (ride.offeredPrice.value > 0 ? ride.offeredPrice.value : null);
+        final price = ride.offeredPrice.value > 0 ? ride.offeredPrice.value : null;
         return Row(
           children: <Widget>[
             Expanded(
@@ -438,7 +505,7 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
                     child: Text(
                       'safety_tools'.tr,
                       style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w900,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -511,7 +578,7 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
               Text(
                 'how_we_protect_you'.tr,
                 style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               const SizedBox(height: 10),
@@ -772,7 +839,7 @@ class _SafetySheetAction extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w600,
                     height: 1.25,
                   ),
             ),
@@ -810,7 +877,7 @@ class _SafetyInfoCard extends StatelessWidget {
                 children: <Widget>[
                   Text(
                     title,
-                    style: TextStyle(fontWeight: FontWeight.w900),
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -871,7 +938,7 @@ class _EmergencyAction extends StatelessWidget {
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w600,
                 height: 1.3,
               ),
         ),
@@ -885,38 +952,61 @@ class PriceSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ride = Get.find<RideController>();
-    final fare = ride.acceptedOffer.value?.price ?? ride.offeredPrice.value;
-    final fee = ride.quote.value?.serviceFee ?? 0;
-    final total = fare + fee;
-    String money(double value) =>
-        '${value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}';
-    return AppCard(
-      child: Column(
-        children: <Widget>[
-          _PriceRow(
-            label: 'أجرة الرحلة',
-            value: money(fare),
-          ),
-          const SizedBox(height: AppSpacing.sm),
-          _PriceRow(
-            label: 'رسوم الخدمة',
-            value: money(fee),
-          ),
-          Padding(
-            padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
-            child: Divider(height: 1),
-          ),
-          _PriceRow(
-            label: 'الإجمالي',
-            value: money(total),
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-          ),
-        ],
-      ),
-    );
+    return Obx(() {
+      final ride = Get.find<RideController>();
+      final availablePayment = Get.isRegistered<PaymentController>()
+          ? Get.find<PaymentController>()
+          : null;
+      final payment =
+          availablePayment?.summaryRideId.value == ride.currentRideId
+              ? availablePayment
+              : null;
+      final fare = payment != null && payment.baseFare.value > 0
+          ? payment.baseFare.value
+          : ride.offeredPrice.value;
+      final fee = payment != null && payment.baseFare.value > 0
+          ? payment.serviceFeeAmount.value
+          : ride.quote.value?.serviceFee ?? 0;
+      final waiting = payment?.waitingFee.value ?? 0;
+      final total = payment?.totalDue.value ?? fare + fee + waiting;
+      final changeFees = payment?.routeChangeFees.value ?? 0;
+      final completedFare = payment?.routeCompletedFare.value ?? 0;
+      String money(double value) =>
+          '${value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}';
+      return AppCard(
+        child: Column(
+          children: <Widget>[
+            _PriceRow(
+              label: 'أجرة الرحلة',
+              value: money(fare),
+            ),
+            if (changeFees > 0 || completedFare > 0) ...[
+              const SizedBox(height: AppSpacing.sm),
+              _PriceRow(label: 'من الأجرة: الجزء المنجز', value: money(completedFare)),
+              _PriceRow(label: 'من الأجرة: رسوم تغيير الوجهة', value: money(changeFees)),
+            ],
+            const SizedBox(height: AppSpacing.sm),
+            _PriceRow(
+              label: 'رسوم الخدمة',
+              value: money(fee),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _PriceRow(label: 'رسوم الانتظار', value: money(waiting)),
+            Padding(
+              padding: EdgeInsets.symmetric(vertical: AppSpacing.sm),
+              child: Divider(height: 1),
+            ),
+            _PriceRow(
+              label: 'الإجمالي',
+              value: money(total),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+      );
+    });
   }
 }
 
@@ -938,7 +1028,7 @@ class _TripMetric extends StatelessWidget {
           children: <Widget>[
             Icon(icon, color: AppColors.primaryDark, size: 22),
             const SizedBox(height: 6),
-            Text(value, style: TextStyle(fontWeight: FontWeight.w900)),
+            Text(value, style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),
             Text(label, style: Theme.of(context).textTheme.bodySmall),
           ],

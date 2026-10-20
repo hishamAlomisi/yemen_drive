@@ -15,10 +15,24 @@ class AppEnvironment {
   static bool get isConfigured => _isConfigured;
   static List<PaymentMethodItem> paymentMethods = <PaymentMethodItem>[];
 
-  static Future<void> loadPaymentMethods(ApiClient client) async {
+  static PaymentMethodItem? paymentMethodById(String id) {
+    for (final method in paymentMethods) {
+      if (method.id == id) return method;
+    }
+    return null;
+  }
+
+  static List<PaymentMethodItem> get externalPaymentMethods => paymentMethods
+      .where((method) =>
+          !<String>{'cash', 'wallet', 'yemendrivewallet'}
+              .contains(method.id.toLowerCase()) &&
+          (method.availableForRidePayment || method.availableForWalletTopUp))
+      .toList(growable: false);
+
+  static Future<bool> loadPaymentMethods(ApiClient client) async {
     final result = await client.execute<Object?>(
         model: 'PaymentMethodModel', operation: 'list');
-    if (result is! ApiSuccess || result.data is! List) return;
+    if (result is! ApiSuccess || result.data is! List) return false;
     paymentMethods = (result.data as List)
         .whereType<Map<Object?, Object?>>()
         .where((raw) => raw['isActive'] == true)
@@ -41,6 +55,7 @@ class AppEnvironment {
                 : Icons.account_balance_wallet_rounded,
       );
     }).toList(growable: false);
+    return true;
   }
 
   static void configure({

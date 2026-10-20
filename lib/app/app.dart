@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 import '../core/services/locale_service.dart';
 import '../core/services/theme_service.dart';
 import '../features/auth/routes/auth_routes.dart';
+import '../features/auth/splash/views/splash_view.dart';
 import 'bindings/initial_binding.dart';
 import 'localization/app_translations.dart';
 import 'routes/app_pages.dart';
@@ -98,14 +99,14 @@ class _BootstrapApp extends StatelessWidget {
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
-        home: Directionality(
-          textDirection: TextDirection.rtl,
-          child: Scaffold(
-            body: SafeArea(
-              child: Center(
-                child: error == null
-                    ? const CircularProgressIndicator()
-                    : Padding(
+        home: error == null
+            ? const SplashArtwork()
+            : Directionality(
+                textDirection: TextDirection.rtl,
+                child: Scaffold(
+                  body: SafeArea(
+                    child: Center(
+                      child: Padding(
                         padding: const EdgeInsets.all(24),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -125,9 +126,9 @@ class _BootstrapApp extends StatelessWidget {
                           ],
                         ),
                       ),
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ),
-        ),
       );
 }

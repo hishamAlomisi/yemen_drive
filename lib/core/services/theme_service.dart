@@ -12,7 +12,7 @@ class ThemeService extends GetxService {
   // The application must start in the light theme unless the passenger has
   // explicitly selected another mode and it was saved on this device.
   final Rx<ThemeMode> mode = ThemeMode.light.obs;
-  final Rx<AppPalette> palette = AppPalette.blueGold.obs;
+  final Rx<AppPalette> palette = AppPalette.lime.obs;
 
   Future<ThemeService> init() async {
     final saved = _storage.read<String>(_key);
@@ -21,12 +21,18 @@ class ThemeService extends GetxService {
       'dark' => ThemeMode.dark,
       _ => ThemeMode.light,
     };
+    // Apply the new visual identity once, then respect subsequent choices.
+    if (_storage.read<int>('passenger_design_version') != 2) {
+      await _storage.write(_paletteKey, 'lime');
+      await _storage.write('passenger_design_version', 2);
+    }
     palette.value = switch (_storage.read<String>(_paletteKey)) {
+      'lime' => AppPalette.lime,
       'yemenDrive' => AppPalette.yemenDrive,
       'blueGold' => AppPalette.blueGold,
       'midnightBurgundy' => AppPalette.midnightBurgundy,
       'modern' => AppPalette.modern,
-      _ => AppPalette.blueGold,
+      _ => AppPalette.lime,
     };
     AppColors.setPalette(palette.value);
     return this;

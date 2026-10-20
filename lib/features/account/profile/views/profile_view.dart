@@ -9,7 +9,7 @@ import '../../../../../app/theme/app_spacing.dart';
 import '../../../../../core/storage/secure_storage_service.dart';
 import '../../../../../shared/widgets/app_button.dart';
 import '../../../../../shared/widgets/app_text_field.dart';
-import '../../../../../shared/widgets/map_backdrop.dart';
+import '../../../ride/ride_routes.dart';
 import '../../account_routes.dart';
 import '../../widgets/account_widgets.dart';
 import '../controllers/profile_controller.dart';
@@ -145,113 +145,109 @@ class SideMenuPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final drawerWidth = math.min(360.0, MediaQuery.sizeOf(context).width * .88);
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
-        body: MapBackdrop(
-          showMarker: false,
-          showRoute: true,
-          child: SafeArea(
-            child: Align(
-              alignment: AlignmentDirectional.centerStart,
+    final colors = Theme.of(context).colorScheme;
+    final width = math.min(360.0, MediaQuery.sizeOf(context).width * .84);
+    return Material(
+      color: Colors.transparent,
+      child: Stack(
+        children: <Widget>[
+          Positioned.fill(
+              child: GestureDetector(
+            onTap: () => Get.back<void>(),
+            child: ColoredBox(color: Colors.black.withValues(alpha: .35)),
+          )),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: SizedBox(
+              width: width,
+              height: double.infinity,
               child: Material(
-                elevation: 20,
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: const BorderRadiusDirectional.only(
-                  topEnd: Radius.circular(24),
-                  bottomEnd: Radius.circular(24),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: SizedBox(
-                  width: drawerWidth,
-                  height: double.infinity,
+                color: colors.surface,
+                child: SafeArea(
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      _MenuHeader(onClose: () => Get.back<void>()),
+                      const _MenuHeader(),
+                      const Divider(height: 1),
                       Expanded(
                         child: ListView(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 18),
+                          padding: const EdgeInsets.symmetric(vertical: 8),
                           children: <Widget>[
                             _MenuTile(
-                              label: 'الرئيسية',
-                              icon: Icons.home_rounded,
-                              onTap: () => Get.offAllNamed<void>('/home'),
-                            ),
+                                label: 'رحلات المدينة',
+                                icon: Icons.directions_car_outlined,
+                                selected: true,
+                                onTap: () => Get.offAllNamed<void>(
+                                    RideRoutes.homeTransport)),
                             _MenuTile(
-                              label: 'الملف الشخصي',
-                              icon: Icons.person_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.profile),
-                            ),
+                                label: 'الخدمات',
+                                icon: Icons.grid_view_outlined,
+                                onTap: () =>
+                                    Get.offNamed<void>(RideRoutes.services)),
                             _MenuTile(
-                              label: 'الأماكن المفضلة',
-                              icon: Icons.favorite_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.favourites),
-                            ),
+                                label: 'سجل الطلبات',
+                                icon: Icons.history,
+                                onTap: () => Get.offNamed<void>(
+                                    AccountRoutes.historyUpcoming)),
                             _MenuTile(
-                              label: 'المحفظة',
-                              icon: Icons.account_balance_wallet_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.wallet),
-                            ),
+                                label: 'المحفظة',
+                                icon: Icons.account_balance_wallet_outlined,
+                                onTap: () =>
+                                    Get.offNamed<void>(AccountRoutes.wallet)),
                             _MenuTile(
-                              label: 'سجل الرحلات',
-                              icon: Icons.history_rounded,
-                              onTap: () => Get.offNamed<void>(
-                                AccountRoutes.historyUpcoming,
-                              ),
-                            ),
+                                label: 'الأماكن المفضلة',
+                                icon: Icons.favorite_border,
+                                onTap: () => Get.offNamed<void>(
+                                    AccountRoutes.favourites)),
                             _MenuTile(
-                              label: 'العروض',
-                              icon: Icons.local_offer_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.offers),
-                            ),
-                            const Divider(height: 28),
+                                label: 'العروض',
+                                icon: Icons.local_offer_outlined,
+                                onTap: () =>
+                                    Get.offNamed<void>(AccountRoutes.offers)),
                             _MenuTile(
-                              label: 'تقديم شكوى',
-                              icon: Icons.report_problem_outlined,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.complaint),
-                            ),
+                                label: 'الإشعارات',
+                                icon: Icons.notifications_none,
+                                onTap: () => Get.offNamed<void>(
+                                    RideRoutes.notifications)),
                             _MenuTile(
-                              label: 'الإعدادات',
-                              icon: Icons.settings_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.settings),
-                            ),
+                                label: 'مركز الأمان',
+                                icon: Icons.shield_outlined,
+                                onTap: () =>
+                                    Get.offNamed<void>(RideRoutes.safety)),
                             _MenuTile(
-                              label: 'عن يمن درايف',
-                              icon: Icons.info_outline_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.about),
-                            ),
+                                label: 'تقديم شكوى',
+                                icon: Icons.report_outlined,
+                                onTap: () => Get.offNamed<void>(
+                                    AccountRoutes.complaint)),
                             _MenuTile(
-                              label: 'المساعدة والدعم',
-                              icon: Icons.support_agent_rounded,
-                              onTap: () =>
-                                  Get.offNamed<void>(AccountRoutes.help),
-                            ),
-                            const Divider(height: 28),
+                                label: 'الإعدادات',
+                                icon: Icons.settings_outlined,
+                                onTap: () =>
+                                    Get.offNamed<void>(AccountRoutes.settings)),
                             _MenuTile(
-                              label: 'تسجيل الخروج',
-                              icon: Icons.logout_rounded,
-                              color: AppColors.error,
-                              onTap: () {
-                                if (Get.isRegistered<SecureStorageService>()) {
-                                  final SecureStorageService
-                                      secureStorageService = Get.find();
-                                  secureStorageService.clear();
-                                  SecureStorageService.delete(
-                                    key: "rememberMe",
-                                  );
-                                }
-                                Get.offAllNamed<void>(AuthRoutes.welcome);
-                              },
-                            ),
+                                label: 'المساعدة',
+                                icon: Icons.help_outline,
+                                onTap: () =>
+                                    Get.offNamed<void>(AccountRoutes.help)),
+                            _MenuTile(
+                                label: 'عن يمن درايف',
+                                icon: Icons.info_outline,
+                                onTap: () =>
+                                    Get.offNamed<void>(AccountRoutes.about)),
                           ],
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                        child: AppButton(
+                          label: 'تسجيل الخروج',
+                          onPressed: () {
+                            if (Get.isRegistered<SecureStorageService>()) {
+                              Get.find<SecureStorageService>().clear();
+                              SecureStorageService.delete(key: 'rememberMe');
+                            }
+                            Get.offAllNamed<void>(AuthRoutes.welcome);
+                          },
                         ),
                       ),
                     ],
@@ -260,71 +256,73 @@ class SideMenuPage extends StatelessWidget {
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
 }
 
-class _MenuHeader extends StatelessWidget {
-  const _MenuHeader({required this.onClose});
-
-  final VoidCallback onClose;
+class _MenuHeader extends GetView<ProfileController> {
+  const _MenuHeader();
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(18, 14, 18, 20),
-        decoration:
-            BoxDecoration(color: AppColors.primary.withValues(alpha: .12)),
-        child: Column(
-          children: <Widget>[
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: IconButton(
-                tooltip: 'إغلاق',
-                onPressed: onClose,
-                icon: Icon(Icons.close_rounded),
+  Widget build(BuildContext context) => InkWell(
+        onTap: () => Get.offNamed<void>(AccountRoutes.profile),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 20, 16, 20),
+          child: Row(
+            children: <Widget>[
+              CircleAvatar(
+                radius: 25,
+                backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+                child: Icon(Icons.person_outline,
+                    size: 30, color: Theme.of(context).colorScheme.onSurface),
               ),
-            ),
-            CircleAvatar(
-              radius: 40,
-              backgroundColor: AppColors.primary,
-              foregroundColor: Theme.of(context).colorScheme.onPrimary,
-              child: Icon(Icons.person_rounded, size: 42),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            Text('هشام العميسي', style: Theme.of(context).textTheme.titleLarge),
-            Text(
-              '+967 775 288 883',
-              textDirection: TextDirection.ltr,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+              const SizedBox(width: 12),
+              Expanded(
+                  child: Obx(() => Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                              controller.displayName.value.isEmpty
+                                  ? 'حسابي'
+                                  : controller.displayName.value,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleMedium),
+                          const SizedBox(height: 3),
+                          Text('عرض الملف الشخصي',
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ],
+                      ))),
+              const Icon(Icons.chevron_right, size: 22),
+            ],
+          ),
         ),
       );
 }
 
 class _MenuTile extends StatelessWidget {
-  const _MenuTile({
-    required this.label,
-    required this.icon,
-    required this.onTap,
-    this.color,
-  });
-
+  const _MenuTile(
+      {required this.label,
+      required this.icon,
+      required this.onTap,
+      this.selected = false});
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  final Color? color;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) => ListTile(
         onTap: onTap,
-        dense: true,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        leading: Icon(icon, color: color),
-        title: Text(label, style: TextStyle(color: color)),
-        trailing: Icon(Icons.arrow_back_ios_new_rounded, size: 14),
+        selected: selected,
+        selectedTileColor: Theme.of(context).colorScheme.surfaceContainer,
+        selectedColor: Theme.of(context).colorScheme.onSurface,
+        minTileHeight: 48,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+        leading: Icon(icon,
+            size: 23, color: Theme.of(context).colorScheme.onSurfaceVariant),
+        title: Text(label, style: Theme.of(context).textTheme.bodyLarge),
       );
 }

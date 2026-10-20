@@ -1,4 +1,4 @@
-import 'dart:ui' as ui;
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -19,23 +19,22 @@ import '../widgets/ride_common_widgets.dart';
 import '../widgets/ride_home_template.dart';
 import '../widgets/ride_location_widgets.dart';
 import '../widgets/ride_map_shell.dart';
-import '../widgets/ride_process_stepper.dart';
+import '../booking/widgets/booking_panel.dart';
+import '../booking/controllers/booking_controller.dart';
 import '../widgets/ride_vehicle_widgets.dart';
 
 class HomeTransportPage extends StatelessWidget {
   const HomeTransportPage({super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      const RideHomeTemplate(type: RideServiceType.transport);
+  Widget build(BuildContext context) => const LocationPickerPage();
 }
 
 class HomeDeliveryPage extends StatelessWidget {
   const HomeDeliveryPage({super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      const RideHomeTemplate(type: RideServiceType.delivery);
+  Widget build(BuildContext context) => const LocationPickerPage();
 }
 
 class NotificationsPage extends GetView<NotificationsController> {
@@ -51,16 +50,24 @@ class NotificationsPage extends GetView<NotificationsController> {
           ),
         ],
         body: Obx(
-          () => ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-            itemCount: controller.items.length,
-            separatorBuilder: (_, __) => const SizedBox(height: AppSpacing.sm),
-            itemBuilder: (context, index) {
-              final item = controller.items[index];
-              return _NotificationTile(
-                  item: item, onTap: () => controller.markRead(item));
-            },
-          ),
+          () => controller.items.isEmpty
+              ? const Center(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.notifications_none, size: 48),
+                  SizedBox(height: 16),
+                  Text('لا توجد إشعارات حالياً'),
+                ]))
+              : ListView.separated(
+                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+                  itemCount: controller.items.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: AppSpacing.sm),
+                  itemBuilder: (context, index) {
+                    final item = controller.items[index];
+                    return _NotificationTile(
+                        item: item, onTap: () => controller.markRead(item));
+                  },
+                ),
         ),
       );
 }
@@ -77,16 +84,32 @@ class LocationPickerPage extends StatefulWidget {
 class _LocationPickerPageState extends State<LocationPickerPage> {
   final LocationController controller = Get.find<LocationController>();
   final RideController rideController = Get.find<RideController>();
+  final BookingController booking = Get.find<BookingController>();
+  final DraggableScrollableController _sheet = DraggableScrollableController();
+  final ValueNotifier<double> _extent = ValueNotifier<double>(.64);
+  Worker? _bookingWorker;
+  Worker? _mapSelectionWorker;
+  Timer? _focusTimer;
+  int _focusRevision = 0;
+  bool _previewingRoute = false;
 
   @override
   void initState() {
     super.initState();
+    _sheet.addListener(_sheetChanged);
+    _mapSelectionWorker = ever(controller.isChoosingMapPoint, (bool choosing) {
+      if (choosing) unawaited(_animateSheet(.12));
+    });
+    _bookingWorker = ever(booking.isOpeningHomeBooking, (bool opening) {
+      if (!opening && _previewingRoute && mounted) {
+        _previewingRoute = false;
+        unawaited(_animateSheet(.64));
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback(
       (_) async {
         if (!mounted) return;
-        if (rideController.autoStartTransport.value) {
-          rideController.applyAdminDefaultServiceKind();
-        }
+        rideController.applyAdminDefaultServiceKind();
         await controller.ensureInitialPickupLocation();
         if (!mounted) return;
         if (rideController.nearbyDrivers.isEmpty) {
@@ -97,371 +120,204 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) => RideMapShell(
-        map: Obx(
-          () => NearbyDriversMap(
-            initialTarget:
-                controller.pickup.value ?? const LatLng(15.3694, 44.1910),
-            initialZoom: 13.5,
-            mapType: controller.mapType.value,
-            followTarget: controller.pickup.value,
-            additionalMarkers: controller.markers,
-            polylines: controller.polylines,
-            onMapCreated: controller.onMapCreated,
-            onTap: controller.selectMapPoint,
-            minimumCardTop: 230,
-            useModernMapStyle: true,
-          ),
-        ),
-        showPanel: false,
-        panel: const SizedBox.shrink(),
-        embedded: widget.isMainShell,
-        top:
-            widget.isMainShell ? const RideHomeHeader(routePicker: true) : null,
-        overlay: _LocationPickerOverlay(
-          controller: controller,
-          showBackButton: !widget.isMainShell,
-        ),
-      );
-}
+  void _sheetChanged() {
+    if (!_sheet.isAttached) return;
+    _extent.value = _sheet.size;
+    _focusTimer?.cancel();
+    if (controller.hasDrivingRoute) {
+      _focusTimer = Timer(const Duration(milliseconds: 220), () {
+        if (mounted) setState(() => _focusRevision++);
+      });
+    }
+  }
 
-class _LocationPickerOverlay extends StatefulWidget {
-  const _LocationPickerOverlay({
-    required this.controller,
-    required this.showBackButton,
-  });
+  Future<void> _animateSheet(double size) async {
+    if (!mounted || !_sheet.isAttached) return;
+    await _sheet.animateTo(size,
+        duration: const Duration(milliseconds: 420),
+        curve: Curves.easeInOutCubic);
+  }
 
-  final LocationController controller;
-  final bool showBackButton;
-
-  @override
-  State<_LocationPickerOverlay> createState() => _LocationPickerOverlayState();
-}
-
-class _LocationPickerOverlayState extends State<_LocationPickerOverlay> {
-  bool _showSaved = false;
-
-  Future<void> _showMapTypeOptions() async {
-    final selected = widget.controller.mapType.value;
-    final scheme = Theme.of(context).colorScheme;
-    const options = <(MapType, String, IconData)>[
-      (MapType.normal, 'الخريطة العادية', Icons.map_outlined),
-      (MapType.satellite, 'القمر الصناعي', Icons.satellite_alt_outlined),
-      (MapType.terrain, 'التضاريس', Icons.terrain_rounded),
-      (MapType.hybrid, 'هجين', Icons.layers_outlined),
-    ];
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      showDragHandle: true,
-      backgroundColor: scheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (context) {
-        final sheetScheme = Theme.of(context).colorScheme;
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Padding(
-                padding: EdgeInsetsDirectional.only(start: 8, bottom: 8),
-                child: Text(
-                  'طبقات الخريطة',
-                  style: TextStyle(
-                    color: sheetScheme.onSurface,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ),
-              ...options.map((option) {
-                final (type, label, icon) = option;
-                final isSelected = selected == type;
-                return ListTile(
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  leading: Icon(
-                    icon,
-                    color: isSelected
-                        ? sheetScheme.primary
-                        : sheetScheme.onSurface.withValues(alpha: .62),
-                  ),
-                  title: Text(
-                    label,
-                    style: TextStyle(
-                      color: sheetScheme.onSurface,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  trailing: isSelected
-                      ? Icon(
-                          Icons.check_circle_rounded,
-                          color: sheetScheme.primary,
-                        )
-                      : null,
-                  onTap: () {
-                    widget.controller.mapType.value = type;
-                    Get.back<void>();
-                  },
-                );
-              }),
-            ],
-          ),
-        );
-      },
-    );
+  Future<void> _previewRoute() async {
+    _previewingRoute = true;
+    await _animateSheet(.12);
+    if (!mounted) return;
+    _focusTimer?.cancel();
+    setState(() => _focusRevision++);
+    // Let the passenger see the complete road route before fare review opens.
+    await Future<void>.delayed(const Duration(milliseconds: 1100));
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    return Stack(
-      children: <Widget>[
-        const _SkylineMapBackdrop(),
-        Obx(() {
-          final serviceUnavailable =
-              widget.controller.serviceAreaAvailable.value == false;
-          final topOffset = widget.showBackButton
-              ? 12.0
-              : serviceUnavailable
-                  ? 142.0
-                  : 112.0;
-          return Positioned(
-            top: MediaQuery.paddingOf(context).top + topOffset,
-            left: 16,
-            right: 16,
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 360),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: scheme.surface.withValues(alpha: .95),
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: scheme.outline.withValues(alpha: .55),
+    final colors = Theme.of(context).colorScheme;
+    final content = LayoutBuilder(
+        builder: (context, constraints) => Stack(
+              fit: StackFit.expand,
+              children: [
+                ValueListenableBuilder<double>(
+                  valueListenable: _extent,
+                  builder: (context, extent, _) => Obx(() => NearbyDriversMap(
+                        initialTarget: controller.pickup.value ??
+                            const LatLng(15.3694, 44.1910),
+                        mapType: controller.mapType.value,
+                        followTarget: controller.pickup.value,
+                        additionalMarkers: controller.markers,
+                        polylines: controller.polylines,
+                        focusBounds: controller.hasDrivingRoute
+                            ? controller.selectedRouteBounds
+                            : null,
+                        focusBoundsRevision: _focusRevision,
+                        onMapCreated: controller.onMapCreated,
+                        onTap: controller.isChoosingMapPoint.value
+                            ? controller.selectMapPoint
+                            : null,
+                        minimumCardTop: 90,
+                        useModernMapStyle: true,
+                        mapPadding: EdgeInsets.only(
+                          top: MediaQuery.paddingOf(context).top + 78,
+                          bottom: (constraints.maxHeight * extent + 8)
+                              .clamp(
+                                  0.0,
+                                  (constraints.maxHeight -
+                                          MediaQuery.paddingOf(context).top -
+                                          200)
+                                      .clamp(0.0, double.infinity))
+                              .toDouble(),
                         ),
-                        boxShadow: <BoxShadow>[
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: .14),
-                            blurRadius: 20,
-                            offset: Offset(0, 7),
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(22),
-                        child: BackdropFilter(
-                          filter: ui.ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                          child: Padding(
-                            padding: const EdgeInsets.all(9),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: <Widget>[
-                                const InteractiveRouteFieldsOverlay(),
-                                const SizedBox(height: 9),
-                                _buildFindDriverButton(context),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 7),
-                    RideProcessStepper(
-                      currentStep: 1,
-                      compact: true,
-                      surfaceColor: scheme.surface.withValues(alpha: .94),
-                      foregroundColor: scheme.onSurface,
-                      activeColor: scheme.primary,
-                    ),
-                  ],
+                      )),
                 ),
-              ),
-            ),
-          );
-        }),
-        if (widget.showBackButton)
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 16,
-            right: 16,
-            child: RideIconButton(
-              iconWidget: const DirectionalArrowIcon(forward: false),
-              tooltip: 'عودة',
-              onPressed: Get.back<void>,
-            ),
-          ),
-        Positioned(
-          right: 16,
-          bottom: MediaQuery.paddingOf(context).bottom + 20,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              RideIconButton(
-                icon: Icons.my_location_rounded,
-                tooltip: 'تحديد موقعي',
-                onPressed: widget.controller.useCurrentLocation,
-              ),
-              const SizedBox(height: 10),
-              RideIconButton(
-                icon: Icons.layers_outlined,
-                tooltip: 'طبقات الخريطة',
-                onPressed: _showMapTypeOptions,
-              ),
-            ],
-          ),
-        ),
-        Positioned(
-          left: 16,
-          bottom: MediaQuery.paddingOf(context).bottom + 172,
-          width: 310,
-          child: IgnorePointer(
-            ignoring: !_showSaved,
-            child: AnimatedSlide(
-              offset: _showSaved ? Offset.zero : const Offset(-.18, .08),
-              duration: const Duration(milliseconds: 260),
-              curve: Curves.easeOutCubic,
-              child: AnimatedOpacity(
-                opacity: _showSaved ? 1 : 0,
-                duration: const Duration(milliseconds: 200),
-                child: Material(
-                  color: Theme.of(context).colorScheme.surface,
-                  elevation: 14,
-                  borderRadius: BorderRadius.circular(14),
-                  clipBehavior: Clip.antiAlias,
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: <Widget>[
-                        Row(
-                          children: <Widget>[
-                            const Expanded(
-                              child: Text(
-                                'الأماكن المحفوظة',
-                                style: TextStyle(fontWeight: FontWeight.w900),
-                              ),
-                            ),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              tooltip: 'إغلاق',
-                              onPressed: () =>
-                                  setState(() => _showSaved = false),
-                              icon: Icon(Icons.close_rounded),
-                            ),
-                          ],
+                Positioned(
+                  top: 0,
+                  left: 16,
+                  right: 16,
+                  child: SafeArea(
+                      bottom: false,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 10),
+                        child: Obx(() => controller.isChoosingMapPoint.value
+                            ? Material(
+                                color: colors.surface,
+                                borderRadius: BorderRadius.circular(16),
+                                child: Row(children: [
+                                  IconButton(
+                                      onPressed: controller.cancelMapSelection,
+                                      icon: const Icon(Icons.close_rounded)),
+                                  Expanded(
+                                      child: Text('home_choose_map_point'.tr)),
+                                ]))
+                            : widget.isMainShell
+                                ? const RideHomeHeader(routePicker: true)
+                                : const Align(
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: RideBackButton())),
+                      )),
+                ),
+                ValueListenableBuilder<double>(
+                  valueListenable: _extent,
+                  builder: (context, extent, _) => Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: constraints.maxHeight * extent + 12,
+                    child: Visibility(
+                      visible: constraints.maxHeight * (1 - extent) > 170,
+                      child: Row(textDirection: TextDirection.ltr, children: [
+                        RideIconButton(
+                          icon: Icons.near_me_outlined,
+                          tooltip: 'use_my_location'.tr,
+                          onPressed: () {
+                            if (booking.isOpeningHomeBooking.value ||
+                                rideController.bookingLocked) return;
+                            if (controller.hasDrivingRoute) {
+                              setState(() => _focusRevision++);
+                            } else {
+                              unawaited(controller.useCurrentLocation());
+                            }
+                          },
                         ),
-                        const RecentPlacesList(),
-                      ],
+                        const Spacer(),
+                        Obx(() => IconButton.filled(
+                              key: const ValueKey('home-continue-icon'),
+                              tooltip: 'home_continue'.tr,
+                              style: IconButton.styleFrom(
+                                backgroundColor: colors.surface,
+                                foregroundColor: colors.onSurface,
+                              ),
+                              onPressed: booking.isOpeningHomeBooking.value ||
+                                      rideController.bookingLocked
+                                  ? null
+                                  : () => booking.continueFromHome(
+                                      previewRoute: _previewRoute),
+                              icon: const BackButtonIcon(),
+                            )),
+                      ]),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: 16,
-          bottom: MediaQuery.paddingOf(context).bottom + 104,
-          child: RideIconButton(
-            icon: _showSaved ? Icons.close_rounded : Icons.bookmark_rounded,
-            tooltip: _showSaved ? 'إغلاق الأماكن' : 'الأماكن المحفوظة',
-            onPressed: () => setState(() => _showSaved = !_showSaved),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildFindDriverButton(BuildContext context) => Obx(() {
-        final scheme = Theme.of(context).colorScheme;
-        final enabled = widget.controller.canContinueLocationFlow;
-        final foreground = enabled
-            ? scheme.onPrimary
-            : scheme.onSurface.withValues(alpha: .42);
-        final background =
-            enabled ? scheme.primary : scheme.onSurface.withValues(alpha: .12);
-
-        return Semantics(
-          button: true,
-          enabled: enabled,
-          label: 'البحث عن أقرب سائق',
-          child: Material(
-            color: background,
-            elevation: enabled ? 2 : 0,
-            shadowColor: const Color(0x33102C50),
-            borderRadius: BorderRadius.circular(14),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: enabled
-                  ? () {
-                      if (widget.controller.serviceAreaAvailable.value ==
-                          false) {
-                        Get.snackbar(
-                          'الخدمة غير متوفرة',
-                          'الخدمة غير متوفرة في منطقتك حالياً.',
-                        );
-                        return;
-                      }
-                      widget.controller.openAddressDetails();
-                    }
-                  : null,
-              child: SizedBox(
-                height: 44,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: <Widget>[
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 42),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: <Widget>[
-                          Icon(
-                            Icons.directions_car_filled_rounded,
-                            size: 24,
-                            color: foreground,
-                          ),
-                          const SizedBox(width: 9),
-                          Flexible(
-                            child: Text(
-                              'البحث عن أقرب سائق',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: foreground,
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
+                DraggableScrollableSheet(
+                  key: const ValueKey('home-services-sheet'),
+                  controller: _sheet,
+                  initialChildSize: .64,
+                  minChildSize: .12,
+                  maxChildSize: .90,
+                  snap: true,
+                  snapSizes: const [.12, .64, .90],
+                  builder: (context, scrollController) => Align(
+                    alignment: Alignment.bottomCenter,
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: Material(
+                        color: colors.surfaceContainerLow,
+                        elevation: 0,
+                        borderRadius: const BorderRadius.vertical(
+                            top: Radius.circular(28)),
+                        clipBehavior: Clip.antiAlias,
+                        child: ListView(
+                          controller: scrollController,
+                          padding: EdgeInsets.fromLTRB(8, 0, 8,
+                              MediaQuery.paddingOf(context).bottom + 12),
+                          children: [
+                            Semantics(
+                              button: true,
+                              label: 'home_expand'.tr,
+                              child: InkWell(
+                                key: const ValueKey('home-sheet-handle'),
+                                onTap: () => _animateSheet(
+                                    _sheet.size > .70 ? .64 : .90),
+                                child: Center(
+                                    child: Container(
+                                  width: 42,
+                                  height: 5,
+                                  margin:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  decoration: BoxDecoration(
+                                      color: colors.outlineVariant,
+                                      borderRadius: BorderRadius.circular(5)),
+                                )),
                               ),
                             ),
-                          ),
-                        ],
+                            BookingPanel(previewRoute: _previewRoute),
+                          ],
+                        ),
                       ),
                     ),
-                    PositionedDirectional(
-                      end: 12,
-                      child: IconTheme(
-                        data: IconThemeData(color: foreground),
-                        child: const DirectionalArrowIcon(forward: true),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ),
-        );
-      });
+              ],
+            ));
+    return widget.isMainShell ? content : Scaffold(body: content);
+  }
+
+  @override
+  void dispose() {
+    _bookingWorker?.dispose();
+    _mapSelectionWorker?.dispose();
+    _focusTimer?.cancel();
+    _sheet.removeListener(_sheetChanged);
+    _sheet.dispose();
+    _extent.dispose();
+    super.dispose();
+  }
 }
 
 class LocationAddressPage extends GetView<LocationController> {
@@ -501,7 +357,7 @@ class LocationAddressPage extends GetView<LocationController> {
                         children: <Widget>[
                           const Text(
                             'الوجهة المختارة',
-                            style: TextStyle(fontWeight: FontWeight.w900),
+                            style: TextStyle(fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -553,7 +409,7 @@ class LocationSearchPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => const RidePageFrame(
-        title: 'ابحث عن موقع',
+        title: 'أدخل مسارك',
         resizeToAvoidBottomInset: true,
         body: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
@@ -637,7 +493,7 @@ class LocationConfirmPage extends GetView<LocationController> {
                     controller.addressNameController.text.trim().isEmpty
                         ? controller.confirmedDestination.value
                         : '${controller.addressNameController.text}\n${controller.streetController.text}',
-                    style: TextStyle(fontWeight: FontWeight.w800),
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
                 IconButton(
@@ -696,71 +552,6 @@ class LocationConfirmPage extends GetView<LocationController> {
   }
 }
 
-class _SkylineMapBackdrop extends StatelessWidget {
-  const _SkylineMapBackdrop();
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    return Positioned(
-      top: 0,
-      left: 0,
-      right: 0,
-      height: 248,
-      child: IgnorePointer(
-        child: ExcludeSemantics(
-          child: Stack(
-            fit: StackFit.expand,
-            children: <Widget>[
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: isDark
-                        ? <Color>[
-                            scheme.surface.withValues(alpha: .86),
-                            scheme.surface.withValues(alpha: .56),
-                            theme.scaffoldBackgroundColor
-                                .withValues(alpha: .32),
-                            theme.scaffoldBackgroundColor.withValues(alpha: 0),
-                          ]
-                        : const <Color>[
-                            Color(0xBFEAF5FF),
-                            Color(0x8AEAF5FF),
-                            Color(0x55F5F8FB),
-                            Color(0x00F5F8FB),
-                          ],
-                    stops: <double>[0, .38, .76, 1],
-                  ),
-                ),
-              ),
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                child: AspectRatio(
-                  aspectRatio: 800 / 267,
-                  child: Opacity(
-                    opacity: .62,
-                    child: Image.asset(
-                      'assets/images/branding/sanaa_city_skyline.png',
-                      fit: BoxFit.fill,
-                      filterQuality: FilterQuality.high,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _NotificationTile extends StatelessWidget {
   const _NotificationTile({required this.item, required this.onTap});
 
@@ -804,7 +595,7 @@ class _NotificationTile extends StatelessWidget {
                     Expanded(
                       child: Text(
                         item.title,
-                        style: TextStyle(fontWeight: FontWeight.w900),
+                        style: TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ),
                     if (!item.isRead)

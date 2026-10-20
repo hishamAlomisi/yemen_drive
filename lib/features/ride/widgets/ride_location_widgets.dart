@@ -224,11 +224,11 @@ class _CompactRouteField extends StatelessWidget {
     final scheme = theme.colorScheme;
     final muted = scheme.onSurface.withValues(alpha: .58);
     return Container(
-      height: 48,
+      height: 56,
       padding: const EdgeInsetsDirectional.fromSTEB(6, 3, 7, 3),
       decoration: BoxDecoration(
         color: fillColor,
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(10),
         border: Border.all(color: borderColor),
       ),
       child: Row(
@@ -261,9 +261,9 @@ class _CompactRouteField extends StatelessWidget {
                   maxLines: 1,
                   style: textTheme.bodyMedium?.copyWith(
                     color: scheme.onSurface,
-                    fontSize: 14,
-                    height: 1.2,
-                    fontWeight: FontWeight.w700,
+                    fontSize: 16,
+                    height: 1.3,
+                    fontWeight: FontWeight.w400,
                   ),
                   decoration: InputDecoration(
                     filled: false,
@@ -380,10 +380,10 @@ class _RouteFieldActions extends StatelessWidget {
         }
         return SizedBox(
           width: onSearch == null
-              ? 44
+              ? 48
               : value.text.isEmpty
-                  ? 44
-                  : 88,
+                  ? 48
+                  : 96,
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
@@ -785,7 +785,7 @@ class RecentPlaceTile extends StatelessWidget {
         style: Theme.of(context)
             .textTheme
             .bodyMedium
-            ?.copyWith(fontWeight: FontWeight.w800),
+            ?.copyWith(fontWeight: FontWeight.w600),
       ),
       subtitle: Text(
         place.address,
@@ -990,6 +990,8 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
   void initState() {
     super.initState();
     _controller = Get.find<LocationController>();
+    _pickupFocus.addListener(_syncActiveField);
+    _destinationFocus.addListener(_syncActiveField);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _controller.resumeLocationSearchFromArguments(Get.arguments);
@@ -999,9 +1001,13 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
     });
   }
 
+  void _syncActiveField() {
+    if (_pickupFocus.hasFocus) _controller.activeField.value = 0;
+    if (_destinationFocus.hasFocus) _controller.activeField.value = 1;
+  }
+
   void _updateQuery(int field) {
-    _controller.activeField.value = field;
-    _controller.cancelSearch();
+    _controller.clearRouteField(field, clearText: false);
   }
 
   void _submitSearch(int field, String query) {
@@ -1034,6 +1040,36 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
             onToChanged: (_) => _updateQuery(1),
           ),
           const SizedBox(height: AppSpacing.lg),
+          Obx(() => ListTile(
+                key: const ValueKey('location-search-current-location'),
+                contentPadding: EdgeInsets.zero,
+                leading: _controller.isLocating.value
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                    : Icon(Icons.my_location_rounded,
+                        color: Theme.of(context).colorScheme.primary),
+                title: Text('location_choose_current'.tr),
+                trailing: const Icon(Icons.chevron_left),
+                enabled: !_controller.isLocating.value,
+                onTap: () {
+                  final field = _controller.activeField.value;
+                  FocusScope.of(context).unfocus();
+                  unawaited(_controller.useCurrentLocation(
+                      field: field, closeSearchPage: true));
+                },
+              )),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.map_outlined),
+            title: const Text('تحديد الموقع على الخريطة'),
+            trailing: const Icon(Icons.chevron_left),
+            onTap: () {
+              FocusScope.of(context).unfocus();
+              _controller.choosePointOnMap();
+            },
+          ),
           Obx(() {
             final results = _controller.searchResults.toList();
             if (results.isEmpty) return const SizedBox.shrink();
@@ -1073,7 +1109,7 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
             'الأماكن الحديثة',
             style: Theme.of(
               context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: AppSpacing.xs),
           const RecentPlacesList(),

@@ -6,18 +6,12 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
-import '../../../app/theme/app_spacing.dart';
 import '../../../core/cache/persistent_network_image.dart';
-import '../../../shared/widgets/app_bottom_nav.dart';
 import '../../../shared/widgets/app_google_map.dart';
-import '../../../shared/widgets/directional_arrow.dart';
 import '../../account/account_routes.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/ride_controller.dart';
-import '../controllers/notifications_controller.dart';
 import '../models/ride_models.dart';
-import '../models/service_kind_models.dart';
-import '../ride_routes.dart';
 import 'ride_common_widgets.dart';
 import 'ride_map_shell.dart';
 
@@ -54,29 +48,22 @@ class RideHomeTemplate extends GetView<RideController> {
           useModernMapStyle: true,
         ),
       ),
-      panelMaxHeightFactor: .53,
+      panelMaxHeightFactor: .58,
       fitPanelToContent: true,
-      panelHorizontalMargin: 16,
-      panelBottomMargin: 14,
-      panelColor: Colors.transparent,
-      panelElevation: 0,
       top: const RideHomeHeader(),
-      processStep: 0,
-      floatingAction: Obx(
-        () => _HomeStartButton(
-          enabled: controller.homeServiceIndex.value >= 0,
-          onPressed: controller.startHomeService,
-        ),
+      panel: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          const RidePanelHandle(),
+          Text('booking_services'.tr,
+              style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          RideServiceTiles(onSelected: (index) {
+            controller.selectHomeService(index);
+            controller.startHomeService();
+          }),
+        ],
       ),
-      bottomNavigationBar: showBottomNavigation
-          ? Obx(
-              () => AppBottomNav(
-                currentIndex: controller.bottomNavigationIndex.value,
-                onTap: controller.updateBottomNavigation,
-              ),
-            )
-          : null,
-      panel: _ServiceCarousel(initialType: type),
       embedded: embedded,
     );
   }
@@ -94,6 +81,9 @@ class NearbyDriversMap extends StatefulWidget {
     this.minimumCardTop = 112,
     this.mapType = MapType.normal,
     this.useModernMapStyle = false,
+    this.mapPadding = EdgeInsets.zero,
+    this.focusBounds,
+    this.focusBoundsRevision = 0,
     super.key,
   });
 
@@ -107,6 +97,9 @@ class NearbyDriversMap extends StatefulWidget {
   final double minimumCardTop;
   final MapType mapType;
   final bool useModernMapStyle;
+  final EdgeInsets mapPadding;
+  final LatLngBounds? focusBounds;
+  final int focusBoundsRevision;
 
   @override
   State<NearbyDriversMap> createState() => _NearbyDriversMapState();
@@ -304,8 +297,12 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
           () => AppGoogleMap(
             initialTarget: widget.initialTarget,
             initialZoom: widget.initialZoom,
-            followTarget:
-                widget.followTarget ?? _locationController.pickup.value,
+            followTarget: widget.focusBounds == null
+                ? widget.followTarget ?? _locationController.pickup.value
+                : null,
+            focusBounds: widget.focusBounds,
+            focusBoundsRevision: widget.focusBoundsRevision,
+            focusBoundsPadding: 44,
             markers: <Marker>{
               ...widget.additionalMarkers,
               ..._rideController.nearbyDriverMarkersFor(
@@ -315,6 +312,7 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
             polylines: widget.polylines,
             mapType: widget.mapType,
             useModernMapStyle: widget.useModernMapStyle,
+            mapPadding: widget.mapPadding,
             onMapCreated: (controller) {
               _mapController = controller;
               widget.onMapCreated?.call(controller);
@@ -580,341 +578,93 @@ class _DriverDetail extends StatelessWidget {
 
 class RideHomeHeader extends StatelessWidget {
   const RideHomeHeader({this.routePicker = false, super.key});
-
   final bool routePicker;
 
   @override
-  Widget build(BuildContext context) {
-    if (routePicker) {
-      final location = Get.find<LocationController>();
-      return Obx(() {
-        final serviceUnavailable = location.serviceAreaAvailable.value == false;
-        return Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            SizedBox(
-              height: 100,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: <Widget>[
-                  RideIconButton(
-                    icon: Icons.menu_rounded,
-                    tooltip: 'القائمة',
-                    foregroundColor: Theme.of(context).colorScheme.onSurface,
-                    onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Expanded(
-                    child: Center(
-                      child: Image.asset(
-                        'assets/images/branding/yemen_drive_brand_logo.png',
-                        width: 200,
-                        height: 100,
-                        fit: BoxFit.contain,
-                        filterQuality: FilterQuality.high,
-                        semanticLabel: 'شعار يمن درايف',
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: AppSpacing.sm),
-                  Obx(() {
-                    final notifications = Get.find<NotificationsController>();
-                    return RideIconButton(
-                      icon: Icons.notifications_none_rounded,
-                      tooltip: 'الإشعارات',
-                      foregroundColor: Theme.of(context).colorScheme.onSurface,
-                      badgeCount: notifications.unreadCount,
-                      onPressed: () =>
-                          Get.toNamed<void>(RideRoutes.notifications),
-                    );
-                  }),
-                ],
-              ),
+  Widget build(BuildContext context) => Row(
+        children: <Widget>[
+          RideIconButton(
+            icon: Icons.menu,
+            tooltip: 'القائمة',
+            onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
+          ),
+          const Spacer(),
+          Material(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+              child: Text('يمن درايف',
+                  style: Theme.of(context).textTheme.titleSmall),
             ),
-            if (serviceUnavailable) ...<Widget>[
-              const SizedBox(height: 4),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF3F0),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                  border: Border.all(color: const Color(0x33C85637)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: <Widget>[
-                    Icon(
-                      Icons.error_outline_rounded,
-                      size: 14,
-                      color: Color(0xFFC85637),
-                    ),
-                    SizedBox(width: 5),
-                    Text(
-                      'الخدمة غير متوفرة في منطقتك',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurface,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ],
-        );
-      });
-    }
-    return Row(
-      children: <Widget>[
-        RideIconButton(
-          icon: Icons.menu_rounded,
-          tooltip: 'القائمة',
-          onPressed: () => Get.toNamed<void>(AccountRoutes.menu),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Expanded(
-          child: Obx(() {
-            final location = Get.find<LocationController>();
-            final available = location.serviceAreaAvailable.value;
-            final unavailable = available == false;
-            return Material(
-              color: unavailable
-                  ? Colors.orange.shade50
-                  : Theme.of(context).colorScheme.surface,
-              elevation: 2,
-              borderRadius: BorderRadius.circular(AppRadius.pill),
-              child: InkWell(
-                onTap: null,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 11,
-                  ),
-                  child: Row(
-                    children: <Widget>[
-                      Icon(
-                        unavailable
-                            ? Icons.close_rounded
-                            : Icons.check_circle_outline_rounded,
-                        size: 19,
-                        color: unavailable ? Colors.deepOrange : null,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '${location.serviceCountryName.value} - ${location.serviceCityName.value} · ${unavailable ? 'الخدمة غير متوفرة' : 'الخدمة متوفرة'}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
-        ),
-        const SizedBox(width: AppSpacing.sm),
-        Obx(() {
-          final notifications = Get.find<NotificationsController>();
-          return RideIconButton(
-            icon: Icons.notifications_none_rounded,
-            tooltip: 'الإشعارات',
-            badgeCount: notifications.unreadCount,
-            onPressed: () => Get.toNamed<void>(RideRoutes.notifications),
-          );
-        }),
-      ],
-    );
-  }
+          ),
+        ],
+      );
 }
 
-class _ServiceCarousel extends StatefulWidget {
-  const _ServiceCarousel({required this.initialType});
-
-  final RideServiceType initialType;
-
-  @override
-  State<_ServiceCarousel> createState() => _ServiceCarouselState();
-}
-
-class _ServiceCarouselState extends State<_ServiceCarousel> {
-  late final PageController _pageController;
-  late int _page;
-
-  List<RideHomeService> get _services =>
-      Get.find<RideController>().homeServices;
-
-  @override
-  void initState() {
-    super.initState();
-    final initialIndex = widget.initialType == RideServiceType.delivery ? 1 : 0;
-    final length = _services.isEmpty ? 1 : _services.length;
-    _page = 1000 - (1000 % length) + initialIndex;
-    _pageController = PageController(
-      initialPage: _page,
-      viewportFraction: .32,
-    );
-  }
-
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
+class RideServiceTiles extends GetView<RideController> {
+  const RideServiceTiles({required this.onSelected, super.key});
+  final ValueChanged<int> onSelected;
 
   @override
   Widget build(BuildContext context) => Obx(() {
-        // [homeServices] is filled asynchronously from the API.  This widget
-        // used to render its initial empty state only, so newly returned types
-        // never replaced the loader until the whole screen was reopened.
-        final services = _services;
+        final services = controller.homeServices;
+        final colors = Theme.of(context).colorScheme;
         if (services.isEmpty) {
-          return const SizedBox(
-            height: 164,
-            child: Center(child: CircularProgressIndicator()),
-          );
+          return const Padding(
+              padding: EdgeInsets.all(20),
+              child: Center(child: CircularProgressIndicator()));
         }
-        final isDark = Theme.of(context).brightness == Brightness.dark;
-        final cardColor = isDark
-            ? const Color(0xFF555B80).withValues(alpha: .94)
-            : Colors.white.withValues(alpha: .92);
-        final cardBorderColor = isDark
-            ? Colors.white.withValues(alpha: .09)
-            : Colors.black.withValues(alpha: .07);
-        return SizedBox(
-          height: 164,
-          child: Stack(
-            children: <Widget>[
-              Positioned(
-                top: 28,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: cardColor,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(color: cardBorderColor),
-                  ),
-                ),
-              ),
-              Positioned.fill(
-                child: PageView.builder(
-                  controller: _pageController,
-                  onPageChanged: (value) {
-                    setState(() {
-                      _page = value;
-                    });
-                    Get.find<RideController>().selectHomeService(
-                      value % services.length,
-                    );
-                  },
-                  itemBuilder: (context, index) {
-                    final service = services[index % services.length];
-                    return _ServiceLensItem(
-                      service: service,
-                      selected: index == _page,
-                      onTap: () {
-                        setState(() {
-                          _page = index;
-                        });
-                        Get.find<RideController>().selectHomeService(
-                          index % services.length,
-                        );
-                        _pageController.animateToPage(
-                          index,
-                          duration: const Duration(milliseconds: 280),
-                          curve: Curves.easeOutCubic,
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-            ],
-          ),
-        );
+        return LayoutBuilder(
+            builder: (context, constraints) => Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: <Widget>[
+                    for (var index = 0; index < services.length; index++)
+                      SizedBox(
+                        width: (constraints.maxWidth - 8) / 2,
+                        child: Material(
+                          color: colors.surfaceContainer,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            side: BorderSide(
+                              color: controller.homeServiceIndex.value == index
+                                  ? colors.primary
+                                  : Colors.transparent,
+                              width: 2,
+                            ),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: InkWell(
+                            onTap: () => onSelected(index),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: <Widget>[
+                                  Text(services[index].name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyMedium),
+                                  const SizedBox(height: 4),
+                                  Align(
+                                      alignment: AlignmentDirectional.centerEnd,
+                                      child: SizedBox(
+                                          height: 54,
+                                          width: 92,
+                                          child: _ServiceImage(
+                                              services[index].imageUrl))),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ));
       });
-}
-
-class _HomeStartButton extends StatelessWidget {
-  const _HomeStartButton({required this.enabled, required this.onPressed});
-
-  final bool enabled;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) => Material(
-        color: enabled
-            ? Theme.of(context).colorScheme.primary
-            : Theme.of(context).colorScheme.surface.withValues(alpha: .88),
-        elevation: 8,
-        shape: const CircleBorder(),
-        child: IconButton(
-          onPressed: onPressed,
-          tooltip: 'بدء الرحلة',
-          icon: const DirectionalArrowIcon(forward: true),
-          color: enabled
-              ? Theme.of(context).colorScheme.onPrimary
-              : Theme.of(context).disabledColor,
-        ),
-      );
-}
-
-class _ServiceLensItem extends StatelessWidget {
-  const _ServiceLensItem({
-    required this.service,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final RideHomeService service;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(
-          padding: EdgeInsets.only(top: selected ? 0 : 30),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: <Widget>[
-              SizedBox(
-                width: selected ? 116 : 84,
-                height: selected ? 116 : 84,
-                child: _ServiceImage(
-                  service.imageUrl,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                service.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: selected ? 13 : 11,
-                  fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-                  color: selected
-                      ? Theme.of(context).colorScheme.primary
-                      : Theme.of(context)
-                          .colorScheme
-                          .onSurface
-                          .withValues(alpha: .78),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
 }
 
 class _ServiceImage extends StatelessWidget {
@@ -923,22 +673,13 @@ class _ServiceImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final value = url ?? '';
-    if (value.isEmpty) {
-      return Icon(
-        Icons.local_taxi_rounded,
-        color: Theme.of(context).colorScheme.primary,
-        size: 48,
-      );
-    }
-    final remote = value.startsWith('http://') || value.startsWith('https://');
-    return remote
+    final fallback = Icon(Icons.local_taxi_outlined,
+        size: 48, color: Theme.of(context).colorScheme.onSurface);
+    if (value.isEmpty) return fallback;
+    return value.startsWith('http')
         ? PersistentNetworkImage(value,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) =>
-                const Icon(Icons.image_not_supported_outlined))
+            fit: BoxFit.contain, errorBuilder: (_, __, ___) => fallback)
         : Image.asset(value,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) =>
-                const Icon(Icons.image_not_supported_outlined));
+            fit: BoxFit.contain, errorBuilder: (_, __, ___) => fallback);
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import '../../../shared/widgets/ride_waiting_panel.dart';
 
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
@@ -12,15 +13,18 @@ import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../../../shared/widgets/app_text_field.dart';
-import '../../account/models/account_models.dart';
+import '../../../shared/widgets/ride_route_change_panel.dart';
+import '../../../shared/widgets/ride_route_destination_picker.dart';
 import '../controllers/chat_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/ride_controller.dart';
 import '../controllers/safety_recording_controller.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
+import '../location_selection/repositories/location_search_repository.dart';
 import '../models/ride_models.dart';
 import '../ride_routes.dart';
 import '../widgets/ride_common_widgets.dart';
+import '../widgets/external_payment_methods.dart';
 import '../widgets/ride_map_shell.dart';
 import '../widgets/ride_payment_widgets.dart';
 import '../widgets/ride_trip_widgets.dart';
@@ -79,6 +83,34 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       _isFollowingLiveRoute = !_isFollowingLiveRoute;
       if (_isFollowingLiveRoute) _liveRouteFocusRevision++;
     });
+  }
+
+  Future<RideRouteDestination?> _selectChangedDestination() {
+    final location = Get.find<LocationController>();
+    final search = Get.find<LocationSearchRepository>();
+    RideRouteDestination destination(LocationSearchResult value) => RideRouteDestination(
+      latitude: value.location.latitude,
+      longitude: value.location.longitude,
+      label: value.formattedAddress.trim().isNotEmpty ? value.formattedAddress : value.title,
+    );
+    return Navigator.of(context).push<RideRouteDestination>(MaterialPageRoute(
+      builder: (_) => RideRouteDestinationPicker(
+        initialTarget: location.destination.value ?? location.pickup.value ?? const LatLng(15.3694, 44.1910),
+        search: (query) async => (await search.search(query)).map(destination).toList(growable: false),
+        reverseGeocode: (point) async {
+          final value = await search.reverseGeocode(point);
+          return value == null ? null : destination(value);
+        },
+      ),
+    ));
+  }
+
+  Future<void> _refreshChangedRoute() async {
+    await controller.refreshActiveRide(requireSuccess: true);
+    if (Get.isRegistered<PaymentController>()) {
+      await Get.find<PaymentController>().loadPaymentSummary();
+    }
+    if (mounted) setState(() => _liveRouteFocusRevision++);
   }
 
   Future<void> _showTripSharePrompt() => Get.dialog<void>(
@@ -184,10 +216,10 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         };
         final liveRouteBounds =
             controller.trackingFocusBounds ?? location.selectedRouteBounds;
+        final gps = controller.latestDriverGpsSample;
         return PopScope<void>(
           canPop: !lockBackNavigation,
           child: RideMapShell(
-            processStep: 4,
             map: AppGoogleMap(
               initialTarget:
                   location.pickup.value ?? const LatLng(15.3694, 44.1910),
@@ -203,17 +235,24 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                   : location.polylines,
               mapType: location.mapType.value,
               useModernMapStyle: true,
+              focusTarget: _isFollowingLiveRoute && gps != null
+                  ? LatLng(gps.location.latitude, gps.location.longitude)
+                  : null,
+              focusTargetZoom: 17,
+              mapPadding: EdgeInsets.only(
+                  bottom: MediaQuery.sizeOf(context).height * .4),
               // The bounds contain the actual GPS position plus the remaining
               // road route. A passenger can pause this automatic camera move
               // to inspect the map, then enable it again from the map button.
-              focusBounds: _isFollowingLiveRoute ? liveRouteBounds : null,
+              focusBounds:
+                  _isFollowingLiveRoute && gps == null ? liveRouteBounds : null,
               focusBoundsPadding: 104,
               focusBoundsRevision: _liveRouteFocusRevision,
               focusBoundsUpdateInterval: const Duration(milliseconds: 650),
             ),
             showRoute: true,
             showMarker: false,
-            panelMaxHeightFactor: .58,
+            panelMaxHeightFactor: .65,
             allowPanelCollapse: true,
             mapAction: RideIconButton(
               icon: _isFollowingLiveRoute
@@ -256,9 +295,25 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
             panel: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
-                const DriverCard(),
+                DriverCard(status: statusLabel),
                 const SizedBox(height: AppSpacing.sm),
                 RouteSummaryCard(compact: true),
+                if (int.tryParse(controller.currentRideId ?? '')
+                    case final int rideId)
+                  RideWaitingPanel(rideId: rideId, onChanged: () {
+                    unawaited(controller.refreshActiveRide());
+                    if (Get.isRegistered<PaymentController>()) {
+                      unawaited(Get.find<PaymentController>().loadPaymentSummary());
+                    }
+                  }),
+                if ((controller.activeRideStatus.value == 'InProgress' ||
+                    controller.activeRideStatus.value == '5') &&
+                    int.tryParse(controller.currentRideId ?? '') != null)
+                  RideRouteChangePanel(
+                    rideId: int.parse(controller.currentRideId!),
+                    selectDestination: _selectChangedDestination,
+                    onRouteChanged: _refreshChangedRoute,
+                  ),
                 const SizedBox(height: AppSpacing.md),
                 TripEmergencyActions(
                   onShareTrip: _shareTrip,
@@ -419,7 +474,7 @@ class _RideCancelDecisionDialog extends StatelessWidget {
                               offer!.rating.toStringAsFixed(1),
                               style: TextStyle(
                                 fontSize: 10,
-                                fontWeight: FontWeight.w900,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],
@@ -436,7 +491,7 @@ class _RideCancelDecisionDialog extends StatelessWidget {
                 }),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                   height: 1.4,
                 ),
               ),
@@ -523,7 +578,7 @@ class _CancelDecisionAction extends StatelessWidget {
                 textAlign: TextAlign.center,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w600,
                       height: 1.3,
                     ),
               ),
@@ -576,7 +631,7 @@ class _TripSharePrompt extends StatelessWidget {
                 'share_trip_live_title'.tr,
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
+                  fontWeight: FontWeight.w600,
                   height: 1.3,
                 ),
               ),
@@ -831,7 +886,7 @@ class RidePaymentPage extends GetView<PaymentController> {
                 children: [
                   const RideSectionHeader(
                     title: 'اختر طريقة الدفع',
-                    subtitle: 'ستتم معالجة العملية بأمان عند بدء الرحلة.',
+                    subtitle: 'راجع المبلغ واختر الوسيلة المناسبة لك.',
                   ),
                 ],
               ),
@@ -844,30 +899,6 @@ class RidePaymentPage extends GetView<PaymentController> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Obx(
-                      () => AppCard(
-                        child: SwitchListTile.adaptive(
-                          contentPadding: EdgeInsets.zero,
-                          value: controller.useWalletBalance.value,
-                          activeColor: AppColors.primaryDark,
-                          onChanged: controller.cashPaymentConfirmed.value
-                              ? null
-                              : (value) {
-                                  controller.useWalletBalance.value = value;
-                                },
-                          title: const Text(
-                            'استخدام رصيد المحفظة أولاً',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          subtitle: const Text(
-                            'يُخصم المتبقي من طريقة الدفع المختارة.',
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
                     Obx(() => controller.cashPaymentConfirmed.value
                         ? AppCard(
                             color: AppColors.primary.withValues(alpha: .14),
@@ -881,7 +912,7 @@ class RidePaymentPage extends GetView<PaymentController> {
                                     child: Text(
                                         'تم قبض مبلغ الرحلة نقداً من قبل السائق. لا حاجة لاختيار وسيلة دفع أخرى.',
                                         style: const TextStyle(
-                                            fontWeight: FontWeight.w800))),
+                                            fontWeight: FontWeight.w600))),
                               ],
                             ),
                           )
@@ -904,16 +935,12 @@ class RidePaymentPage extends GetView<PaymentController> {
                               'الرصيد المتاح ${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
                           icon: Icons.account_balance_wallet_outlined,
                         )),
-                    for (PaymentMethodItem items in AppEnvironment
-                        .paymentMethods
-                        .where((method) => method.availableForRidePayment))
-                      PaymentMethodTile(
-                        id: items.id,
-                        title: items.label,
-                        subtitle: items.subtitle,
-                        icon: items.icon,
-                        imageUrl: items.imageUrl,
-                      ),
+                    Obx(() => ExternalPaymentMethodsTile(
+                          selected: controller.selectedMethod.value,
+                          enabled: !controller.cashPaymentConfirmed.value &&
+                              !controller.isPaying.value,
+                          onSelected: controller.selectMethod,
+                        )),
                   ],
                 ),
               ),
@@ -990,7 +1017,7 @@ class RideReviewPage extends GetView<PaymentController> {
                 textAlign: TextAlign.center,
                 style: Theme.of(
                   context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: AppSpacing.xs),
               const Text(
@@ -1087,7 +1114,7 @@ class _ChatDriverStatus extends StatelessWidget {
                   children: <Widget>[
                     Text(
                       driverName,
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                      style: TextStyle(fontWeight: FontWeight.w600),
                     ),
                     Text(
                       remainingMeters > 0
@@ -1227,7 +1254,7 @@ class _CallLayout extends StatelessWidget {
             'محمد اليمني',
             style: Theme.of(
               context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600),
           ),
           const SizedBox(height: AppSpacing.xs),
           Text(status, style: Theme.of(context).textTheme.titleMedium),

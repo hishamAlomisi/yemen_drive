@@ -94,7 +94,7 @@ class RideSectionHeader extends StatelessWidget {
                   title,
                   style: Theme.of(
                     context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 if (subtitle != null) ...<Widget>[
                   const SizedBox(height: AppSpacing.xs),
@@ -144,7 +144,7 @@ class RideIconButton extends StatelessWidget {
           Material(
             color: backgroundColor ?? Theme.of(context).colorScheme.surface,
             shape: const CircleBorder(),
-            elevation: 2,
+            elevation: 0,
             child: IconButton(
               onPressed: onPressed,
               tooltip: tooltip,
@@ -174,7 +174,7 @@ class RideIconButton extends StatelessWidget {
                                       color: AppColors.onColor(
                                           AppColors.secondary),
                                       fontSize: 10,
-                                      fontWeight: FontWeight.w800))),
+                                      fontWeight: FontWeight.w600))),
                         ),
                       )
                     : const SizedBox(width: 9, height: 9),
@@ -317,7 +317,7 @@ class RideSuccessView extends StatelessWidget {
                   ),
                   child: Text(
                     actionLabel,
-                    style: TextStyle(fontWeight: FontWeight.w800),
+                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
               ),

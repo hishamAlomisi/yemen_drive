@@ -9,11 +9,14 @@ import 'negotiation/bindings/negotiation_binding.dart';
 import 'negotiation/views.dart';
 import 'trip/views.dart';
 import 'vehicle_selection/views.dart';
+import 'widgets/ride_trip_widgets.dart' show RideSafetyPage;
 
 abstract final class RideRoutes {
+  static const String services = '/services';
   static const String homeTransport = '/home';
   static const String homeDelivery = '/home/delivery';
   static const String notifications = '/notifications';
+  static const String safety = '/ride/safety';
   static const String locationPicker = '/ride/location';
   static const String locationSearch = '/ride/location/search';
   static const String locationAddress = '/ride/location/address';
@@ -57,7 +60,9 @@ List<GetPage<dynamic>> get ridePages => <GetPage<dynamic>>[
         ],
         transition: Transition.noTransition,
       ),
+      _ridePage(RideRoutes.services, HomeTransportPage.new),
       _ridePage(RideRoutes.notifications, NotificationsPage.new),
+      _ridePage(RideRoutes.safety, RideSafetyPage.new),
       _ridePage(RideRoutes.locationPicker, LocationPickerPage.new,
           binding: LocationSelectionBinding()),
       _ridePage(RideRoutes.locationSearch, LocationSearchPage.new,

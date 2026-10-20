@@ -4,7 +4,7 @@ import 'package:get/get.dart';
 import '../../../../core/utils/validators.dart';
 import '../../models/auth_models.dart';
 import '../../routes/auth_routes.dart';
-import '../../widgets/auth_backdrop.dart';
+import '../../../../shared/widgets/app_button.dart';
 import '../../widgets/auth_fields.dart';
 import '../../widgets/auth_form_page.dart';
 import '../controllers/login_controller.dart';
@@ -13,74 +13,29 @@ class LoginView extends GetView<LoginController> {
   const LoginView({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
-    final keyboardOpen = keyboardInset > 0;
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      // Keep the backdrop at its natural size, then move the form into the
-      // visible space above the keyboard. Resizing the whole stack compressed
-      // the card and clipped its lower controls on short screens.
-      resizeToAvoidBottomInset: false,
-      body: Stack(
-        fit: StackFit.expand,
-        children: <Widget>[
-          const Positioned.fill(
-            child: AuthBackdrop(showHeaderActions: false),
-          ),
-          AnimatedPadding(
-            duration: const Duration(milliseconds: 180),
-            curve: Curves.easeOutCubic,
-            padding: EdgeInsets.only(
-              top: keyboardOpen ? MediaQuery.paddingOf(context).top : 0,
-              bottom: keyboardInset,
-            ),
-            child: LayoutBuilder(
-              builder: (BuildContext context, BoxConstraints constraints) {
-                final height = constraints.maxHeight;
-                final shortScreen = height < 700;
-                final panelHeight =
-                    keyboardOpen ? height : height * (shortScreen ? .59 : .55);
-                final bottomGap =
-                    keyboardOpen ? 0.0 : height * (shortScreen ? .24 : .28);
-
-                return Align(
-                  alignment: Alignment.bottomCenter,
-                  child: Padding(
-                    padding: EdgeInsetsDirectional.only(
-                      start: 14,
-                      end: 14,
-                      bottom: bottomGap,
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 180),
-                        curve: Curves.easeOutCubic,
-                        height: panelHeight,
-                        child: Obx(
-                          () => _LoginPanel(
-                            controller: controller,
-                            country: controller.signInCountry.value,
-                            obscurePassword: controller.obscurePassword.value,
-                            rememberMe: controller.rememberMe.value,
-                            isLoading: controller.isLoading.value,
-                            onCreateAccount: () =>
-                                Get.offNamed<void>(AuthRoutes.signUp),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
+  Widget build(BuildContext context) => Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        appBar: AppBar(title: const Text('يمن درايف')),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 520),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Obx(() => _LoginPanel(
+                      controller: controller,
+                      country: controller.signInCountry.value,
+                      obscurePassword: controller.obscurePassword.value,
+                      rememberMe: controller.rememberMe.value,
+                      isLoading: controller.isLoading.value,
+                      onCreateAccount: () =>
+                          Get.offNamed<void>(AuthRoutes.signUp),
+                    )),
+              ),
             ),
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      );
 }
 
 class _LoginPanel extends StatelessWidget {
@@ -100,8 +55,8 @@ class _LoginPanel extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onCreateAccount;
 
-  static const Color _hint = Color(0xFF8298B1);
-  static const Color _border = Color(0xFFC9DFFC);
+  static const Color _hint = Color(0xFF777973);
+  static const Color _border = Color(0xFFE7E8E2);
 
   @override
   Widget build(BuildContext context) {
@@ -113,13 +68,13 @@ class _LoginPanel extends StatelessWidget {
         ? scheme.surface.withValues(alpha: .98)
         : Colors.white.withValues(alpha: .98);
     final fieldColor =
-        isDark ? scheme.surfaceContainerHigh : const Color(0xFFF9FCFF);
+        isDark ? scheme.surfaceContainerHigh : scheme.surfaceContainer;
     final foreground = scheme.onSurface;
     final hintColor = isDark ? scheme.onSurface.withValues(alpha: .62) : _hint;
     final borderColor =
         isDark ? scheme.onSurface.withValues(alpha: .20) : _border;
     final fieldBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(24),
+      borderRadius: BorderRadius.circular(10),
       borderSide: BorderSide(color: borderColor, width: 1.35),
     );
     final fieldTheme = baseTheme.copyWith(
@@ -127,7 +82,7 @@ class _LoginPanel extends StatelessWidget {
       textTheme: baseTheme.textTheme.copyWith(
         bodyLarge: baseTheme.textTheme.bodyLarge?.copyWith(
           color: foreground,
-          fontSize: 17,
+          fontSize: 16,
         ),
       ),
       inputDecorationTheme: baseTheme.inputDecorationTheme.copyWith(
@@ -158,11 +113,11 @@ class _LoginPanel extends StatelessWidget {
 
     return Material(
       color: panelColor,
-      elevation: 12,
+      elevation: 0,
       shadowColor: const Color(0x29102C50),
       clipBehavior: Clip.antiAlias,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(42),
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
           color: isDark
               ? scheme.onSurface.withValues(alpha: .14)
@@ -222,7 +177,7 @@ class _LoginPanel extends StatelessWidget {
                         color: foreground,
                         fontSize: 28,
                         height: 1.25,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -326,82 +281,10 @@ class _SignInButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onPressed;
 
-  static const Color _blue = Color(0xFF087AC1);
-  static const Color _cyan = Color(0xFF159FCB);
-
   @override
-  Widget build(BuildContext context) => SizedBox(
-        height: 56,
-        width: double.infinity,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: <Color>[_cyan, _blue],
-            ),
-            borderRadius: BorderRadius.circular(30),
-            boxShadow: <BoxShadow>[
-              BoxShadow(
-                color: _blue.withValues(alpha: .20),
-                blurRadius: 15,
-                offset: const Offset(0, 7),
-              ),
-            ],
-          ),
-          child: TextButton(
-            onPressed: isLoading ? null : onPressed,
-            style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              disabledForegroundColor: Colors.white70,
-              backgroundColor: Colors.transparent,
-              shape: const StadiumBorder(),
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-            ),
-            child: isLoading
-                ? const SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.2,
-                      color: Colors.white,
-                    ),
-                  )
-                : Row(
-                    textDirection: Directionality.of(context),
-                    children: Directionality.of(context) == TextDirection.rtl
-                        ? <Widget>[
-                            const SizedBox(width: 27),
-                            Expanded(
-                              child: Center(
-                                child: Text(
-                                  'sign_in'.tr,
-                                  style: const TextStyle(
-                                    fontSize: 19,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const Icon(Icons.arrow_forward_rounded, size: 27),
-                          ]
-                        : <Widget>[
-                            const Icon(Icons.arrow_forward_rounded, size: 27),
-                            Expanded(
-                              child: Center(
-                                child: Text(
-                                  'sign_in'.tr,
-                                  style: const TextStyle(
-                                    fontSize: 19,
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 27),
-                          ],
-                  ),
-          ),
-        ),
+  Widget build(BuildContext context) => AppButton(
+        label: 'sign_in'.tr,
+        isLoading: isLoading,
+        onPressed: onPressed,
       );
 }

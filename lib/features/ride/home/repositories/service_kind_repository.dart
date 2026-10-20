@@ -16,7 +16,9 @@ class ApiServiceKindRepository implements ServiceKindRepository {
       operation: 'list',
       data: {},
     );
-    if (result is! ApiSuccess || result.data is! List) return const [];
+    if (result is! ApiSuccess || result.data is! List) {
+      throw const FormatException('تعذر تحميل أنواع الرحلات.');
+    }
     return (result.data as List)
         .whereType<Map<Object?, Object?>>()
         .where((raw) => raw['isActive'] != false)
@@ -27,6 +29,7 @@ class ApiServiceKindRepository implements ServiceKindRepository {
             code: '${x['code'] ?? ''}',
             name: '${x['name'] ?? x['nameAr'] ?? ''}',
             imageUrl: x['imageUrl']?.toString(),
+            description: (x['descriptionAr'] ?? x['description'])?.toString(),
             rideServiceType: x['rideServiceType']?.toString(),
             isDefault: x['isDefault'] == true,
             sortOrder: (x['sortOrder'] as num?)?.toInt() ?? 0,

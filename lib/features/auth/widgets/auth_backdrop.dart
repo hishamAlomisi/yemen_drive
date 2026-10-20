@@ -21,7 +21,6 @@ class AuthBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.sizeOf(context).height;
     final isRtl = Directionality.of(context) == TextDirection.rtl;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
@@ -49,55 +48,7 @@ class AuthBackdrop extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: <Widget>[
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: isDark
-                    ? <Color>[
-                        theme.scaffoldBackgroundColor,
-                        scheme.surface,
-                        theme.scaffoldBackgroundColor,
-                      ]
-                    : const <Color>[
-                        Color(0xFFEAF5FF),
-                        Color(0xFFFAFCFF),
-                        Color(0xFFF5F8FB),
-                      ],
-                stops: <double>[0, .56, 1],
-              ),
-            ),
-          ),
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + 8,
-            left: 0,
-            right: 0,
-            height: screenHeight * .18,
-            child: IgnorePointer(
-              child: Opacity(
-                opacity: .78,
-                child: Image.asset(
-                  'assets/images/branding/sanaa_city_skyline.png',
-                  fit: BoxFit.cover,
-                  alignment: Alignment.topCenter,
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: screenHeight * .285,
-            child: IgnorePointer(
-              child: Image.asset(
-                'assets/images/branding/login_bottom_artwork.png',
-                fit: BoxFit.cover,
-                alignment: Alignment.bottomCenter,
-              ),
-            ),
-          ),
+          ColoredBox(color: scheme.surface),
           SafeArea(
             bottom: false,
             child: Column(
@@ -110,7 +61,7 @@ class AuthBackdrop extends StatelessWidget {
                     0,
                   ),
                   child: SizedBox(
-                    height: 104,
+                    height: 80,
                     child: Row(
                       textDirection: Directionality.of(context),
                       children: <Widget>[
@@ -120,9 +71,9 @@ class AuthBackdrop extends StatelessWidget {
                           child: Center(
                             child: Image.asset(
                               'assets/images/branding/yemen_drive_brand_logo.png',
-                              width: 250,
-                              height: 125,
-                              fit: BoxFit.contain,
+                              width: 75,
+                              height: 75,
+                              fit: BoxFit.cover,
                               semanticLabel: 'يمن درايف',
                             ),
                           ),
@@ -167,7 +118,7 @@ class _HeaderAction extends StatelessWidget {
               color:
                   Theme.of(context).colorScheme.surface.withValues(alpha: .96),
               shape: const CircleBorder(),
-              elevation: 5,
+              elevation: 0,
               shadowColor: const Color(0x33102C50),
               child: IconButton(
                 tooltip: tooltip,
