@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'app_palette.dart';
 
 abstract final class AppColors {
-  static Color primary = AppPaletteColors.lime.primary;
-  static Color primaryDark = AppPaletteColors.lime.primaryDark;
-  static Color secondary = AppPaletteColors.lime.secondary;
+  /// Accent ink follows the nearest theme, including dialogs and previews.
+  static Color accent(BuildContext context) =>
+      Theme.of(context).colorScheme.onPrimaryContainer;
+
+  static Color primary = AppPaletteColors.olive.primary;
+  static Color primaryDark = AppPaletteColors.olive.primaryDark;
+  static Color secondary = AppPaletteColors.olive.secondary;
 
   static void setPalette(AppPalette palette) {
     final colors = palette.colors;

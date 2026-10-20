@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/cache/persistent_network_image.dart';
 import '../../../../shared/widgets/app_button.dart';
+import '../../../../shared/widgets/app_skeleton.dart';
 import '../../models/service_kind_models.dart';
 
 class BookingServiceKindButton extends StatelessWidget {
@@ -237,7 +238,13 @@ class BookingServiceKindsSheet extends StatelessWidget {
                   ],
                 ),
               ),
-              if (isLoading) const LinearProgressIndicator(),
+              if (isLoading && services.isEmpty)
+                const Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(horizontal: 20),
+                    child: AppSkeletonList(count: 2),
+                  ),
+                ),
               if (error.isNotEmpty || (!isLoading && services.isEmpty))
                 Padding(
                   padding: const EdgeInsets.all(20),

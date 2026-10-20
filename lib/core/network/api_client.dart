@@ -50,6 +50,14 @@ class ApiClient extends GetxService {
           handler.next(options);
         },
         onError: (error, handler) async {
+          // Public/guest requests can legitimately receive 401. There is no
+          // session to refresh or expire, and navigating home here interrupts
+          // whatever page the passenger is using.
+          if (error.response?.statusCode == 401 &&
+              error.requestOptions.headers['Authorization'] == null) {
+            handler.next(error);
+            return;
+          }
           if (error.response?.statusCode == 401 &&
               error.requestOptions.extra['retried'] == true) {
             await _expireSession();

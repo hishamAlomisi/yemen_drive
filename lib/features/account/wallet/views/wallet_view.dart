@@ -7,7 +7,7 @@ import '../../../../../app/theme/app_spacing.dart';
 import '../../../../../core/config/app_environment.dart';
 import '../../../../../shared/widgets/app_button.dart';
 import '../../../../../shared/widgets/app_card.dart';
-import '../../../../../shared/widgets/app_states.dart';
+import '../../../../../shared/widgets/app_skeleton.dart';
 import '../../../../../shared/widgets/app_text_field.dart';
 import '../../account_routes.dart';
 import '../../models/account_models.dart';
@@ -35,22 +35,26 @@ class WalletPage extends GetView<WalletController> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             Obx(
-              () => AccountResponsiveGrid(
-                children: <Widget>[
-                  AccountMetricCard(
-                    label: 'الرصيد المتاح',
-                    value:
-                        '${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
-                    icon: Icons.account_balance_wallet_rounded,
-                    highlighted: true,
-                  ),
-                  AccountMetricCard(
-                    label: 'إجمالي المصروفات',
-                    value:
-                        '${controller.totalSpent.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency} ',
-                    icon: Icons.receipt_long_rounded,
-                  ),
-                ],
+              () => AppSkeleton(
+                enabled:
+                    controller.isLoading.value && !controller.hasLoaded.value,
+                child: AccountResponsiveGrid(
+                  children: <Widget>[
+                    AccountMetricCard(
+                      label: 'الرصيد المتاح',
+                      value:
+                          '${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                      icon: Icons.account_balance_wallet_rounded,
+                      highlighted: true,
+                    ),
+                    AccountMetricCard(
+                      label: 'إجمالي المصروفات',
+                      value:
+                          '${controller.totalSpent.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency} ',
+                      icon: Icons.receipt_long_rounded,
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -64,8 +68,8 @@ class WalletPage extends GetView<WalletController> {
             ),
             const SizedBox(height: AppSpacing.sm),
             Obx(() {
-              if (controller.isLoading.value) {
-                return const SizedBox(height: 240, child: AppLoading());
+              if (controller.isLoading.value && !controller.hasLoaded.value) {
+                return const AppSkeletonList(count: 2);
               }
               return Column(
                 children: controller.transactions

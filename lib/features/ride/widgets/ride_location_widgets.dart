@@ -409,13 +409,13 @@ class _RouteFieldActions extends StatelessWidget {
 
 class InteractiveRouteFieldsOverlay extends StatefulWidget {
   const InteractiveRouteFieldsOverlay({
-    this.cardColor = const Color(0xF7FFFFFF),
-    this.cardBorderColor = const Color(0xFFD2E3F0),
+    this.cardColor,
+    this.cardBorderColor,
     super.key,
   });
 
-  final Color cardColor;
-  final Color cardBorderColor;
+  final Color? cardColor;
+  final Color? cardBorderColor;
 
   @override
   State<InteractiveRouteFieldsOverlay> createState() =>
@@ -1132,7 +1132,7 @@ class _RouteIndicator extends StatelessWidget {
         height: 76,
         child: Column(
           children: <Widget>[
-            Icon(Icons.circle, size: 11, color: AppColors.primaryDark),
+            Icon(Icons.circle, size: 11, color: AppColors.accent(context)),
             Expanded(
               child: Center(
                 child: AnimatedContainer(
@@ -1163,7 +1163,7 @@ class _RouteIndicator extends StatelessWidget {
             Icon(
               Icons.square_rounded,
               size: 12,
-              color: AppColors.secondary,
+              color: Theme.of(context).colorScheme.secondary,
             ),
           ],
         ),

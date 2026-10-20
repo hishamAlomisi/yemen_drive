@@ -7,6 +7,7 @@ import '../../../../../app/theme/app_spacing.dart';
 import '../../../../../shared/widgets/app_button.dart';
 import '../../../../../shared/widgets/app_card.dart';
 import '../../../../../shared/widgets/app_states.dart';
+import '../../../../../shared/widgets/app_skeleton.dart';
 import '../../account_routes.dart';
 import '../../models/account_models.dart';
 import '../../widgets/account_widgets.dart';
@@ -23,8 +24,8 @@ class OffersPage extends GetView<OffersController> {
         showBack: false,
         bottomNavIndex: embedded ? null : 3,
         child: Obx(() {
-          if (controller.isLoading.value) {
-            return const SizedBox(height: 420, child: AppLoading());
+          if (controller.isLoading.value && controller.offers.isEmpty) {
+            return const AppSkeletonList();
           }
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -70,12 +71,15 @@ class _OfferTile extends StatelessWidget {
               width: 54,
               height: 54,
               decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: .16),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: .16),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.local_offer_rounded,
-                color: AppColors.primaryDark,
+                color: AppColors.accent(context),
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
@@ -86,7 +90,7 @@ class _OfferTile extends StatelessWidget {
                   Text(
                     offer.discount,
                     style: TextStyle(
-                      color: AppColors.primaryDark,
+                      color: AppColors.accent(context),
                       fontWeight: FontWeight.w800,
                     ),
                   ),
@@ -115,8 +119,8 @@ class OfferDetailsPage extends GetView<OffersController> {
   Widget build(BuildContext context) => AccountPageTemplate(
         title: 'تفاصيل العرض',
         child: Obx(() {
-          if (controller.isLoading.value) {
-            return const SizedBox(height: 420, child: AppLoading());
+          if (controller.isLoading.value && controller.selectedOffer == null) {
+            return const AppSkeletonList(count: 2);
           }
           final offer = controller.selectedOffer;
           if (offer == null) {
@@ -148,13 +152,16 @@ class _OfferDetails extends StatelessWidget {
               width: 84,
               height: 84,
               decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: .16),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: .16),
                 shape: BoxShape.circle,
               ),
               child: Icon(
                 Icons.confirmation_number_rounded,
                 size: 44,
-                color: AppColors.primaryDark,
+                color: AppColors.accent(context),
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
@@ -177,10 +184,13 @@ class _OfferDetails extends StatelessWidget {
                   vertical: AppSpacing.md,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: .12),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: .12),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: AppColors.primary,
+                    color: Theme.of(context).colorScheme.primary,
                     style: BorderStyle.solid,
                   ),
                 ),

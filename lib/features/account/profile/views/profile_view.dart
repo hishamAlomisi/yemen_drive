@@ -4,7 +4,6 @@ import 'package:yemen_drive/features/auth/routes/auth_routes.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../../../app/theme/app_colors.dart';
 import '../../../../../app/theme/app_spacing.dart';
 import '../../../../../core/storage/secure_storage_service.dart';
 import '../../../../../shared/widgets/app_button.dart';
@@ -51,8 +50,12 @@ class ProfilePage extends GetView<ProfileController> {
                   height: 106,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.primary.withValues(alpha: .18),
-                    border: Border.all(color: AppColors.primary, width: 3),
+                    color: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: .18),
+                    border: Border.all(
+                        color: Theme.of(context).colorScheme.primary, width: 3),
                   ),
                   child: Icon(
                     Icons.person_rounded,
@@ -62,7 +65,7 @@ class ProfilePage extends GetView<ProfileController> {
                 ),
                 CircleAvatar(
                   radius: 18,
-                  backgroundColor: AppColors.primary,
+                  backgroundColor: Theme.of(context).colorScheme.primary,
                   foregroundColor: Theme.of(context).colorScheme.onPrimary,
                   child: IconButton(
                     padding: EdgeInsets.zero,

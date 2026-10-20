@@ -2,7 +2,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../../app/theme/app_colors.dart';
 import '../models/auth_models.dart';
 
 class AuthBrandMark extends StatelessWidget {
@@ -67,6 +66,7 @@ class AuthIllustration extends StatelessWidget {
                 size: Size(constraints.maxWidth, height),
                 painter: _CityArtworkPainter(
                   artwork: artwork,
+                  scheme: Theme.of(context).colorScheme,
                   isDark: Theme.of(context).brightness == Brightness.dark,
                 ),
               ),
@@ -77,7 +77,7 @@ class AuthIllustration extends StatelessWidget {
                   child: Icon(
                     Icons.local_taxi_rounded,
                     size: math.min(112, constraints.maxWidth * .28),
-                    color: AppColors.primary,
+                    color: Theme.of(context).colorScheme.primary,
                     shadows: <Shadow>[
                       Shadow(
                         color: Colors.black.withValues(alpha: .35),
@@ -108,7 +108,7 @@ class _LocationPulse extends StatelessWidget {
         width: 66,
         height: 66,
         decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: .18),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: .18),
           shape: BoxShape.circle,
         ),
         alignment: Alignment.center,
@@ -116,7 +116,7 @@ class _LocationPulse extends StatelessWidget {
           width: 42,
           height: 42,
           decoration: BoxDecoration(
-            color: AppColors.primary,
+            color: Theme.of(context).colorScheme.primary,
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -128,18 +128,18 @@ class _LocationPulse extends StatelessWidget {
 }
 
 class _CityArtworkPainter extends CustomPainter {
-  const _CityArtworkPainter({required this.artwork, required this.isDark});
+  const _CityArtworkPainter(
+      {required this.artwork, required this.isDark, required this.scheme});
 
   final OnboardingArtwork artwork;
+  final ColorScheme scheme;
   final bool isDark;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final muted = Paint()
-      ..color = isDark ? const Color(0xFF252730) : const Color(0xFFEDEEF1);
-    final primary = Paint()..color = AppColors.primary;
-    final ink = Paint()
-      ..color = isDark ? const Color(0xFFF8F8F8) : const Color(0xFF202124);
+    final muted = Paint()..color = scheme.surfaceContainerHighest;
+    final primary = Paint()..color = scheme.primary;
+    final ink = Paint()..color = scheme.onSurface;
 
     final sunCenter = Offset(size.width * .73, size.height * .20);
     canvas.drawCircle(sunCenter, size.shortestSide * .06, primary);
@@ -229,5 +229,7 @@ class _CityArtworkPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _CityArtworkPainter oldDelegate) =>
-      oldDelegate.artwork != artwork || oldDelegate.isDark != isDark;
+      oldDelegate.scheme != scheme ||
+      oldDelegate.artwork != artwork ||
+      oldDelegate.isDark != isDark;
 }

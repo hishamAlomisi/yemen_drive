@@ -1013,6 +1013,34 @@ void main() {
     });
   }
 
+  testWidgets('sheet motion keeps native map configuration stable until settled',
+      (tester) async {
+    _phoneSize(tester);
+    final originalMaps = maps.GoogleMapsFlutterPlatform.instance;
+    final platform = _MapPlatform();
+    maps.GoogleMapsFlutterPlatform.instance = platform;
+    addTearDown(() => maps.GoogleMapsFlutterPlatform.instance = originalMaps);
+    location.destination.value = null;
+    location.routePoints.clear();
+    await tester.pumpWidget(_host(const LocationPickerPage(isMainShell: true)));
+    await tester.pump(const Duration(milliseconds: 500));
+    final sheet = tester.widget<DraggableScrollableSheet>(
+        find.byType(DraggableScrollableSheet));
+    final before = platform.builds;
+    for (var frame = 1; frame <= 30; frame++) {
+      sheet.controller!.jumpTo(.64 - frame * .012);
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    final during = platform.builds - before;
+    await tester.pump(const Duration(milliseconds: 250));
+    debugPrint('MAP_BENCHMARK: 30 sheet frames, $during map rebuilds during motion, '
+        '${platform.builds - before} including settled update');
+    expect(during, 0);
+    expect(platform.builds - before, 1);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('service cards update the booking and keep the choice visible',
       (tester) async {
     ride.homeServices.assignAll(const [
@@ -1342,14 +1370,17 @@ class _Routes implements RouteRepository {
 }
 
 class _MapPlatform extends maps.GoogleMapsFlutterPlatform {
+  int builds = 0;
   @override
   Widget buildViewWithConfiguration(
           int creationId, ValueChanged<int> onPlatformViewCreated,
           {required maps.MapWidgetConfiguration widgetConfiguration,
           maps.MapConfiguration mapConfiguration =
               const maps.MapConfiguration(),
-          maps.MapObjects mapObjects = const maps.MapObjects()}) =>
-      const ColoredBox(color: Color(0xFFE5EBDD));
+          maps.MapObjects mapObjects = const maps.MapObjects()}) {
+    builds++;
+    return const ColoredBox(color: Color(0xFFE5EBDD));
+  }
 }
 
 class _Places implements LocationSearchRepository {

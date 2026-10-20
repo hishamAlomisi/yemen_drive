@@ -164,7 +164,9 @@ class VehiclePreviewCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AppCard(
         onTap: onTap,
-        borderColor: vehicle.isRecommended ? AppColors.primary : null,
+        borderColor: vehicle.isRecommended
+            ? Theme.of(context).colorScheme.primary
+            : null,
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -184,7 +186,7 @@ class VehiclePreviewCard extends StatelessWidget {
                           child: Text(
                             'موصى به',
                             style: TextStyle(
-                              color: AppColors.primaryDark,
+                              color: AppColors.accent(context),
                               fontWeight: FontWeight.w600,
                               fontSize: 12,
                             ),
@@ -318,7 +320,7 @@ class VehicleFeature extends StatelessWidget {
             padding: const EdgeInsets.all(AppSpacing.sm),
             child: Column(
               children: <Widget>[
-                Icon(icon, color: AppColors.primaryDark),
+                Icon(icon, color: AppColors.accent(context)),
                 const SizedBox(height: 6),
                 Text(value, style: TextStyle(fontWeight: FontWeight.w600)),
                 const SizedBox(height: 2),
@@ -345,7 +347,7 @@ class VehicleHero extends StatelessWidget {
             begin: Alignment.topRight,
             end: Alignment.bottomLeft,
             colors: <Color>[
-              AppColors.primary.withValues(alpha: .34),
+              Theme.of(context).colorScheme.primary.withValues(alpha: .34),
               Theme.of(context).colorScheme.surface,
             ],
           ),
@@ -366,7 +368,8 @@ class VehicleHero extends StatelessWidget {
                 ),
               ),
             ),
-            Icon(vehicle.type.icon, size: 126, color: AppColors.primaryDark),
+            Icon(vehicle.type.icon,
+                size: 126, color: AppColors.accent(context)),
           ],
         ),
       );
@@ -383,7 +386,7 @@ class _VehicleIllustration extends StatelessWidget {
         width: compact ? 56 : 68,
         height: compact ? 48 : 58,
         decoration: BoxDecoration(
-          color: AppColors.primary.withValues(alpha: .16),
+          color: Theme.of(context).colorScheme.primary.withValues(alpha: .16),
           borderRadius: BorderRadius.circular(AppRadius.sm),
         ),
         alignment: Alignment.center,
@@ -392,7 +395,7 @@ class _VehicleIllustration extends StatelessWidget {
           fallback: Icon(
             vehicle.type.icon,
             size: compact ? 32 : 39,
-            color: AppColors.primaryDark,
+            color: AppColors.accent(context),
           ),
         ),
       );
@@ -427,7 +430,7 @@ class _VehicleMeta extends StatelessWidget {
   Widget build(BuildContext context) => Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(icon, size: 17, color: AppColors.primaryDark),
+          Icon(icon, size: 17, color: AppColors.accent(context)),
           const SizedBox(width: 5),
           Text(label, style: Theme.of(context).textTheme.bodySmall),
         ],

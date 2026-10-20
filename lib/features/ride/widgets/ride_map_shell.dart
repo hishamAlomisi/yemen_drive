@@ -639,7 +639,7 @@ class _RouteMapGuide extends StatelessWidget {
                   children: <Widget>[
                     _GuidePlaceRow(
                       icon: Icons.trip_origin_rounded,
-                      color: AppColors.primaryDark,
+                      color: AppColors.accent(context),
                       label: location.fromController.text.trim().isEmpty
                           ? 'نقطة الانطلاق'
                           : location.fromController.text.trim(),
@@ -667,7 +667,7 @@ class _RouteMapGuide extends StatelessWidget {
                     ),
                     _GuidePlaceRow(
                       icon: Icons.location_on_rounded,
-                      color: AppColors.secondary,
+                      color: Theme.of(context).colorScheme.secondary,
                       label: location.toController.text.trim().isEmpty
                           ? 'الوجهة'
                           : location.toController.text.trim(),

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
+
 import '../core/services/locale_service.dart';
+import '../core/services/startup_connection_service.dart';
 import '../core/services/theme_service.dart';
 import '../features/auth/routes/auth_routes.dart';
 import '../features/auth/splash/views/splash_view.dart';
@@ -24,25 +26,38 @@ class EasyRideApp extends StatefulWidget {
 }
 
 class _EasyRideAppState extends State<EasyRideApp> {
-  late final Future<void> _initialization;
+  late final StartupConnectionService _connection;
+  bool _initialized = false;
+  bool _starting = false;
 
   @override
   void initState() {
     super.initState();
-    _initialization = InitialBinding().dependencies();
+    _connection = Get.isRegistered<StartupConnectionService>()
+        ? Get.find<StartupConnectionService>()
+        : Get.put(StartupConnectionService(), permanent: true);
+    _start();
+  }
+
+  Future<void> _start() async {
+    if (_starting) return;
+    _starting = true;
+    try {
+      if (!await _connection.verify() || !mounted) return;
+      _connection.initializing();
+      await InitialBinding().dependencies();
+      if (mounted) setState(() => _initialized = true);
+    } on Object {
+      if (mounted) _connection.initializationFailed();
+    } finally {
+      _starting = false;
+    }
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<void>(
-        future: _initialization,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.done &&
-              snapshot.error == null) {
-            return const _ConfiguredApp();
-          }
-          return _BootstrapApp(error: snapshot.error);
-        },
-      );
+  Widget build(BuildContext context) => _initialized
+      ? const _ConfiguredApp()
+      : _BootstrapApp(connection: _connection, onRetry: _start);
 }
 
 class _ConfiguredApp extends StatelessWidget {
@@ -91,44 +106,21 @@ class _ConfiguredApp extends StatelessWidget {
 }
 
 class _BootstrapApp extends StatelessWidget {
-  const _BootstrapApp({this.error});
-  final Object? error;
+  const _BootstrapApp({required this.connection, required this.onRetry});
+  final StartupConnectionService connection;
+  final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) => MaterialApp(
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
-        home: error == null
-            ? const SplashArtwork()
-            : Directionality(
-                textDirection: TextDirection.rtl,
-                child: Scaffold(
-                  body: SafeArea(
-                    child: Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: <Widget>[
-                            const Icon(Icons.error_outline_rounded, size: 52),
-                            const SizedBox(height: 16),
-                            const Text(
-                              'تعذر تهيئة التطبيق. أعد تشغيله وحاول مرة أخرى.',
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              error.toString(),
-                              textAlign: TextAlign.center,
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+        themeMode: ThemeMode.light,
+        home: Obx(
+          () => SplashArtwork(
+            status: connection.status.value,
+            onRetry: onRetry,
+          ),
+        ),
       );
 }

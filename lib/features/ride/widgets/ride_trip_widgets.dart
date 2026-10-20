@@ -110,7 +110,10 @@ class DriverCard extends StatelessWidget {
                 children: <Widget>[
                   CircleAvatar(
                     radius: 28,
-                    backgroundColor: AppColors.primary.withValues(alpha: .2),
+                    backgroundColor: Theme.of(context)
+                        .colorScheme
+                        .primary
+                        .withValues(alpha: .2),
                     child: Icon(Icons.person_rounded, size: 34),
                   ),
                   const SizedBox(width: AppSpacing.sm),
@@ -131,7 +134,7 @@ class DriverCard extends StatelessWidget {
                             Icon(
                               Icons.star_rounded,
                               size: 18,
-                              color: AppColors.primaryDark,
+                              color: AppColors.accent(context),
                             ),
                             SizedBox(width: 4),
                             Text(rating > 0 ? rating.toStringAsFixed(1) : '—'),
@@ -235,7 +238,7 @@ class RouteSummaryCard extends StatelessWidget {
         children: <Widget>[
           Column(
             children: <Widget>[
-              Icon(Icons.circle, color: AppColors.primaryDark, size: 13),
+              Icon(Icons.circle, color: AppColors.accent(context), size: 13),
               Container(
                 height: compact ? 31 : 44,
                 width: 2,
@@ -245,7 +248,7 @@ class RouteSummaryCard extends StatelessWidget {
               ),
               Icon(
                 Icons.location_on_rounded,
-                color: AppColors.secondary,
+                color: Theme.of(context).colorScheme.secondary,
                 size: 19,
               ),
             ],
@@ -290,7 +293,8 @@ class TripMetricRow extends StatelessWidget {
             ? draft!.routeDistanceMeters! / 1000
             : ride.routeDistanceKm.value;
         final durationSeconds = draft?.routeDurationSeconds;
-        final price = ride.offeredPrice.value > 0 ? ride.offeredPrice.value : null;
+        final price =
+            ride.offeredPrice.value > 0 ? ride.offeredPrice.value : null;
         return Row(
           children: <Widget>[
             Expanded(
@@ -982,8 +986,12 @@ class PriceSummary extends StatelessWidget {
             ),
             if (changeFees > 0 || completedFare > 0) ...[
               const SizedBox(height: AppSpacing.sm),
-              _PriceRow(label: 'من الأجرة: الجزء المنجز', value: money(completedFare)),
-              _PriceRow(label: 'من الأجرة: رسوم تغيير الوجهة', value: money(changeFees)),
+              _PriceRow(
+                  label: 'من الأجرة: الجزء المنجز',
+                  value: money(completedFare)),
+              _PriceRow(
+                  label: 'من الأجرة: رسوم تغيير الوجهة',
+                  value: money(changeFees)),
             ],
             const SizedBox(height: AppSpacing.sm),
             _PriceRow(
@@ -1026,7 +1034,7 @@ class _TripMetric extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
         child: Column(
           children: <Widget>[
-            Icon(icon, color: AppColors.primaryDark, size: 22),
+            Icon(icon, color: AppColors.accent(context), size: 22),
             const SizedBox(height: 6),
             Text(value, style: TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 2),

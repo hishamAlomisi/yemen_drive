@@ -25,6 +25,20 @@ class PersistentNetworkImageCache {
   );
   static final Map<String, Future<File>> _inFlight = <String, Future<File>>{};
   static final Set<String> _refreshing = <String>{};
+  static Future<Directory>? _cacheDirectory;
+  static Future<void>? _pruning;
+  static DateTime? _lastPrune;
+
+  static Future<Directory> _directory() => _cacheDirectory ??= () async {
+        final support = await getApplicationSupportDirectory();
+        return Directory(
+          '${support.path}${Platform.pathSeparator}$_directoryName',
+        ).create(recursive: true);
+      }()
+          .catchError((Object error) {
+        _cacheDirectory = null;
+        throw error;
+      });
 
   static Future<File> fileFor(String imageUrl) {
     final url = imageUrl.trim();
@@ -43,11 +57,7 @@ class PersistentNetworkImageCache {
   }
 
   static Future<File> _loadFile(String url, String key) async {
-    final supportDirectory = await getApplicationSupportDirectory();
-    final cacheDirectory = Directory(
-      '${supportDirectory.path}${Platform.pathSeparator}$_directoryName',
-    );
-    await cacheDirectory.create(recursive: true);
+    final cacheDirectory = await _directory();
     final cachedFile = File(
       '${cacheDirectory.path}${Platform.pathSeparator}$key.image',
     );
@@ -109,7 +119,7 @@ class PersistentNetworkImageCache {
 
       if (await cachedFile.exists()) await cachedFile.delete();
       final savedFile = await temporaryFile.rename(cachedFile.path);
-      await _prune(cacheDirectory);
+      _schedulePrune(cacheDirectory);
       return savedFile;
     } catch (_) {
       if (await cachedFile.exists() && await cachedFile.length() > 0) {
@@ -119,6 +129,19 @@ class PersistentNetworkImageCache {
     } finally {
       if (await temporaryFile.exists()) await temporaryFile.delete();
     }
+  }
+
+  static void _schedulePrune(Directory directory) {
+    if (_pruning != null ||
+        (_lastPrune != null &&
+            DateTime.now().difference(_lastPrune!) <
+                const Duration(minutes: 5))) {
+      return;
+    }
+    _lastPrune = DateTime.now();
+    _pruning = _prune(directory).catchError((Object _) {
+      // Cache housekeeping must never delay or fail a successfully loaded image.
+    }).whenComplete(() => _pruning = null);
   }
 
   static Future<void> _prune(Directory directory) async {
@@ -197,14 +220,29 @@ class _PersistentNetworkImageState extends State<PersistentNetworkImage> {
           }
           final file = snapshot.data;
           if (file == null) return const SizedBox.shrink();
-          return Image.file(
-            file,
-            fit: widget.fit,
-            filterQuality: widget.filterQuality,
-            width: widget.width,
-            height: widget.height,
-            errorBuilder: widget.errorBuilder,
-          );
+          return LayoutBuilder(builder: (context, constraints) {
+            final ratio = MediaQuery.devicePixelRatioOf(context);
+            int? pixels(double dimension) => dimension.isFinite && dimension > 0
+                ? (dimension * ratio).ceil().clamp(1, 2048)
+                : null;
+            final width = pixels(widget.width ?? constraints.maxWidth);
+            final height = pixels(widget.height ?? constraints.maxHeight);
+            final ImageProvider provider = width == null && height == null
+                ? FileImage(file)
+                : ResizeImage(FileImage(file),
+                    width: width,
+                    height: height,
+                    policy: ResizeImagePolicy.fit);
+            return Image(
+              image: provider,
+              fit: widget.fit,
+              filterQuality: widget.filterQuality,
+              width: widget.width,
+              height: widget.height,
+              errorBuilder: widget.errorBuilder,
+              gaplessPlayback: true,
+            );
+          });
         },
       );
 }

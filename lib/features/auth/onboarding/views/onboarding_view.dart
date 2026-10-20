@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../../../shared/widgets/app_scaffold.dart';
 import '../../models/auth_models.dart';
@@ -49,7 +48,7 @@ class OnboardingScreen extends GetView<OnboardingController> {
                           margin: const EdgeInsetsDirectional.only(end: 7),
                           decoration: BoxDecoration(
                             color: controller.currentPage.value == index
-                                ? AppColors.primary
+                                ? Theme.of(context).colorScheme.primary
                                 : Theme.of(
                                     context,
                                   )
@@ -65,7 +64,7 @@ class OnboardingScreen extends GetView<OnboardingController> {
                     FilledButton(
                       onPressed: controller.next,
                       style: FilledButton.styleFrom(
-                        backgroundColor: AppColors.primary,
+                        backgroundColor: Theme.of(context).colorScheme.primary,
                         foregroundColor:
                             Theme.of(context).colorScheme.onPrimary,
                         minimumSize: const Size.square(58),

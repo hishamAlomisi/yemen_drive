@@ -73,7 +73,7 @@ class RatingStars extends GetView<PaymentController> {
               onPressed: () => controller.setRating(value),
               iconSize: 39,
               tooltip: '$value من 5',
-              color: AppColors.primaryDark,
+              color: AppColors.accent(context),
               icon: Icon(
                 selected ? Icons.star_rounded : Icons.star_border_rounded,
               ),

@@ -16,6 +16,7 @@ class WalletController extends GetxController {
   final RxString amountText = ''.obs;
   final RxString selectedPaymentMethodId = ''.obs;
   final RxBool isLoading = true.obs;
+  final RxBool hasLoaded = false.obs;
 
   @override
   void onInit() {
@@ -41,6 +42,7 @@ class WalletController extends GetxController {
       transactions.assignAll(wallet.transactions);
       walletBalance.value = wallet.balance;
       totalSpent.value = wallet.totalSpent;
+      hasLoaded.value = true;
     } finally {
       isLoading.value = false;
     }

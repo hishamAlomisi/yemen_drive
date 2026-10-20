@@ -7,6 +7,7 @@ import '../../../../../core/config/app_environment.dart';
 import '../../../../../shared/widgets/app_button.dart';
 import '../../../../../shared/widgets/app_card.dart';
 import '../../../../../shared/widgets/app_states.dart';
+import '../../../../../shared/widgets/app_skeleton.dart';
 import '../../account_routes.dart';
 import '../../models/account_models.dart';
 import '../../widgets/account_widgets.dart';
@@ -28,7 +29,9 @@ class HistoryPage extends GetView<HistoryController> {
             const SizedBox(height: AppSpacing.md),
             Expanded(
               child: Obx(() {
-                if (controller.isLoading.value) return const AppLoading();
+                if (controller.isLoading.value && controller.rides.isEmpty) {
+                  return const SingleChildScrollView(child: AppSkeletonList());
+                }
                 final rides = controller.byStatus(status);
                 if (rides.isEmpty) {
                   return const AppEmptyState(
@@ -120,7 +123,7 @@ class _HistoryRideCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final statusColor = switch (ride.status) {
-      RideHistoryStatus.upcoming => AppColors.primaryDark,
+      RideHistoryStatus.upcoming => AppColors.accent(context),
       RideHistoryStatus.completed => AppColors.success,
       RideHistoryStatus.cancelled => AppColors.error,
     };

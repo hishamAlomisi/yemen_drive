@@ -10,6 +10,8 @@ import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../../../shared/widgets/app_text_field.dart';
+import '../../../shared/widgets/app_skeleton.dart';
+import '../../../shared/widgets/app_states.dart';
 import '../../../shared/widgets/directional_arrow.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/notifications_controller.dart';
@@ -50,24 +52,37 @@ class NotificationsPage extends GetView<NotificationsController> {
           ),
         ],
         body: Obx(
-          () => controller.items.isEmpty
-              ? const Center(
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.notifications_none, size: 48),
-                  SizedBox(height: 16),
-                  Text('لا توجد إشعارات حالياً'),
-                ]))
-              : ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-                  itemCount: controller.items.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(height: AppSpacing.sm),
-                  itemBuilder: (context, index) {
-                    final item = controller.items[index];
-                    return _NotificationTile(
-                        item: item, onTap: () => controller.markRead(item));
-                  },
-                ),
+          () => controller.isLoading.value && controller.items.isEmpty
+              ? const SingleChildScrollView(child: AppSkeletonList())
+              : controller.loadError.value.isNotEmpty &&
+                      controller.items.isEmpty
+                  ? AppEmptyState(
+                      title: 'تعذر تحميل الإشعارات',
+                      message: controller.loadError.value,
+                      actionLabel: 'إعادة المحاولة',
+                      onAction: controller.load,
+                    )
+                  : controller.items.isEmpty
+                      ? const Center(
+                          child:
+                              Column(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.notifications_none, size: 48),
+                          SizedBox(height: 16),
+                          Text('لا توجد إشعارات حالياً'),
+                        ]))
+                      : ListView.separated(
+                          padding: const EdgeInsets.symmetric(
+                              vertical: AppSpacing.md),
+                          itemCount: controller.items.length,
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(height: AppSpacing.sm),
+                          itemBuilder: (context, index) {
+                            final item = controller.items[index];
+                            return _NotificationTile(
+                                item: item,
+                                onTap: () => controller.markRead(item));
+                          },
+                        ),
         ),
       );
 }
@@ -87,6 +102,9 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   final BookingController booking = Get.find<BookingController>();
   final DraggableScrollableController _sheet = DraggableScrollableController();
   final ValueNotifier<double> _extent = ValueNotifier<double>(.64);
+  // Native map padding is committed after the sheet settles. Flutter controls
+  // still follow every drag frame without rebuilding the platform view.
+  final ValueNotifier<double> _mapExtent = ValueNotifier<double>(.64);
   Worker? _bookingWorker;
   Worker? _mapSelectionWorker;
   Timer? _focusTimer;
@@ -124,18 +142,24 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     if (!_sheet.isAttached) return;
     _extent.value = _sheet.size;
     _focusTimer?.cancel();
-    if (controller.hasDrivingRoute) {
-      _focusTimer = Timer(const Duration(milliseconds: 220), () {
-        if (mounted) setState(() => _focusRevision++);
-      });
-    }
+    _focusTimer = Timer(const Duration(milliseconds: 120), _commitMapExtent);
+  }
+
+  void _commitMapExtent() {
+    if (!mounted) return;
+    _mapExtent.value = _extent.value;
+    if (controller.hasDrivingRoute) setState(() => _focusRevision++);
   }
 
   Future<void> _animateSheet(double size) async {
     if (!mounted || !_sheet.isAttached) return;
-    await _sheet.animateTo(size,
-        duration: const Duration(milliseconds: 420),
-        curve: Curves.easeInOutCubic);
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _sheet.jumpTo(size);
+    } else {
+      await _sheet.animateTo(size,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic);
+    }
   }
 
   Future<void> _previewRoute() async {
@@ -143,9 +167,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     await _animateSheet(.12);
     if (!mounted) return;
     _focusTimer?.cancel();
-    setState(() => _focusRevision++);
-    // Let the passenger see the complete road route before fare review opens.
-    await Future<void>.delayed(const Duration(milliseconds: 1100));
+    _commitMapExtent();
   }
 
   @override
@@ -156,7 +178,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
               fit: StackFit.expand,
               children: [
                 ValueListenableBuilder<double>(
-                  valueListenable: _extent,
+                  valueListenable: _mapExtent,
                   builder: (context, extent, _) => Obx(() => NearbyDriversMap(
                         initialTarget: controller.pickup.value ??
                             const LatLng(15.3694, 44.1910),
@@ -316,6 +338,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
     _sheet.removeListener(_sheetChanged);
     _sheet.dispose();
     _extent.dispose();
+    _mapExtent.dispose();
     super.dispose();
   }
 }
@@ -348,7 +371,7 @@ class LocationAddressPage extends GetView<LocationController> {
                   children: <Widget>[
                     Icon(
                       Icons.location_on_rounded,
-                      color: AppColors.secondary,
+                      color: Theme.of(context).colorScheme.secondary,
                     ),
                     const SizedBox(width: AppSpacing.sm),
                     Expanded(
@@ -485,7 +508,7 @@ class LocationConfirmPage extends GetView<LocationController> {
               children: <Widget>[
                 Icon(
                   Icons.location_on_rounded,
-                  color: AppColors.secondary,
+                  color: Theme.of(context).colorScheme.secondary,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
@@ -569,10 +592,10 @@ class _NotificationTile extends StatelessWidget {
       onTap: onTap,
       color: item.isRead
           ? null
-          : AppColors.primary.withValues(
-              alpha:
-                  Theme.of(context).brightness == Brightness.dark ? .09 : .12,
-            ),
+          : Theme.of(context).colorScheme.primary.withValues(
+                alpha:
+                    Theme.of(context).brightness == Brightness.dark ? .09 : .12,
+              ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -580,10 +603,11 @@ class _NotificationTile extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: .18),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: .18),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: AppColors.primaryDark),
+            child: Icon(icon, color: AppColors.accent(context)),
           ),
           const SizedBox(width: AppSpacing.sm),
           Expanded(
@@ -603,7 +627,8 @@ class _NotificationTile extends StatelessWidget {
                         padding: EdgeInsetsDirectional.only(start: 8),
                         child: CircleAvatar(
                           radius: 4,
-                          backgroundColor: AppColors.secondary,
+                          backgroundColor:
+                              Theme.of(context).colorScheme.secondary,
                         ),
                       ),
                   ],

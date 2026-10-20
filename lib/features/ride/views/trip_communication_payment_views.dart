@@ -88,15 +88,22 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
   Future<RideRouteDestination?> _selectChangedDestination() {
     final location = Get.find<LocationController>();
     final search = Get.find<LocationSearchRepository>();
-    RideRouteDestination destination(LocationSearchResult value) => RideRouteDestination(
-      latitude: value.location.latitude,
-      longitude: value.location.longitude,
-      label: value.formattedAddress.trim().isNotEmpty ? value.formattedAddress : value.title,
-    );
+    RideRouteDestination destination(LocationSearchResult value) =>
+        RideRouteDestination(
+          latitude: value.location.latitude,
+          longitude: value.location.longitude,
+          label: value.formattedAddress.trim().isNotEmpty
+              ? value.formattedAddress
+              : value.title,
+        );
     return Navigator.of(context).push<RideRouteDestination>(MaterialPageRoute(
       builder: (_) => RideRouteDestinationPicker(
-        initialTarget: location.destination.value ?? location.pickup.value ?? const LatLng(15.3694, 44.1910),
-        search: (query) async => (await search.search(query)).map(destination).toList(growable: false),
+        initialTarget: location.destination.value ??
+            location.pickup.value ??
+            const LatLng(15.3694, 44.1910),
+        search: (query) async => (await search.search(query))
+            .map(destination)
+            .toList(growable: false),
         reverseGeocode: (point) async {
           final value = await search.reverseGeocode(point);
           return value == null ? null : destination(value);
@@ -300,14 +307,17 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                 RouteSummaryCard(compact: true),
                 if (int.tryParse(controller.currentRideId ?? '')
                     case final int rideId)
-                  RideWaitingPanel(rideId: rideId, onChanged: () {
-                    unawaited(controller.refreshActiveRide());
-                    if (Get.isRegistered<PaymentController>()) {
-                      unawaited(Get.find<PaymentController>().loadPaymentSummary());
-                    }
-                  }),
+                  RideWaitingPanel(
+                      rideId: rideId,
+                      onChanged: () {
+                        unawaited(controller.refreshActiveRide());
+                        if (Get.isRegistered<PaymentController>()) {
+                          unawaited(Get.find<PaymentController>()
+                              .loadPaymentSummary());
+                        }
+                      }),
                 if ((controller.activeRideStatus.value == 'InProgress' ||
-                    controller.activeRideStatus.value == '5') &&
+                        controller.activeRideStatus.value == '5') &&
                     int.tryParse(controller.currentRideId ?? '') != null)
                   RideRouteChangePanel(
                     rideId: int.parse(controller.currentRideId!),
@@ -813,7 +823,7 @@ class RideChatPage extends GetView<ChatController> {
                   const SizedBox(width: AppSpacing.sm),
                   Obx(
                     () => Material(
-                      color: AppColors.primary,
+                      color: Theme.of(context).colorScheme.primary,
                       shape: const CircleBorder(),
                       child: IconButton(
                         onPressed: controller.isSending.value
@@ -901,12 +911,15 @@ class RidePaymentPage extends GetView<PaymentController> {
                   children: [
                     Obx(() => controller.cashPaymentConfirmed.value
                         ? AppCard(
-                            color: AppColors.primary.withValues(alpha: .14),
-                            borderColor: AppColors.primary,
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primary
+                                .withValues(alpha: .14),
+                            borderColor: Theme.of(context).colorScheme.primary,
                             child: Row(
                               children: <Widget>[
                                 Icon(Icons.verified_rounded,
-                                    color: AppColors.primaryDark, size: 28),
+                                    color: AppColors.accent(context), size: 28),
                                 const SizedBox(width: AppSpacing.sm),
                                 Expanded(
                                     child: Text(
@@ -1007,7 +1020,10 @@ class RideReviewPage extends GetView<PaymentController> {
               Center(
                 child: CircleAvatar(
                   radius: 42,
-                  backgroundColor: AppColors.primary.withValues(alpha: .2),
+                  backgroundColor: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: .2),
                   child: Icon(Icons.person_rounded, size: 52),
                 ),
               ),
@@ -1101,7 +1117,7 @@ class _ChatDriverStatus extends StatelessWidget {
             children: <Widget>[
               CircleAvatar(
                 radius: 19,
-                backgroundColor: AppColors.primary,
+                backgroundColor: Theme.of(context).colorScheme.primary,
                 child: Icon(
                   Icons.person_rounded,
                   color: Theme.of(context).colorScheme.onPrimary,
@@ -1161,7 +1177,7 @@ class _MessageBubble extends StatelessWidget {
           child: DecoratedBox(
             decoration: BoxDecoration(
               color: message.isMine
-                  ? AppColors.primary
+                  ? Theme.of(context).colorScheme.primary
                   : Theme.of(context)
                       .colorScheme
                       .onSurface
@@ -1245,7 +1261,8 @@ class _CallLayout extends StatelessWidget {
             height: 132,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: AppColors.primary.withValues(alpha: .2),
+              color:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: .2),
             ),
             child: Icon(Icons.person_rounded, size: 82),
           ),

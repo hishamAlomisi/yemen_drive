@@ -191,7 +191,7 @@ class AccountChoiceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) => AppCard(
         onTap: onTap,
-        borderColor: selected ? AppColors.primary : null,
+        borderColor: selected ? Theme.of(context).colorScheme.primary : null,
         child: Row(
           children: <Widget>[
             _ChoiceLogo(imageUrl: imageUrl, icon: icon, selected: selected),
@@ -209,7 +209,7 @@ class AccountChoiceTile extends StatelessWidget {
               selected
                   ? Icons.radio_button_checked_rounded
                   : Icons.radio_button_off_rounded,
-              color: selected ? AppColors.primaryDark : null,
+              color: selected ? AppColors.accent(context) : null,
             ),
           ],
         ),
@@ -225,14 +225,14 @@ class _ChoiceLogo extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (imageUrl == null || imageUrl!.isEmpty)
-      return Icon(icon, color: selected ? AppColors.primaryDark : null);
+      return Icon(icon, color: selected ? AppColors.accent(context) : null);
     return SizedBox(
         width: 32,
         height: 32,
         child: PersistentNetworkImage(imageUrl!,
             fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) =>
-                Icon(icon, color: selected ? AppColors.primaryDark : null)));
+            errorBuilder: (_, __, ___) => Icon(icon,
+                color: selected ? AppColors.accent(context) : null)));
   }
 }
 
@@ -252,7 +252,7 @@ class AccountMetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => AppCard(
-        color: highlighted ? AppColors.primary : null,
+        color: highlighted ? Theme.of(context).colorScheme.primary : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -260,7 +260,7 @@ class AccountMetricCard extends StatelessWidget {
               icon,
               color: highlighted
                   ? Theme.of(context).colorScheme.onPrimary
-                  : AppColors.primary,
+                  : Theme.of(context).colorScheme.primary,
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(
@@ -364,7 +364,7 @@ class AccountSuccessPanel extends StatelessWidget {
                 )
                     .textTheme
                     .headlineLarge
-                    ?.copyWith(color: AppColors.primaryDark),
+                    ?.copyWith(color: AppColors.accent(context)),
               ),
             ],
             const SizedBox(height: AppSpacing.xs),
@@ -392,13 +392,15 @@ class AccountRouteLine extends StatelessWidget {
         children: <Widget>[
           Column(
             children: <Widget>[
-              Icon(Icons.radio_button_checked, color: AppColors.primary),
+              Icon(Icons.radio_button_checked,
+                  color: Theme.of(context).colorScheme.primary),
               Container(
                 height: 24,
                 width: 2,
                 color: Theme.of(context).dividerColor,
               ),
-              Icon(Icons.location_on_rounded, color: AppColors.secondary),
+              Icon(Icons.location_on_rounded,
+                  color: Theme.of(context).colorScheme.secondary),
             ],
           ),
           const SizedBox(width: AppSpacing.sm),

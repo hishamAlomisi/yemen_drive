@@ -24,6 +24,7 @@ class MapBackdrop extends StatelessWidget {
             painter: _MapPainter(
               isDark: Theme.of(context).brightness == Brightness.dark,
               showRoute: showRoute,
+              scheme: Theme.of(context).colorScheme,
             ),
           ),
           if (showMarker)
@@ -33,14 +34,17 @@ class MapBackdrop extends StatelessWidget {
                 height: 82,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppColors.primary.withValues(alpha: .17),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: .17),
                 ),
                 alignment: Alignment.center,
                 child: Container(
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: AppColors.primary,
+                    color: Theme.of(context).colorScheme.primary,
                     shape: BoxShape.circle,
                   ),
                   child: Icon(
@@ -56,19 +60,21 @@ class MapBackdrop extends StatelessWidget {
 }
 
 class _MapPainter extends CustomPainter {
-  const _MapPainter({required this.isDark, required this.showRoute});
+  const _MapPainter(
+      {required this.isDark, required this.showRoute, required this.scheme});
 
+  final ColorScheme scheme;
   final bool isDark;
   final bool showRoute;
 
   @override
   void paint(Canvas canvas, Size size) {
     final background = Paint()
-      ..color = isDark ? AppColors.mapLandDark : AppColors.mapLandLight;
+      ..color = isDark ? scheme.surface : AppColors.mapLandLight;
     canvas.drawRect(Offset.zero & size, background);
 
     final road = Paint()
-      ..color = isDark ? AppColors.mapRoadDark : AppColors.mapRoadLight
+      ..color = isDark ? scheme.surfaceContainerHighest : AppColors.mapRoadLight
       ..strokeWidth = math.max(7, size.shortestSide * .025)
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
@@ -118,7 +124,7 @@ class _MapPainter extends CustomPainter {
 
     if (showRoute) {
       final route = Paint()
-        ..color = AppColors.primary
+        ..color = scheme.primary
         ..strokeWidth = 5
         ..strokeCap = StrokeCap.round
         ..style = PaintingStyle.stroke;
@@ -138,5 +144,7 @@ class _MapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _MapPainter oldDelegate) =>
-      oldDelegate.isDark != isDark || oldDelegate.showRoute != showRoute;
+      oldDelegate.scheme != scheme ||
+      oldDelegate.isDark != isDark ||
+      oldDelegate.showRoute != showRoute;
 }

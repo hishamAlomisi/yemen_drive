@@ -15,6 +15,8 @@ class NotificationsController extends GetxController {
   final AuthSessionService _session;
   final TrackingHubService _hub;
   final RxList<RideNotificationItem> items = <RideNotificationItem>[].obs;
+  final RxBool isLoading = true.obs;
+  final RxString loadError = ''.obs;
   int get unreadCount => items.where((item) => !item.isRead).length;
   StreamSubscription<TrackingHubEvent>? _eventSubscription;
   StreamSubscription<void>? _connectionSubscription;
@@ -40,8 +42,10 @@ class NotificationsController extends GetxController {
   }
 
   Future<void> _startRealtimeAndLoad() async {
-    await _hub.setUserEventListening(this, true);
-    await load();
+    await Future.wait<void>([
+      _hub.setUserEventListening(this, true),
+      load(),
+    ]);
     _initialLoadComplete = true;
     final notificationId = _notificationIdFromPush;
     _notificationIdFromPush = null;
@@ -58,13 +62,18 @@ class NotificationsController extends GetxController {
       return;
     }
     _loadInFlight = true;
+    isLoading.value = true;
+    loadError.value = '';
     try {
       do {
         _reloadRequested = false;
         await _loadOnce();
-      } while (_reloadRequested);
+      } while (_reloadRequested && !isClosed);
+    } catch (_) {
+      loadError.value = 'تعذر تحميل الإشعارات. أعد المحاولة.';
     } finally {
       _loadInFlight = false;
+      isLoading.value = false;
     }
   }
 
@@ -77,7 +86,10 @@ class NotificationsController extends GetxController {
       model: 'NotificationModel',
       operation: 'list',
     );
-    if (result is! ApiSuccess || result.data is! List) return;
+    if (result is! ApiSuccess || result.data is! List) {
+      loadError.value = 'تعذر تحميل الإشعارات. أعد المحاولة.';
+      return;
+    }
     items.assignAll(
       (result.data as List).whereType<Map<Object?, Object?>>().map((item) {
         final raw = Map<Object?, Object?>.from(item);

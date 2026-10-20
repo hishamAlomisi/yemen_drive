@@ -4,6 +4,7 @@ import 'package:get/get.dart';
 
 import '../../../../core/cache/persistent_network_image.dart';
 import '../../../../shared/widgets/app_button.dart';
+import '../../../../shared/widgets/app_skeleton.dart';
 import '../../models/ride_models.dart';
 import '../../models/service_kind_models.dart';
 import '../../widgets/ride_booking_widgets.dart';
@@ -134,8 +135,9 @@ class BookingPanel extends GetView<BookingController> {
                     style: Theme.of(context).textTheme.titleSmall,
                   ),
                   const SizedBox(height: 10),
-                  if (ride.isHomeServicesLoading.value)
-                    const LinearProgressIndicator()
+                  if (ride.isHomeServicesLoading.value &&
+                      ride.homeServices.isEmpty)
+                    const AppSkeletonStrip()
                   else if (ride.homeServicesError.value.isNotEmpty ||
                       ride.homeServices.isEmpty)
                     _BookingNotice(
@@ -178,10 +180,7 @@ class BookingPanel extends GetView<BookingController> {
                   ),
                   const SizedBox(height: 10),
                   if (ride.isCatalogLoading.value)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24),
-                      child: LinearProgressIndicator(),
-                    )
+                    const AppSkeletonStrip(height: 106)
                   else if (ride.catalogError.value.isNotEmpty)
                     _BookingNotice(
                       message: ride.catalogError.value,

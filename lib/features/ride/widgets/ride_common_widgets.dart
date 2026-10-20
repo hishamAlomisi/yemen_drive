@@ -158,7 +158,7 @@ class RideIconButton extends StatelessWidget {
               start: 2,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: AppColors.secondary,
+                  color: Theme.of(context).colorScheme.secondary,
                   shape: BoxShape.circle,
                 ),
                 child: badgeCount != null && badgeCount! > 0
@@ -171,8 +171,9 @@ class RideIconButton extends StatelessWidget {
                               child: Text(
                                   '${badgeCount! > 99 ? '99+' : badgeCount}',
                                   style: TextStyle(
-                                      color: AppColors.onColor(
-                                          AppColors.secondary),
+                                      color: AppColors.onColor(Theme.of(context)
+                                          .colorScheme
+                                          .secondary),
                                       fontSize: 10,
                                       fontWeight: FontWeight.w600))),
                         ),
@@ -264,7 +265,10 @@ class RideSuccessView extends StatelessWidget {
                 height: 112,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
-                  color: AppColors.primary.withValues(alpha: .18),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .primary
+                      .withValues(alpha: .18),
                 ),
                 alignment: Alignment.center,
                 child: Container(
@@ -272,7 +276,7 @@ class RideSuccessView extends StatelessWidget {
                   height: 72,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.primary,
+                    color: Theme.of(context).colorScheme.primary,
                   ),
                   child: Icon(
                     icon,
@@ -311,7 +315,7 @@ class RideSuccessView extends StatelessWidget {
                 child: FilledButton(
                   onPressed: action,
                   style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.primary,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
                     foregroundColor: Theme.of(context).colorScheme.onPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                   ),

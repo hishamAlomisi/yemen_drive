@@ -121,11 +121,14 @@ class ReferralPage extends GetView<ReferralController> {
               height: 94,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                color: AppColors.primary.withValues(alpha: .15),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: .15),
               ),
               child: Icon(
                 Icons.card_giftcard_rounded,
-                color: AppColors.primaryDark,
+                color: AppColors.accent(context),
                 size: 48,
               ),
             ),
@@ -198,7 +201,7 @@ class AboutPage extends StatelessWidget {
                 width: 98,
                 height: 98,
                 decoration: BoxDecoration(
-                  color: AppColors.primary,
+                  color: Theme.of(context).colorScheme.primary,
                   shape: BoxShape.circle,
                 ),
                 alignment: Alignment.center,
@@ -268,8 +271,9 @@ class _AboutValue extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
             CircleAvatar(
-              backgroundColor: AppColors.primary.withValues(alpha: .15),
-              foregroundColor: AppColors.primaryDark,
+              backgroundColor:
+                  Theme.of(context).colorScheme.primary.withValues(alpha: .15),
+              foregroundColor: AppColors.accent(context),
               child: Icon(icon),
             ),
             const SizedBox(width: AppSpacing.sm),

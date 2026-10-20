@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/config/app_environment.dart';
 import '../../../core/responsive/app_responsive.dart';
@@ -314,7 +313,7 @@ class RideRequestPage extends GetView<RideController> {
                 height: 66,
                 child: CircularProgressIndicator(
                   strokeWidth: 6,
-                  color: AppColors.primary,
+                  color: Theme.of(context).colorScheme.primary,
                 ),
               ),
             ),

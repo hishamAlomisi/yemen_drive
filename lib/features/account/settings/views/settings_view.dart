@@ -55,13 +55,16 @@ class SettingsPage extends GetView<SettingsController> {
               onTap: () => Get.toNamed<void>(AccountRoutes.language),
             ),
             const SizedBox(height: AppSpacing.sm),
-            AccountListTile(
-              title: 'مظهر التطبيق',
-              subtitle: Get.isDarkMode ? 'الوضع الداكن' : 'الوضع الفاتح',
-              icon: Get.isDarkMode
-                  ? Icons.dark_mode_outlined
-                  : Icons.light_mode_outlined,
-              onTap: () => _showThemePicker(context),
+            Obx(
+              () {
+                final mode = Get.find<ThemeService>().mode.value;
+                return AccountListTile(
+                  title: 'مظهر التطبيق',
+                  subtitle: _themeModeLabel(mode),
+                  icon: _themeModeIcon(mode),
+                  onTap: () => _showThemePicker(context),
+                );
+              },
             ),
             const SizedBox(height: AppSpacing.sm),
             Obx(
@@ -108,53 +111,54 @@ class SettingsPage extends GetView<SettingsController> {
       builder: (context) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Text(
-                  'مظهر التطبيق',
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                ListTile(
-                  title: const Text('حسب إعداد الجهاز'),
-                  leading: Icon(Icons.settings_suggest_outlined),
-                  trailing: Icon(
-                    Icons.arrow_back_ios_new_rounded,
-                    size: 16,
-                  ),
-                  onTap: () => _selectTheme(context, ThemeMode.system),
-                ),
-                ListTile(
-                  title: const Text('الوضع الفاتح'),
-                  leading: Icon(Icons.light_mode_outlined),
-                  trailing: !Get.isDarkMode
-                      ? Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.primaryDark,
-                        )
-                      : null,
-                  onTap: () => _selectTheme(context, ThemeMode.light),
-                ),
-                ListTile(
-                  title: const Text('الوضع الداكن'),
-                  leading: Icon(Icons.dark_mode_outlined),
-                  trailing: Get.isDarkMode
-                      ? Icon(
-                          Icons.check_circle_rounded,
-                          color: AppColors.primaryDark,
-                        )
-                      : null,
-                  onTap: () => _selectTheme(context, ThemeMode.dark),
-                ),
-              ],
-            ),
+            child: Obx(() => Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: <Widget>[
+                    Text(
+                      'مظهر التطبيق',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    for (final mode in [
+                      ThemeMode.light,
+                      ThemeMode.dark,
+                      ThemeMode.system
+                    ])
+                      ListTile(
+                        key: ValueKey('theme-mode-${mode.name}'),
+                        title: Text(_themeModeLabel(mode)),
+                        subtitle: mode == ThemeMode.system
+                            ? const Text(
+                                'يتغير تلقائيًا بين الفاتح والداكن مع إعدادات هاتفك')
+                            : null,
+                        leading: Icon(_themeModeIcon(mode)),
+                        selected: Get.find<ThemeService>().mode.value == mode,
+                        trailing: Get.find<ThemeService>().mode.value == mode
+                            ? Icon(Icons.check_circle_rounded,
+                                color: AppColors.accent(context))
+                            : null,
+                        onTap: () => _selectTheme(context, mode),
+                      ),
+                  ],
+                )),
           ),
         ),
       ),
     );
   }
+
+  String _themeModeLabel(ThemeMode mode) => switch (mode) {
+        ThemeMode.light => 'الوضع الفاتح',
+        ThemeMode.dark => 'الوضع الداكن',
+        ThemeMode.system => 'حسب إعدادات الهاتف',
+      };
+
+  IconData _themeModeIcon(ThemeMode mode) => switch (mode) {
+        ThemeMode.light => Icons.light_mode_outlined,
+        ThemeMode.dark => Icons.dark_mode_outlined,
+        ThemeMode.system => Icons.brightness_auto_outlined,
+      };
 
   Future<void> _selectTheme(BuildContext context, ThemeMode? value) async {
     if (value == null) return;
@@ -169,45 +173,47 @@ class SettingsPage extends GetView<SettingsController> {
       builder: (context) => Directionality(
         textDirection: TextDirection.rtl,
         child: SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              const ListTile(
-                title: Text('هوية الألوان'),
-                subtitle: Text('اختر ألوان واجهة التطبيق'),
-                leading: Icon(Icons.palette_outlined),
-              ),
-              for (final palette in AppPalette.values)
-                Obx(
-                  () {
-                    final selected =
-                        Get.find<ThemeService>().palette.value == palette;
-                    return ListTile(
-                      title: Text(palette.label),
-                      leading: CircleAvatar(
-                        backgroundColor: palette.colors.primary,
-                        radius: 12,
-                        child: Icon(
-                          Icons.check,
-                          size: 14,
-                          color: AppColors.onColor(palette.colors.primary),
-                        ),
-                      ),
-                      trailing: selected
-                          ? Icon(
-                              Icons.check_circle_rounded,
-                              color: Theme.of(context).colorScheme.primary,
-                            )
-                          : null,
-                      onTap: () async {
-                        Navigator.pop(context);
-                        await controller.setPalette(palette);
-                      },
-                    );
-                  },
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                const ListTile(
+                  title: Text('هوية الألوان'),
+                  subtitle: Text('اختر ألوان واجهة التطبيق'),
+                  leading: Icon(Icons.palette_outlined),
                 ),
-              const SizedBox(height: AppSpacing.sm),
-            ],
+                for (final palette in AppPalette.values)
+                  Obx(
+                    () {
+                      final selected =
+                          Get.find<ThemeService>().palette.value == palette;
+                      return ListTile(
+                        title: Text(palette.label),
+                        leading: CircleAvatar(
+                          backgroundColor: palette.colors.primary,
+                          radius: 12,
+                          child: Icon(
+                            Icons.check,
+                            size: 14,
+                            color: AppColors.onColor(palette.colors.primary),
+                          ),
+                        ),
+                        trailing: selected
+                            ? Icon(
+                                Icons.check_circle_rounded,
+                                color: Theme.of(context).colorScheme.primary,
+                              )
+                            : null,
+                        onTap: () async {
+                          Navigator.pop(context);
+                          await controller.setPalette(palette);
+                        },
+                      );
+                    },
+                  ),
+                const SizedBox(height: AppSpacing.sm),
+              ],
+            ),
           ),
         ),
       ),
@@ -343,7 +349,7 @@ class LanguagePage extends GetView<LanguageController> {
                                 : Icons.radio_button_off_rounded,
                             color: controller.selectedLanguage.value ==
                                     language.code
-                                ? AppColors.primaryDark
+                                ? AppColors.accent(context)
                                 : null,
                           ),
                         ],
@@ -643,7 +649,7 @@ class _FaqTile extends StatelessWidget {
             collapsedShape: const Border(),
             leading: Icon(
               Icons.help_outline_rounded,
-              color: AppColors.primaryDark,
+              color: AppColors.accent(context),
             ),
             title: Text(
               question,

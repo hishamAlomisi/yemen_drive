@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
+import '../../../app/theme/app_colors.dart';
 import '../../../core/config/app_environment.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../controllers/ride_controller.dart';
@@ -37,7 +38,6 @@ class PaymentPreferenceButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     final externalMethod = AppEnvironment.paymentMethodById(method);
     return SizedBox(
       width: 52,
@@ -72,9 +72,7 @@ class PaymentPreferenceButton extends StatelessWidget {
                             ? 'booking_cash'
                             : 'booking_external_wallets')
                     .tr,
-                color: scheme.brightness == Brightness.dark
-                    ? scheme.primary
-                    : const Color(0xFF739900),
+                color: AppColors.accent(context),
                 size: 25,
               ),
       ),

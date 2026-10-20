@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../../app/theme/app_colors.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../../../shared/widgets/app_button.dart';
 import '../../../../shared/widgets/app_card.dart';
@@ -32,7 +31,10 @@ class LocationPermissionScreen extends GetView<LocationPermissionController> {
                               width: 94,
                               height: 94,
                               decoration: BoxDecoration(
-                                color: AppColors.primary.withValues(alpha: .16),
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .primary
+                                    .withValues(alpha: .16),
                                 shape: BoxShape.circle,
                               ),
                               alignment: Alignment.center,
@@ -40,7 +42,7 @@ class LocationPermissionScreen extends GetView<LocationPermissionController> {
                                 width: 58,
                                 height: 58,
                                 decoration: BoxDecoration(
-                                  color: AppColors.primary,
+                                  color: Theme.of(context).colorScheme.primary,
                                   shape: BoxShape.circle,
                                 ),
                                 child: Icon(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-enum AppPalette { yemenDrive, blueGold, midnightBurgundy, modern, lime }
+enum AppPalette { yemenDrive, blueGold, midnightBurgundy, modern, lime, olive }
 
 extension AppPaletteLabels on AppPalette {
   String get label => switch (this) {
@@ -9,6 +9,7 @@ extension AppPaletteLabels on AppPalette {
         AppPalette.midnightBurgundy => 'العنابي الليلي',
         AppPalette.modern => 'ثيم مودرن',
         AppPalette.lime => 'التصميم الجديد',
+        AppPalette.olive => 'الثيم الزيتي',
       };
 }
 
@@ -18,6 +19,11 @@ class AppPaletteColors {
     required this.primary,
     required this.primaryDark,
     required this.secondary,
+    this.darkPrimary,
+    this.darkPrimaryDark,
+    this.darkSecondary,
+    this.onPrimary,
+    this.darkOnPrimary,
     this.lightBackground,
     this.lightSurface,
     this.lightSurfaceAlt,
@@ -34,6 +40,11 @@ class AppPaletteColors {
   final Color primary;
   final Color primaryDark;
   final Color secondary;
+  final Color? darkPrimary;
+  final Color? darkPrimaryDark;
+  final Color? darkSecondary;
+  final Color? onPrimary;
+  final Color? darkOnPrimary;
   final Color? lightBackground;
   final Color? lightSurface;
   final Color? lightSurfaceAlt;
@@ -45,6 +56,28 @@ class AppPaletteColors {
   final Color? darkText;
   final Color? darkMuted;
   final Color? border;
+
+  // The green and gold match the rider splash artwork.
+  static const AppPaletteColors olive = AppPaletteColors(
+    primary: Color(0xFF003C30),
+    primaryDark: Color(0xFF003C30),
+    secondary: Color(0xFF075244),
+    onPrimary: Colors.white,
+    lightBackground: Color(0xFFF6F8F5),
+    lightSurface: Colors.white,
+    lightSurfaceAlt: Color(0xFFEAF1EC),
+    lightText: Color(0xFF142D25),
+    lightMuted: Color(0xFF53685E),
+    darkPrimary: Color(0xFFFFD46B),
+    darkPrimaryDark: Color(0xFFFFD46B),
+    darkSecondary: Color(0xFFEAC875),
+    darkOnPrimary: Color(0xFF003C30),
+    darkBackground: Color(0xFF003C30),
+    darkSurface: Color(0xFF003C30),
+    darkSurfaceAlt: Color(0xFF0D5041),
+    darkText: Color(0xFFFFFCF4),
+    darkMuted: Color(0xFFBBD0C5),
+  );
 
   static const AppPaletteColors lime = AppPaletteColors(
     primary: Color(0xFFC1F11D),
@@ -106,5 +139,6 @@ extension AppPaletteValues on AppPalette {
         AppPalette.midnightBurgundy => AppPaletteColors.midnightBurgundy,
         AppPalette.modern => AppPaletteColors.modern,
         AppPalette.lime => AppPaletteColors.lime,
+        AppPalette.olive => AppPaletteColors.olive,
       };
 }

@@ -7,7 +7,7 @@ abstract final class AppTheme {
   static ThemeData get light => lightFor();
 
   static ThemeData lightFor({
-    AppPalette palette = AppPalette.lime,
+    AppPalette palette = AppPalette.olive,
   }) =>
       _build(
         brightness: Brightness.light,
@@ -22,7 +22,7 @@ abstract final class AppTheme {
   static ThemeData get dark => darkFor();
 
   static ThemeData darkFor({
-    AppPalette palette = AppPalette.lime,
+    AppPalette palette = AppPalette.olive,
   }) =>
       _build(
         brightness: Brightness.dark,
@@ -44,22 +44,39 @@ abstract final class AppTheme {
     required Color muted,
   }) {
     final colors = palette.colors;
+    final isDark = brightness == Brightness.dark;
+    final primary =
+        isDark ? colors.darkPrimary ?? colors.primary : colors.primary;
+    final primaryDark = isDark
+        ? colors.darkPrimaryDark ?? colors.primaryDark
+        : colors.primaryDark;
+    final secondary =
+        isDark ? colors.darkSecondary ?? colors.secondary : colors.secondary;
     final border = colors.border ?? onSurface.withValues(alpha: .16);
-    final onPrimary = AppColors.onColor(colors.primary);
-    final onSecondary = AppColors.onColor(colors.secondary);
+    final onPrimary = (isDark ? colors.darkOnPrimary : colors.onPrimary) ??
+        AppColors.onColor(primary);
+    final onSecondary = palette == AppPalette.olive && isDark
+        ? colors.darkBackground!
+        : AppColors.onColor(secondary);
     final colorScheme = ColorScheme.fromSeed(
-      seedColor: colors.primary,
+      seedColor: primary,
       brightness: brightness,
-      primary: colors.primary,
+      primary: primary,
       onPrimary: onPrimary,
-      secondary: colors.secondary,
+      secondary: secondary,
       onSecondary: onSecondary,
       surface: surface,
       error: AppColors.error,
     ).copyWith(
+      primaryContainer: palette == AppPalette.olive ? surfaceAlt : null,
+      secondaryContainer: palette == AppPalette.olive ? surfaceAlt : null,
+      onSecondaryContainer: palette == AppPalette.olive ? onSurface : null,
+      onPrimaryContainer: isDark ? primary : primaryDark,
       onSurface: onSurface,
       onSurfaceVariant: muted,
       surfaceContainer: surfaceAlt,
+      surfaceContainerLowest: palette == AppPalette.olive ? surface : null,
+      surfaceContainerLow: palette == AppPalette.olive ? surfaceAlt : null,
       surfaceContainerHigh: surfaceAlt,
       surfaceContainerHighest: surfaceAlt,
       outline: border,
@@ -133,7 +150,7 @@ abstract final class AppTheme {
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: BorderSide(color: colors.primary, width: 1.5),
+          borderSide: BorderSide(color: primary, width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -153,7 +170,7 @@ abstract final class AppTheme {
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: surface,
-        indicatorColor: colors.primary,
+        indicatorColor: primary,
         indicatorShape: const StadiumBorder(),
         iconTheme: WidgetStateProperty.resolveWith<IconThemeData?>(
           (states) => IconThemeData(
@@ -165,7 +182,7 @@ abstract final class AppTheme {
         labelTextStyle: WidgetStateProperty.resolveWith<TextStyle?>(
           (states) => TextStyle(
             color: states.contains(WidgetState.selected)
-                ? colors.primary
+                ? primary
                 : onSurface.withValues(alpha: .72),
           ),
         ),
@@ -190,18 +207,29 @@ abstract final class AppTheme {
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
-            foregroundColor: brightness == Brightness.light
-                ? colors.primaryDark
-                : colors.primary),
+            foregroundColor:
+                brightness == Brightness.light ? primaryDark : primary),
+      ),
+      elevatedButtonTheme: ElevatedButtonThemeData(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: primary,
+          foregroundColor: onPrimary,
+        ),
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: isDark ? primary : primaryDark,
+          side: BorderSide(color: primary),
+        ),
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          backgroundColor: colors.primary,
+          backgroundColor: primary,
           foregroundColor: onPrimary,
         ),
       ),
       floatingActionButtonTheme: FloatingActionButtonThemeData(
-        backgroundColor: colors.primary,
+        backgroundColor: primary,
         foregroundColor: onPrimary,
       ),
       bottomSheetTheme: BottomSheetThemeData(

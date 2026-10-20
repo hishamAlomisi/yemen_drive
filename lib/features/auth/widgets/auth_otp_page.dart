@@ -22,9 +22,6 @@ class AuthOtpPage extends StatelessWidget {
   final VoidCallback onVerify;
   final Widget? resendAction;
 
-  static const Color _blue = Color(0xFF087AC1);
-  static const Color _cyan = Color(0xFF159FCB);
-
   @override
   Widget build(BuildContext context) {
     final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
@@ -114,12 +111,8 @@ class _OtpPanel extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final accent = scheme.primary;
     final foreground = scheme.onSurface;
-    final hintColor = isDark
-        ? scheme.onSurface.withValues(alpha: .62)
-        : const Color(0xFF8298B1);
-    final borderColor = isDark
-        ? scheme.onSurface.withValues(alpha: .20)
-        : const Color(0xFFC9DFFC);
+    final hintColor = scheme.onSurfaceVariant;
+    final borderColor = scheme.outline;
     final inputBorder = OutlineInputBorder(
       borderRadius: BorderRadius.circular(20),
       borderSide: BorderSide(color: borderColor, width: 1.35),
@@ -136,8 +129,7 @@ class _OtpPanel extends StatelessWidget {
         ),
         inputDecorationTheme: theme.inputDecorationTheme.copyWith(
           filled: true,
-          fillColor:
-              isDark ? scheme.surfaceContainerHigh : const Color(0xFFF9FCFF),
+          fillColor: scheme.surfaceContainerHigh,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 8,
             vertical: 14,
@@ -253,24 +245,20 @@ class _VerifyButton extends StatelessWidget {
   final bool isLoading;
   final VoidCallback onPressed;
 
-  static const Color _blue = AuthOtpPage._blue;
-  static const Color _cyan = AuthOtpPage._cyan;
-
   @override
   Widget build(BuildContext context) => SizedBox(
         height: 56,
         width: double.infinity,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            gradient: const LinearGradient(
-              begin: Alignment.centerLeft,
-              end: Alignment.centerRight,
-              colors: <Color>[_cyan, _blue],
-            ),
+            color: Theme.of(context).colorScheme.primary,
             borderRadius: BorderRadius.circular(30),
             boxShadow: <BoxShadow>[
               BoxShadow(
-                color: _blue.withValues(alpha: .20),
+                color: Theme.of(context)
+                    .colorScheme
+                    .primary
+                    .withValues(alpha: .20),
                 blurRadius: 15,
                 offset: const Offset(0, 7),
               ),
@@ -279,19 +267,22 @@ class _VerifyButton extends StatelessWidget {
           child: TextButton(
             onPressed: isLoading ? null : onPressed,
             style: TextButton.styleFrom(
-              foregroundColor: Colors.white,
-              disabledForegroundColor: Colors.white70,
+              foregroundColor: Theme.of(context).colorScheme.onPrimary,
+              disabledForegroundColor: Theme.of(context)
+                  .colorScheme
+                  .onPrimary
+                  .withValues(alpha: .70),
               backgroundColor: Colors.transparent,
               shape: const StadiumBorder(),
               padding: const EdgeInsets.symmetric(horizontal: 20),
             ),
             child: isLoading
-                ? const SizedBox(
+                ? SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.2,
-                      color: Colors.white,
+                      color: Theme.of(context).colorScheme.onPrimary,
                     ),
                   )
                 : Text(
