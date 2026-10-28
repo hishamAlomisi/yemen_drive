@@ -54,7 +54,9 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       _openRequestedCashShortfall(
         controller.cashShortfallApprovalToOpen.value,
       );
-      if (!mounted || controller.hasShownTripSharePrompt) return;
+      if (!mounted ||
+          controller.hasShownTripSharePrompt ||
+          controller.pendingRatingRideId.value != null) return;
       controller.hasShownTripSharePrompt = true;
       _showTripSharePrompt();
     });
@@ -161,7 +163,10 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       );
       return Future<void>.value();
     }
-    if (status == 'DriverEnRoute' || status == '4') {
+    if (status == 'DriverEnRoute' ||
+        status == '4' ||
+        status == 'DriverArrived' ||
+        status == '9') {
       return Get.toNamed<void>(RideRoutes.rideCancel) ?? Future<void>.value();
     }
     return Get.dialog<void>(
@@ -207,16 +212,19 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
         final lockBackNavigation = <String>{
           'DriverAssigned',
           'DriverEnRoute',
+          'DriverArrived',
           'InProgress',
           'Completed',
           '3',
           '4',
           '5',
           '6',
+          '9',
         }.contains(controller.activeRideStatus.value);
         final statusLabel = switch (controller.activeRideStatus.value) {
           'DriverAssigned' || '3' => 'تم تعيين السائق',
           'DriverEnRoute' || '4' => 'السائق في الطريق',
+          'DriverArrived' || '9' => 'وصل السائق، يرجى التوجه إليه',
           'InProgress' || '5' => 'الرحلة جارية',
           'Completed' || '6' => 'تم الوصول',
           _ => 'جاري تحديث حالة الرحلة',
@@ -303,6 +311,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 DriverCard(status: statusLabel),
+                const DriverCancellationDecisionCard(),
                 const SizedBox(height: AppSpacing.sm),
                 RouteSummaryCard(compact: true),
                 if (int.tryParse(controller.currentRideId ?? '')
@@ -1002,7 +1011,10 @@ class RideReviewPage extends GetView<PaymentController> {
   const RideReviewPage({super.key});
 
   @override
-  Widget build(BuildContext context) => RidePageFrame(
+  Widget build(BuildContext context) => PopScope<void>(
+      canPop: false,
+      child: RidePageFrame(
+        showBack: false,
         title: 'تقييم الرحلة',
         footer: Obx(() => AppButton(
               label: controller.isSubmittingReview.value
@@ -1037,7 +1049,7 @@ class RideReviewPage extends GetView<PaymentController> {
               ),
               const SizedBox(height: AppSpacing.xs),
               const Text(
-                'يساعد تقييمك في تحسين جودة الرحلات.',
+                'أكمل تقييم هذه الرحلة قبل حجز رحلة جديدة.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.md),
@@ -1062,15 +1074,58 @@ class RideReviewPage extends GetView<PaymentController> {
                 minLines: 3,
                 maxLines: 5,
               ),
-              AppButton(
-                label: 'تخطي الآن',
-                variant: AppButtonVariant.text,
-                onPressed: controller.skipReview,
-              ),
             ],
           ),
         ),
-      );
+      ));
+}
+
+class DriverCancellationDecisionCard extends GetView<RideController> {
+  const DriverCancellationDecisionCard({super.key});
+
+  @override
+  Widget build(BuildContext context) => Obx(() {
+        final request = controller.driverCancellationRequest.value;
+        if (request == null ||
+            request['requestedByDriver'] != true ||
+            request['canDecide'] != true) return const SizedBox.shrink();
+        final busy = controller.isDecidingDriverCancellation.value;
+        return Card(
+          shape: RoundedRectangleBorder(
+            side: BorderSide(
+                color: Theme.of(context).colorScheme.primary, width: 2),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('يطلب السائق إلغاء الرحلة',
+                      style: Theme.of(context).textTheme.titleMedium),
+                  Text('${request['reason'] ?? ''}'),
+                  const Text('تستمر الرحلة ما لم توافق على الإلغاء.'),
+                  FilledButton(
+                    key: const ValueKey('approve-driver-cancellation'),
+                    onPressed: busy
+                        ? null
+                        : () =>
+                            controller.decideDriverCancellation(accept: true),
+                    child: const Text('الموافقة على إلغاء الرحلة'),
+                  ),
+                  OutlinedButton(
+                    key: const ValueKey('reject-driver-cancellation'),
+                    onPressed: busy
+                        ? null
+                        : () =>
+                            controller.decideDriverCancellation(accept: false),
+                    child: const Text('رفض الإلغاء ومتابعة الرحلة'),
+                  ),
+                  if (busy) const LinearProgressIndicator(),
+                ]),
+          ),
+        );
+      });
 }
 
 class RideThanksPage extends StatelessWidget {

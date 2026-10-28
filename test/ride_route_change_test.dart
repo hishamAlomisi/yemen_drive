@@ -84,6 +84,7 @@ const destination = RideRouteDestination(
 Future<void> mountRoute(
   WidgetTester tester, {
   Future<void> Function()? changed,
+  bool isDriver = false,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -93,6 +94,7 @@ Future<void> mountRoute(
         body: SingleChildScrollView(
           child: RideRouteChangePanel(
             rideId: 7,
+            isDriver: isDriver,
             selectDestination: () async => destination,
             onRouteChanged: changed,
           ),
@@ -105,6 +107,20 @@ Future<void> mountRoute(
 
 void main() {
   tearDown(Get.reset);
+
+  testWidgets('rider never receives approval controls from a stale server role',
+      (tester) async {
+    final api = Get.put<ApiClient>(RouteApi()) as RouteApi;
+    api.handle = (_, __) async =>
+        routeSnapshot(status: 'pending', mine: false, canRequest: false);
+    await mountRoute(tester);
+    expect(find.text('مراجعة الفاتورة والموافقة'), findsNothing);
+    expect(find.text('رفض تغيير الوجهة'), findsNothing);
+    expect(
+        api.calls.where((call) => call.$1 == 'accept' || call.$1 == 'reject'),
+        isEmpty);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   test('rejects wrong rides and missing or nonfinite financial fields', () {
     expect(
@@ -194,7 +210,7 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
-  testWidgets('incoming pending can be approved even if requesting is disabled',
+  testWidgets('driver can approve incoming pending when requesting is disabled',
       (tester) async {
     final api = Get.put<ApiClient>(RouteApi()) as RouteApi;
     var state =
@@ -205,7 +221,7 @@ void main() {
       }
       return state;
     };
-    await mountRoute(tester);
+    await mountRoute(tester, isDriver: true);
     expect(find.text('اختيار وجهة جديدة وعرض الفاتورة'), findsNothing);
     await tester.tap(find.text('مراجعة الفاتورة والموافقة'));
     await tester.pumpAndSettle();
@@ -223,7 +239,7 @@ void main() {
     final api = Get.put<ApiClient>(RouteApi()) as RouteApi;
     var state = routeSnapshot(status: 'pending', mine: false);
     api.handle = (_, body) async => state;
-    await mountRoute(tester);
+    await mountRoute(tester, isDriver: true);
     await tester.tap(find.text('مراجعة الفاتورة والموافقة'));
     await tester.pumpAndSettle();
     state = routeSnapshot(status: 'pending', mine: false, id: 10);

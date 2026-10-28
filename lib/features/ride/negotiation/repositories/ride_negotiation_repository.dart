@@ -15,7 +15,10 @@ abstract interface class RideNegotiationRepository {
   Future<RideSearchStartResult> createRequest(RideRequestDraft draft);
   Future<int> restartSearch(String requestId, {double? customerPrice});
   Future<List<RideRequestViewer>> getRequestViewers(String requestId);
-  Future<void> closeSearch(String requestId, {bool exhausted = false, String? reason});
+  Future<List<RideRequestViewer>> getRequestRecipients(String requestId);
+  Future<Map<String, Object?>?> getPendingRating();
+  Future<void> closeSearch(String requestId,
+      {bool exhausted = false, String? reason});
   DriverOffer? mapRealtimeOffer(Map<String, Object?> event);
   NearbyDriver? mapRealtimeNearbyDriver(Map<String, Object?> event);
   Future<void> acceptOffer(String requestId, String offerId);
@@ -165,7 +168,8 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<void> closeSearch(String requestId, {bool exhausted = false, String? reason}) async {
+  Future<void> closeSearch(String requestId,
+      {bool exhausted = false, String? reason}) async {
     final result = await _client.execute<Object?>(
       model: 'RideSearchActionModel',
       operation: 'cancel',
@@ -178,6 +182,46 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     if (result is ApiFailure) {
       throw FormatException(_failureMessage(result.problem));
     }
+  }
+
+  @override
+  Future<List<RideRequestViewer>> getRequestRecipients(String requestId) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideSearchRecipientModel',
+      operation: 'get',
+      data: {'rideId': requestId},
+    );
+    if (result is! ApiSuccess || result.data is! List) {
+      throw const FormatException(
+          'تعذر تحديث السائقين الذين أُرسل إليهم الطلب.');
+    }
+    return (result.data as List)
+        .whereType<Map<Object?, Object?>>()
+        .where((item) => item['driverId'] != null)
+        .map((item) => RideRequestViewer(
+              driverId: '${item['driverId']}',
+              name: '${item['name'] ?? ''}',
+              photoUrl: item['photoUrl']?.toString(),
+            ))
+        .toList(growable: false);
+  }
+
+  @override
+  Future<Map<String, Object?>?> getPendingRating() async {
+    final result = await _client.execute<Object?>(
+      model: 'PendingRideRatingModel',
+      operation: 'get',
+      data: const <String, Object?>{},
+    );
+    if (result is! ApiSuccess) {
+      throw const FormatException('تعذر التحقق من تقييم الرحلة السابقة.');
+    }
+    if (result.data == null) return null;
+    final value = _map(result.data);
+    if (_intOrNull(value['rideId']) == null) {
+      throw const FormatException('تعذر التحقق من تقييم الرحلة السابقة.');
+    }
+    return value;
   }
 
   @override
@@ -283,7 +327,9 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     for (final raw in result.data as List) {
       final ride = _map(raw);
       final status = int.tryParse('${ride['status'] ?? ''}');
-      if (status != null && status >= 0 && status <= 5) return ride;
+      if (status != null &&
+          ((status >= 0 && status <= 5) || status == 8 || status == 9))
+        return ride;
     }
     return null;
   }

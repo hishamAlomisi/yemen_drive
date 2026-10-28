@@ -5,7 +5,15 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart'
-    show Icons, TextEditingController, TextPainter, TextSpan, TextStyle;
+    show
+        Icons,
+        TextEditingController,
+        TextPainter,
+        TextSpan,
+        TextStyle,
+        WidgetsBindingObserver,
+        WidgetsBinding,
+        AppLifecycleState;
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -13,10 +21,12 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../core/config/app_environment.dart';
 import '../../../core/cache/persistent_network_image.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/network/api_models.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/ride_preferences.dart';
+import '../../../core/services/offer_arrival_notifier.dart';
 import '../../account/account_routes.dart';
 import '../home/repositories/service_kind_repository.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
@@ -27,13 +37,15 @@ import '../negotiation/repositories/ride_negotiation_repository.dart';
 import '../ride_routes.dart';
 import '../vehicle_selection/repositories/service_catalog_repository.dart';
 
-class RideController extends GetxController {
+class RideController extends GetxController with WidgetsBindingObserver {
   RideController(this._repository, this._session,
       [this._catalogRepository,
       ServiceKindRepository? serviceKinds,
-      RouteRepository? routeRepository])
+      RouteRepository? routeRepository,
+      OfferArrivalNotifier? offerNotifier])
       : _serviceKinds = serviceKinds,
-        _routeRepository = routeRepository;
+        _routeRepository = routeRepository,
+        _offerNotifier = offerNotifier ?? OfferArrivalNotifier();
 
   // Render at 3x and display as a balanced 28x36 logical marker.
   static const int _driverMarkerWidth = 84;
@@ -47,6 +59,18 @@ class RideController extends GetxController {
   final ServiceCatalogRepository? _catalogRepository;
   final ServiceKindRepository? _serviceKinds;
   final RouteRepository? _routeRepository;
+  final OfferArrivalNotifier _offerNotifier;
+  final RxnString pendingRatingRideId = RxnString();
+  final RxBool checkingPendingRating = false.obs;
+  final Rxn<Map<String, Object?>> driverCancellationRequest =
+      Rxn<Map<String, Object?>>();
+  final RxBool isDecidingDriverCancellation = false.obs;
+  Future<bool>? _ratingCheck;
+  final Set<String> _ratedRideIds = <String>{};
+  bool _paused = false;
+  bool _activeSnapshotLoading = false;
+  bool _activeSnapshotQueued = false;
+  String? _arrivalNoticeRideId;
   final Rx<RideServiceType> serviceType = RideServiceType.transport.obs;
   final RxnInt selectedServiceKindId = RxnInt();
   final Rx<RideVehicleType> selectedTransport = RideVehicleType.car.obs;
@@ -97,6 +121,9 @@ class RideController extends GetxController {
 
   /// Confirmed views from the API; nearby drivers are never counted as viewers.
   final RxList<RideRequestViewer> requestViewers = <RideRequestViewer>[].obs;
+
+  /// Only the server's persisted dispatch recipients belong in this list.
+  final RxList<RideRequestViewer> requestRecipients = <RideRequestViewer>[].obs;
   final RxInt searchRemainingSeconds = 60.obs;
   final RxDouble pendingSearchPrice = 0.0.obs;
   final RxBool isUpdatingSearchPrice = false.obs;
@@ -146,11 +173,16 @@ class RideController extends GetxController {
   String? get currentRideId => _requestId;
   DateTime get searchTime => DateTime.now();
 
-  bool get bookingLocked => _requestId != null || isSubmittingRequest.value;
+  bool get bookingLocked =>
+      _requestId != null ||
+      isSubmittingRequest.value ||
+      pendingRatingRideId.value != null ||
+      checkingPendingRating.value;
 
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(loadServiceCatalog());
     unawaited(_loadHomeServices());
     unawaited(_loadTrackingIcons());
@@ -165,8 +197,25 @@ class RideController extends GetxController {
           );
         } else if (rideId != null) {
           unawaited(refreshActiveRide());
+        } else {
+          unawaited(restoreOpenRideOnLaunch(force: true));
         }
       });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _paused = state != AppLifecycleState.resumed;
+    if (_paused) return;
+    if (pendingRatingRideId.value != null) openRequiredRating();
+    final rideId = _requestId;
+    if (rideId != null && isSearchingForDriver.value) {
+      unawaited(_refreshSearchSnapshotSafely(rideId, _offersWatchGeneration));
+    } else if (rideId != null) {
+      unawaited(refreshActiveRide());
+    } else {
+      unawaited(restoreOpenRideOnLaunch(force: true));
     }
   }
 
@@ -181,6 +230,7 @@ class RideController extends GetxController {
   /// Handles only the fixed notification actions defined by the application.
   /// The server supplies identifiers, never Flutter route names.
   Future<void> openNotificationPayload(Map<String, String> payload) async {
+    if (!await ensureNoPendingRating()) return;
     final notificationId = payload['notificationId'];
     final action = payload['action']?.trim().toLowerCase();
     final rideId = payload['rideId']?.trim();
@@ -245,11 +295,14 @@ class RideController extends GetxController {
 
   /// Restores the server's latest non-final ride after an app restart. The
   /// server remains the source of truth; no local draft is used to recreate it.
-  Future<void> restoreOpenRideOnLaunch() async {
-    if (_hasCheckedForOpenRide || !_session.isAuthenticated.value) return;
+  Future<void> restoreOpenRideOnLaunch({bool force = false}) async {
+    if ((!force && _hasCheckedForOpenRide) || !_session.isAuthenticated.value)
+      return;
     _hasCheckedForOpenRide = true;
 
     try {
+      if (!await ensureNoPendingRating()) return;
+      if (_requestId != null) return;
       final ride = await _repository.findLatestOpenRide();
       if (ride == null) return;
       final rideId = ride['id']?.toString();
@@ -259,8 +312,71 @@ class RideController extends GetxController {
       _restoreRideSnapshot(rideId, ride);
       await _continueRestoredRide(rideId, status);
     } catch (_) {
+      _hasCheckedForOpenRide = false;
       // Opening the home screen remains available when the network is offline.
     }
+  }
+
+  /// A server-backed gate: a failed check never authorizes another booking.
+  Future<bool> ensureNoPendingRating({bool showError = false}) {
+    final active = _ratingCheck;
+    if (active != null) return active;
+    final task = _checkPendingRating(showError: showError);
+    _ratingCheck = task;
+    return task.whenComplete(() => _ratingCheck = null);
+  }
+
+  Future<bool> _checkPendingRating({required bool showError}) async {
+    if (!_session.isAuthenticated.value) return true;
+    checkingPendingRating.value = true;
+    try {
+      final pending = await _repository.getPendingRating();
+      if (pending != null) {
+        final rideId = pending['rideId'].toString();
+        _requestId = rideId;
+        pendingRatingRideId.value = rideId;
+        assignedDriverName.value = '${pending['driverName'] ?? ''}';
+        activeRideStatus.value = '6';
+        isSearchingForDriver.value = false;
+        _stopRealTracking();
+        openRequiredRating();
+        return false;
+      }
+      final previous = pendingRatingRideId.value;
+      pendingRatingRideId.value = null;
+      if (previous != null) _ratedRideIds.add(previous);
+      return true;
+    } on Object {
+      _hasCheckedForOpenRide = false;
+      if (pendingRatingRideId.value != null) openRequiredRating();
+      if (showError) {
+        Get.snackbar('تعذر التحقق من التقييم',
+            'تحقق من الاتصال ثم أعد المحاولة قبل طلب رحلة جديدة.');
+      }
+      return false;
+    } finally {
+      checkingPendingRating.value = false;
+    }
+  }
+
+  void openRequiredRating() {
+    if (isClosed ||
+        pendingRatingRideId.value == null ||
+        Get.currentRoute == RideRoutes.review) return;
+    Get.offAllNamed<void>(RideRoutes.review);
+  }
+
+  void ratingSubmitted(String rideId) {
+    _ratedRideIds.add(rideId);
+    if (pendingRatingRideId.value == rideId) pendingRatingRideId.value = null;
+  }
+
+  void _requireRating(String rideId) {
+    if (_ratedRideIds.contains(rideId)) return;
+    pendingRatingRideId.value = rideId;
+    isSearchingForDriver.value = false;
+    _offersDeadlineTimer?.cancel();
+    openRequiredRating();
   }
 
   /// Opens a non-final server ride from the history screen. This keeps a
@@ -274,7 +390,12 @@ class RideController extends GetxController {
     }
     final ride = Map<String, Object?>.from(rawRide);
     final status = _asInt(ride['status']);
-    if (status == null || status >= 6) {
+    if (status == 6 && detail['requiresRating'] == true) {
+      _requestId = rideId;
+      _requireRating(rideId);
+      return;
+    }
+    if (status == null || status == 6 || status == 7) {
       throw const FormatException('هذه الرحلة لم تعد قابلة للاستئناف.');
     }
     _restoreRideSnapshot(rideId, ride);
@@ -295,6 +416,7 @@ class RideController extends GetxController {
     negotiationStatus.value = NegotiationStatus.accepted;
     isDriverAssigned.value = true;
     await refreshActiveRide();
+    if (pendingRatingRideId.value != null || _requestId != rideId) return;
     startRealTracking();
     if (!isClosed) Get.offAllNamed<void>(RideRoutes.driverLocation);
   }
@@ -1331,6 +1453,7 @@ class RideController extends GetxController {
     )) {
       return;
     }
+    if (!await ensureNoPendingRating(showError: true)) return;
     // A stopped or exhausted search is resumed on the same server ride.
     if (_requestId != null &&
         !isSearchingForDriver.value &&
@@ -1453,12 +1576,15 @@ class RideController extends GetxController {
   Future<void> _watchOffers(String requestId) async {
     final generation = ++_offersWatchGeneration;
     final rideId = int.tryParse(requestId);
-    if (rideId == null || !Get.isRegistered<TrackingHubService>()) return;
+    if (rideId == null) return;
     try {
-      await Get.find<TrackingHubService>().clearNearbyDriverSubscription();
-      // Join first, then fetch one snapshot. This closes the gap where an
-      // offer could arrive between the initial read and Hub subscription.
-      await Get.find<TrackingHubService>().setRideSubscriptions(<int>{rideId});
+      if (Get.isRegistered<TrackingHubService>()) {
+        await Get.find<TrackingHubService>().clearNearbyDriverSubscription();
+        // Join first, then fetch one snapshot. This closes the gap where an
+        // offer could arrive between the initial read and Hub subscription.
+        await Get.find<TrackingHubService>()
+            .setRideSubscriptions(<int>{rideId});
+      }
       await _refreshSearchSnapshot(requestId, generation);
     } catch (_) {
       if (generation == _offersWatchGeneration) {
@@ -1488,7 +1614,7 @@ class RideController extends GetxController {
             .whereType<DriverOffer>()
             .toList(growable: false)
         : const <DriverOffer>[];
-    if (status != null && <int>{3, 4, 5, 8}.contains(status)) {
+    if (status != null && <int>{3, 4, 5, 8, 9}.contains(status)) {
       activeRideStatus.value = '${ride['status']}';
       acceptedOffer.value = allOffers
           .where((offer) => offer.status == DriverOfferStatus.accepted)
@@ -1499,8 +1625,12 @@ class RideController extends GetxController {
     if (status == 6 || status == 7) {
       isSearchingForDriver.value = false;
       _offersDeadlineTimer?.cancel();
-      unawaited(
-          Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      if (status == 6 && detail['requiresRating'] == true)
+        _requireRating(requestId);
+      if (Get.isRegistered<TrackingHubService>()) {
+        unawaited(
+            Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
+      }
       return;
     }
 
@@ -1510,9 +1640,13 @@ class RideController extends GetxController {
             offer.expiresAt == null || offer.expiresAt!.isAfter(DateTime.now()))
         .toList(growable: false);
     driverOffers.assignAll(snapshot);
+    for (final offer in snapshot) {
+      unawaited(_offerNotifier.announce(requestId, offer.id));
+    }
     _tryAutoAcceptMatchingOffer();
     receivedOffersCount.value = snapshot.length;
     _updateOffersExhausted();
+    await _refreshRequestRecipients(requestId, generation);
     try {
       final viewers = await _repository.getRequestViewers(requestId);
       if (generation == _offersWatchGeneration &&
@@ -1525,6 +1659,19 @@ class RideController extends GetxController {
       }
     } catch (_) {
       // A missing snapshot never fabricates viewers; reconnect can recover it.
+    }
+  }
+
+  Future<void> _refreshRequestRecipients(String rideId, int generation) async {
+    try {
+      final recipients = await _repository.getRequestRecipients(rideId);
+      if (generation == _offersWatchGeneration &&
+          rideId == _requestId &&
+          isSearchingForDriver.value) {
+        requestRecipients.assignAll(recipients);
+      }
+    } on Object {
+      // Keep the last confirmed recipients; never substitute nearby drivers.
     }
   }
 
@@ -1561,6 +1708,12 @@ class RideController extends GetxController {
         payload['rideId']?.toString() ?? payload['rideID']?.toString();
     if (rideId != _requestId) return;
 
+    if (event.name == 'rideSearchRecipientsUpdated' &&
+        isSearchingForDriver.value) {
+      unawaited(_refreshRequestRecipients(rideId!, _offersWatchGeneration));
+      return;
+    }
+
     if (event.name == 'rideRequestViewed' && isSearchingForDriver.value) {
       final id = payload['driverId']?.toString();
       if (id != null && id.isNotEmpty) {
@@ -1572,7 +1725,9 @@ class RideController extends GetxController {
       return;
     }
 
-    if (event.name == 'paymentUpdated' || event.name == 'cashApprovalUpdated') {
+    if (event.name == 'paymentUpdated' ||
+        event.name == 'cashApprovalUpdated' ||
+        event.name == 'rideCancellationUpdated') {
       unawaited(refreshActiveRide());
       return;
     }
@@ -1594,9 +1749,12 @@ class RideController extends GetxController {
       customerPaymentEnabled.value = payload['customerPaymentEnabled'] == true;
       if (status == 6 || status == 7) {
         _stopRealTracking();
-      } else if (status == 3 || status == 4 || status == 5) {
+        if (status == 6) _requireRating(rideId!);
+      } else if (status == 3 || status == 4 || status == 5 || status == 9) {
         unawaited(_refreshAssignedDriverRoute());
       }
+      _showArrivalNotice(status, rideId!);
+      unawaited(refreshActiveRide());
       return;
     }
     if (event.name == 'driverLocationUpdated') {
@@ -1615,11 +1773,14 @@ class RideController extends GetxController {
       return;
     }
     if (event.name != 'offerReceived' && event.name != 'offerUpdated') return;
+    if (!isSearchingForDriver.value) return;
     final offer = _repository.mapRealtimeOffer(payload);
     if (offer == null) return;
 
     final index = driverOffers.indexWhere((item) => item.id == offer.id);
     if (offer.status == DriverOfferStatus.pending) {
+      if (offer.expiresAt != null && !offer.expiresAt!.isAfter(DateTime.now()))
+        return;
       if (index < 0) {
         driverOffers.add(offer);
         receivedOffersCount.value++;
@@ -1627,6 +1788,7 @@ class RideController extends GetxController {
         driverOffers[index] = offer;
       }
       offersExhausted.value = false;
+      unawaited(_offerNotifier.announce(rideId!, offer.id));
       _tryAutoAcceptMatchingOffer();
       return;
     }
@@ -1791,6 +1953,7 @@ class RideController extends GetxController {
     receivedOffersCount.value = 0;
     driverOffers.clear();
     requestViewers.clear();
+    requestRecipients.clear();
     _offersDeadlineTimer?.cancel();
     isSearchingForDriver.value = false;
     ++_offersWatchGeneration;
@@ -1816,6 +1979,7 @@ class RideController extends GetxController {
     offersStreamDone.value = false;
     _offersDeadlineTimer?.cancel();
     requestViewers.clear();
+    requestRecipients.clear();
     pendingSearchPrice.value =
         currentDraft.value?.offeredPrice ?? offeredPrice.value;
     searchRemainingSeconds.value = 60;
@@ -1937,6 +2101,12 @@ class RideController extends GetxController {
     try {
       if (assigned) {
         await _repository.requestCancellation(requestId, reason.trim());
+        await refreshActiveRide();
+        if (_requestId == requestId) {
+          Get.offNamed<void>(RideRoutes.driverLocation);
+          Get.snackbar('أُرسل طلب الإلغاء', 'تستمر الرحلة حتى اعتماد الإلغاء.');
+        }
+        return;
       } else {
         await _repository.closeSearch(requestId, reason: reason.trim());
       }
@@ -1981,8 +2151,16 @@ class RideController extends GetxController {
   }
 
   Future<void> refreshActiveRide({bool requireSuccess = false}) async {
+    if (_activeSnapshotLoading && !requireSuccess) {
+      _activeSnapshotQueued = true;
+      return;
+    }
+    _activeSnapshotLoading = true;
     final rideId = _requestId;
-    if (rideId == null) return;
+    if (rideId == null) {
+      _activeSnapshotLoading = false;
+      return;
+    }
     try {
       final detail = await _repository.getRideDetail(rideId);
       if (rideId != _requestId) return;
@@ -1997,6 +2175,16 @@ class RideController extends GetxController {
         customerPaymentEnabled.value = ride['customerPaymentEnabled'] == true;
         if (status == 6 || status == 7) {
           _stopRealTracking();
+        }
+        _showArrivalNotice(status, rideId);
+        if (status == 7) {
+          cancelRide('${ride['cancellationReason'] ?? 'تم إلغاء الرحلة'}');
+          return;
+        }
+        if (status == 6 && detail['requiresRating'] == true) {
+          _requireRating(rideId);
+        } else if (status == 6 && detail['requiresRating'] == false) {
+          ratingSubmitted(rideId);
         }
       }
       final payments = detail['payments'];
@@ -2040,9 +2228,59 @@ class RideController extends GetxController {
           unawaited(_refreshAssignedDriverRoute());
         }
       }
+      await _refreshDriverCancellation(rideId);
     } catch (_) {
       if (requireSuccess) rethrow;
       // Keep the last confirmed marker visible during a transient network failure.
+    } finally {
+      _activeSnapshotLoading = false;
+      if (_activeSnapshotQueued) {
+        _activeSnapshotQueued = false;
+        unawaited(refreshActiveRide());
+      }
+    }
+  }
+
+  void _showArrivalNotice(int? status, String rideId) {
+    if (status != 9 || _arrivalNoticeRideId == rideId) return;
+    _arrivalNoticeRideId = rideId;
+    Get.snackbar(
+        'وصل السائق', 'وصل السائق إلى نقطة الانطلاق. يرجى التوجه إليه.');
+  }
+
+  Future<void> _refreshDriverCancellation(String rideId) async {
+    if (!Get.isRegistered<ApiClient>()) return;
+    final result = await Get.find<ApiClient>().execute<Object?>(
+      model: 'RideCancellationRequestModel',
+      operation: 'get',
+      data: {'rideId': rideId},
+    );
+    if (_requestId != rideId || result is! ApiSuccess) return;
+    final raw = result.data;
+    driverCancellationRequest.value =
+        raw is Map ? Map<String, Object?>.from(raw) : null;
+  }
+
+  Future<void> decideDriverCancellation({required bool accept}) async {
+    final request = driverCancellationRequest.value;
+    if (request == null ||
+        request['requestedByDriver'] != true ||
+        request['canDecide'] != true ||
+        isDecidingDriverCancellation.value) return;
+    isDecidingDriverCancellation.value = true;
+    try {
+      final result = await Get.find<ApiClient>().execute<Object?>(
+        model: 'RideCancellationRequestModel',
+        operation: accept ? 'accept' : 'reject',
+        data: {'id': request['id']},
+      );
+      if (result is! ApiSuccess) throw const FormatException();
+      await refreshActiveRide(requireSuccess: true);
+      if (!accept) Get.snackbar('رُفض طلب الإلغاء', 'تستمر الرحلة دون تغيير.');
+    } on Object {
+      Get.snackbar('تعذر تنفيذ القرار', 'تحقق من الاتصال ثم أعد المحاولة.');
+    } finally {
+      isDecidingDriverCancellation.value = false;
     }
   }
 
@@ -2052,20 +2290,27 @@ class RideController extends GetxController {
     final draft = currentDraft.value;
     final latitude = _asDouble(ride['destinationLatitude']);
     final longitude = _asDouble(ride['destinationLongitude']);
-    if (draft == null || latitude == null || longitude == null ||
-        !latitude.isFinite || !longitude.isFinite || latitude.abs() > 90 ||
+    if (draft == null ||
+        latitude == null ||
+        longitude == null ||
+        !latitude.isFinite ||
+        !longitude.isFinite ||
+        latitude.abs() > 90 ||
         longitude.abs() > 180) return;
     _confirmedRouteVersion = version;
     final price = _asDouble(ride['customerPrice']) ?? draft.offeredPrice;
-    final label = '${ride['destinationDisplayName'] ?? ride['destinationAddress'] ?? draft.destination}';
+    final label =
+        '${ride['destinationDisplayName'] ?? ride['destinationAddress'] ?? draft.destination}';
     final changed = draft.destinationCoordinate.latitude != latitude ||
-        draft.destinationCoordinate.longitude != longitude || draft.destination != label;
+        draft.destinationCoordinate.longitude != longitude ||
+        draft.destination != label;
     if (!changed && draft.offeredPrice == price) return;
     currentDraft.value = RideRequestDraft(
       pickup: draft.pickup,
       destination: label,
       pickupCoordinate: draft.pickupCoordinate,
-      destinationCoordinate: RideCoordinate(latitude: latitude, longitude: longitude),
+      destinationCoordinate:
+          RideCoordinate(latitude: latitude, longitude: longitude),
       serviceKindId: draft.serviceKindId,
       serviceCatalogItemId: draft.serviceCatalogItemId,
       customerId: draft.customerId,
@@ -2077,8 +2322,10 @@ class RideController extends GetxController {
       destinationDetails: changed ? '' : draft.destinationDetails,
       moreThanFourPassengers: draft.moreThanFourPassengers,
       passengerNotes: draft.passengerNotes,
-      routeDistanceMeters: _asInt(ride['routeDistanceMeters']) ?? draft.routeDistanceMeters,
-      routeDurationSeconds: _asInt(ride['routeDurationSeconds']) ?? draft.routeDurationSeconds,
+      routeDistanceMeters:
+          _asInt(ride['routeDistanceMeters']) ?? draft.routeDistanceMeters,
+      routeDurationSeconds:
+          _asInt(ride['routeDurationSeconds']) ?? draft.routeDurationSeconds,
     );
     offeredPrice.value = price;
     if (!changed) return;
@@ -2275,6 +2522,10 @@ class RideController extends GetxController {
   }
 
   void prepareNewRide() {
+    if (pendingRatingRideId.value != null) {
+      openRequiredRating();
+      return;
+    }
     moreThanFourPassengers.value = false;
     passengerNotes.value = '';
     // The passenger foreground location service is only needed while a ride
@@ -2298,6 +2549,8 @@ class RideController extends GetxController {
     acceptedOffer.value = null;
     driverOffers.clear();
     requestViewers.clear();
+    requestRecipients.clear();
+    driverCancellationRequest.value = null;
     nearbyDrivers.clear();
     isDriverAssigned.value = false;
     assignedDriverName.value = '';
@@ -2356,6 +2609,7 @@ class RideController extends GetxController {
 
   @override
   void onClose() {
+    WidgetsBinding.instance.removeObserver(this);
     _hubEventSubscription?.cancel();
     _hubConnectionSubscription?.cancel();
     _driverMarkerAnimationTimer?.cancel();

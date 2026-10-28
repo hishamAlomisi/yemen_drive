@@ -348,6 +348,9 @@ class PaymentController extends GetxController {
       if (result is! ApiSuccess) {
         throw const FormatException('تعذر حفظ تقييم السائق. حاول مرة أخرى.');
       }
+      _ride.ratingSubmitted(rideId);
+      rating.value = 0;
+      reviewController.clear();
       Get.offAllNamed<void>(RideRoutes.rideThanks);
     } catch (_) {
       Get.snackbar('تعذر إرسال التقييم', 'تحقق من الاتصال ثم حاول مرة أخرى.');
@@ -355,6 +358,4 @@ class PaymentController extends GetxController {
       isSubmittingReview.value = false;
     }
   }
-
-  void skipReview() => Get.offAllNamed<void>(RideRoutes.rideThanks);
 }

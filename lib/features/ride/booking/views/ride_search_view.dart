@@ -123,6 +123,7 @@ class _RideSearchViewState extends State<RideSearchView> {
                           controller: scroll,
                           padding: EdgeInsets.zero,
                           children: [
+                            const SearchRequestRecipients(),
                             const SearchRequestViewers(),
                             _section(
                                 context,
@@ -436,6 +437,48 @@ class SearchRequestFare extends GetView<RideController> {
               icon: const Icon(Icons.remove, size: 28)),
         ]),
       ));
+}
+
+class SearchRequestRecipients extends GetView<RideController> {
+  const SearchRequestRecipients({super.key});
+
+  @override
+  Widget build(BuildContext context) => Obx(() {
+        final recipients = controller.requestRecipients.toList(growable: false);
+        return Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Text(
+              recipients.isEmpty
+                  ? 'جارٍ إرسال الطلب إلى السائقين المتاحين'
+                  : 'أُرسل الطلب إلى ${recipients.length} من السائقين',
+              key: const ValueKey('search-recipients-count'),
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            if (recipients.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: recipients
+                      .map((driver) => Chip(
+                            key: ValueKey(
+                                'request-recipient-${driver.driverId}'),
+                            avatar: _ViewerAvatar(viewer: driver),
+                            label: Text(driver.name.isEmpty
+                                ? 'السائق ${driver.driverId}'
+                                : driver.name),
+                            side: BorderSide(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .outlineVariant),
+                          ))
+                      .toList(growable: false)),
+            ],
+          ]),
+        );
+      });
 }
 
 class SearchRequestViewers extends GetView<RideController> {

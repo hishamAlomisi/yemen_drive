@@ -449,13 +449,16 @@ void main() {
                   find.byKey(const ValueKey('search-confirm-price')))
               .onPressed,
           isNotNull);
-      await tester.drag(
-          find
-              .descendant(
-                  of: find.byKey(const ValueKey('search-sheet')),
-                  matching: find.byType(ListView))
-              .first,
-          const Offset(0, -300));
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('search-payment-method')),
+        100,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('search-sheet')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
       await tester.pump(const Duration(milliseconds: 500));
       expect(
           find.byKey(const ValueKey('search-payment-method')), findsOneWidget);
@@ -1013,7 +1016,8 @@ void main() {
     });
   }
 
-  testWidgets('sheet motion keeps native map configuration stable until settled',
+  testWidgets(
+      'sheet motion keeps native map configuration stable until settled',
       (tester) async {
     _phoneSize(tester);
     final originalMaps = maps.GoogleMapsFlutterPlatform.instance;
@@ -1033,7 +1037,8 @@ void main() {
     }
     final during = platform.builds - before;
     await tester.pump(const Duration(milliseconds: 250));
-    debugPrint('MAP_BENCHMARK: 30 sheet frames, $during map rebuilds during motion, '
+    debugPrint(
+        'MAP_BENCHMARK: 30 sheet frames, $during map rebuilds during motion, '
         '${platform.builds - before} including settled update');
     expect(during, 0);
     expect(platform.builds - before, 1);
@@ -1373,11 +1378,10 @@ class _MapPlatform extends maps.GoogleMapsFlutterPlatform {
   int builds = 0;
   @override
   Widget buildViewWithConfiguration(
-          int creationId, ValueChanged<int> onPlatformViewCreated,
-          {required maps.MapWidgetConfiguration widgetConfiguration,
-          maps.MapConfiguration mapConfiguration =
-              const maps.MapConfiguration(),
-          maps.MapObjects mapObjects = const maps.MapObjects()}) {
+      int creationId, ValueChanged<int> onPlatformViewCreated,
+      {required maps.MapWidgetConfiguration widgetConfiguration,
+      maps.MapConfiguration mapConfiguration = const maps.MapConfiguration(),
+      maps.MapObjects mapObjects = const maps.MapObjects()}) {
     builds++;
     return const ColoredBox(color: Color(0xFFE5EBDD));
   }
@@ -1389,6 +1393,12 @@ class _Places implements LocationSearchRepository {
 }
 
 class _Repository implements RideNegotiationRepository {
+  @override
+  Future<Map<String, Object?>?> getPendingRating() async => null;
+  @override
+  Future<List<RideRequestViewer>> getRequestRecipients(
+          String requestId) async =>
+      const [];
   final cancellationReasons = <String?>[];
   final quotes = <Completer<RideQuote>>[];
   final requests = <RideRequestDraft>[];
