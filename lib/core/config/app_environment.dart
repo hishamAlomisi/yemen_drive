@@ -40,6 +40,8 @@ class AppEnvironment {
       final kind = (raw['kind'] as num?)?.toInt() ?? 0;
       return PaymentMethodItem(
         id: '${raw['code'] ?? raw['id']}',
+        paymentMethodId: int.tryParse('${raw['id']}'),
+        providerCode: '${raw['providerCode'] ?? ''}',
         label: '${raw['nameAr'] ?? ''}',
         subtitle: '${raw['descriptionAr'] ?? ''}',
         kind: kind,

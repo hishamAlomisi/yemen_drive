@@ -76,6 +76,7 @@ class RideRequestDraft {
     this.routeDurationSeconds,
     this.idempotencyKey,
     this.pricingQuoteToken,
+    this.paymentMethodCode = 'cash',
   });
 
   final String pickup;
@@ -97,6 +98,7 @@ class RideRequestDraft {
   final int? routeDurationSeconds;
   final String? idempotencyKey;
   final String? pricingQuoteToken;
+  final String paymentMethodCode;
 
   RideRequestDraft withPrice(double price) => RideRequestDraft(
         pickup: pickup,
@@ -118,6 +120,7 @@ class RideRequestDraft {
         routeDurationSeconds: routeDurationSeconds,
         idempotencyKey: idempotencyKey,
         pricingQuoteToken: pricingQuoteToken,
+        paymentMethodCode: paymentMethodCode,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -135,6 +138,7 @@ class RideRequestDraft {
         'destinationDetails': destinationDetails,
         'moreThanFourPassengers': moreThanFourPassengers,
         'passengerNotes': passengerNotes,
+        'paymentMethodCode': paymentMethodCode,
         if (routeDistanceMeters != null)
           'routeDistanceMeters': routeDistanceMeters,
         if (routeDurationSeconds != null)

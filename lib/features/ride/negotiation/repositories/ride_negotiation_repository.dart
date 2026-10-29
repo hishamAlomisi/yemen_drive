@@ -110,6 +110,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         'idempotencyKey': draft.idempotencyKey,
         'moreThanFourPassengers': draft.moreThanFourPassengers,
         'passengerNotes': draft.passengerNotes,
+        'paymentMethodCode': draft.paymentMethodCode,
       },
     );
     if (result is ApiFailure) {

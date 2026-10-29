@@ -566,6 +566,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(Get.currentRoute, RideRoutes.negotiationQuote);
     expect(ride.preferredPaymentMethod.value, 'wallet');
+    expect(draft.paymentMethodCode, 'wallet');
     await booking.submit();
     expect(repository.requests, hasLength(1));
     ride.prepareNewRide();
@@ -586,12 +587,14 @@ void main() {
       offeredPrice: 1750,
       pickupAddress: 'شارع حدة',
       destinationAddress: 'ميدان التحرير — المدخل الجنوبي',
+      paymentMethodCode: 'JAIB',
     ));
     expect(api.model, 'RideModel');
     expect(api.operation, 'add');
     expect(api.payload['customerPrice'], 1750);
     expect(api.payload['destinationAddress'], contains('المدخل الجنوبي'));
     expect(api.payload.containsKey('paymentMethod'), isFalse);
+    expect(api.payload['paymentMethodCode'], 'JAIB');
   });
 
   testWidgets(

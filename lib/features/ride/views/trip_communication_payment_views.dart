@@ -27,6 +27,7 @@ import '../widgets/ride_common_widgets.dart';
 import '../widgets/external_payment_methods.dart';
 import '../widgets/ride_map_shell.dart';
 import '../widgets/ride_payment_widgets.dart';
+import '../widgets/wallet_ride_payment_panel.dart';
 import '../widgets/ride_trip_widgets.dart';
 
 class DriverLocationPage extends StatefulWidget {
@@ -889,113 +890,210 @@ class ActiveCallPage extends StatelessWidget {
       );
 }
 
-class RidePaymentPage extends GetView<PaymentController> {
+class RidePaymentPage extends StatefulWidget {
   const RidePaymentPage({super.key});
 
   @override
-  Widget build(BuildContext context) => RidePageFrame(
+  State<RidePaymentPage> createState() => _RidePaymentPageState();
+}
+
+class _RidePaymentPageState extends State<RidePaymentPage>
+    with WidgetsBindingObserver {
+  final controller = Get.find<PaymentController>();
+
+  @override
+  void initState() {
+    super.initState();
+    controller.setPaymentPageMounted(true);
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(controller.loadPaymentSummary());
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(controller.loadPaymentSummary());
+    }
+  }
+
+  @override
+  void dispose() {
+    controller.setPaymentPageMounted(false);
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Obx(() => PopScope<void>(
+      canPop: !controller.mandatoryPaymentPending,
+      child: RidePageFrame(
         title: 'طريقة الدفع',
-        body: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                vertical: AppSpacing.md,
-              ),
-              child: Column(
+        showBack: !controller.mandatoryPaymentPending,
+        body: controller.showExternalPayment
+            ? SingleChildScrollView(
+                child: WalletRidePaymentPanel(
+                  controller: controller.externalPayment,
+                  onRefresh: controller.refreshExternalPayment,
+                  onRetry: controller.retryExternalPayment,
+                  onChangeMethod: controller.dismissExternalPayment,
+                  onDone: controller.finishPaidRide,
+                ),
+              )
+            : Column(
                 children: [
-                  const RideSectionHeader(
-                    title: 'اختر طريقة الدفع',
-                    subtitle: 'راجع المبلغ واختر الوسيلة المناسبة لك.',
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: AppSpacing.md,
+                    ),
+                    child: Column(
+                      children: [
+                        RideSectionHeader(
+                          title: 'اختر طريقة الدفع',
+                          subtitle: controller.mandatoryPaymentPending
+                              ? 'تم قبول العرض. أكمل الدفع الآن أو اعتمد الدفع النقدي لمتابعة الرحلة.'
+                              : 'راجع المبلغ واختر الوسيلة المناسبة لك.',
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.md,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Obx(() {
+                            final flow = controller.externalPayment;
+                            final error =
+                                controller.summaryError.value.isNotEmpty
+                                    ? controller.summaryError.value
+                                    : flow.error.value;
+                            if (error.isEmpty && flow.stateKnown.value) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Column(children: [
+                                Text(
+                                    error.isEmpty
+                                        ? 'جارٍ التحقق من حالة الدفع…'
+                                        : error,
+                                    textAlign: TextAlign.center),
+                                if (!flow.busy.value)
+                                  TextButton.icon(
+                                      onPressed: controller.loadPaymentSummary,
+                                      icon: const Icon(Icons.refresh_rounded),
+                                      label: const Text('تحديث حالة الدفع')),
+                              ]),
+                            );
+                          }),
+                          if (controller.paymentActionError.value.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              child: Text(controller.paymentActionError.value,
+                                  textAlign: TextAlign.center),
+                            ),
+                          Obx(() => controller.cashPaymentConfirmed.value
+                              ? AppCard(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .primary
+                                      .withValues(alpha: .14),
+                                  borderColor:
+                                      Theme.of(context).colorScheme.primary,
+                                  child: Row(
+                                    children: <Widget>[
+                                      Icon(Icons.verified_rounded,
+                                          color: AppColors.accent(context),
+                                          size: 28),
+                                      const SizedBox(width: AppSpacing.sm),
+                                      Expanded(
+                                          child: Text(
+                                              'تم قبض مبلغ الرحلة نقداً من قبل السائق. لا حاجة لاختيار وسيلة دفع أخرى.',
+                                              style: const TextStyle(
+                                                  fontWeight:
+                                                      FontWeight.w600))),
+                                    ],
+                                  ),
+                                )
+                              : PaymentMethodTile(
+                                  id: 'cash',
+                                  title: 'نقداً',
+                                  subtitle: controller.mandatoryPaymentPending
+                                      ? 'سيحصّل السائق المبلغ نقداً عند إنهاء الرحلة.'
+                                      : controller.cashRequestStatus.value == 0
+                                          ? 'بانتظار تأكيد السائق للاستلام'
+                                          : controller.cashRequestStatus
+                                                      .value ==
+                                                  1
+                                              ? 'أكد السائق؛ يجري تسجيل التحصيل'
+                                              : controller.cashRequestStatus
+                                                          .value ==
+                                                      2
+                                                  ? 'لم يؤكد السائق الاستلام؛ اختر وسيلة أخرى'
+                                                  : 'يرسل طلب تأكيد إلى السائق',
+                                  icon: Icons.payments_outlined,
+                                )),
+                          Obx(() => PaymentMethodTile(
+                                id: 'wallet',
+                                title: 'محفظة يمن درايف',
+                                subtitle:
+                                    'الرصيد المتاح ${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                                icon: Icons.account_balance_wallet_outlined,
+                              )),
+                          Obx(() => ExternalPaymentMethodsTile(
+                                selected: controller.selectedMethod.value,
+                                enabled: !controller.paymentOptionsLocked,
+                                onSelected: controller.selectMethod,
+                              )),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.lg),
+                  const PriceSummary(),
+                  const SizedBox(height: AppSpacing.lg),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.md,
+                      AppSpacing.sm,
+                      AppSpacing.md,
+                      AppSpacing.md,
+                    ),
+                    child: Obx(() => AppButton(
+                          isLoading: controller.isPaying.value ||
+                              controller.externalPayment.busy.value,
+                          label: controller.isPaying.value
+                              ? 'جارٍ إتمام الدفع...'
+                              : controller.paymentCompleted.value
+                                  ? controller.rideCompletedByDriver.value
+                                      ? 'متابعة إلى التقييم'
+                                      : 'تم الدفع — متابعة الرحلة'
+                                  : controller.mandatoryPaymentPending &&
+                                          controller.selectedMethod.value ==
+                                              'cash'
+                                      ? 'اعتماد الدفع النقدي ومتابعة الرحلة'
+                                      : controller
+                                              .selectedExternalWalletSupported
+                                          ? 'التالي — التحقق من حساب ${controller.selectedExternalWalletName}'
+                                          : 'تأكيد ودفع ${controller.totalDue.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                          leading: const Icon(Icons.lock_outline_rounded),
+                          onPressed: controller.isPaying.value
+                              ? null
+                              : controller.paymentCompleted.value
+                                  ? controller.finishPaidRide
+                                  : controller.paymentOptionsLocked
+                                      ? null
+                                      : controller.pay,
+                        )),
                   ),
                 ],
               ),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.md,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Obx(() => controller.cashPaymentConfirmed.value
-                        ? AppCard(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .primary
-                                .withValues(alpha: .14),
-                            borderColor: Theme.of(context).colorScheme.primary,
-                            child: Row(
-                              children: <Widget>[
-                                Icon(Icons.verified_rounded,
-                                    color: AppColors.accent(context), size: 28),
-                                const SizedBox(width: AppSpacing.sm),
-                                Expanded(
-                                    child: Text(
-                                        'تم قبض مبلغ الرحلة نقداً من قبل السائق. لا حاجة لاختيار وسيلة دفع أخرى.',
-                                        style: const TextStyle(
-                                            fontWeight: FontWeight.w600))),
-                              ],
-                            ),
-                          )
-                        : PaymentMethodTile(
-                            id: 'cash',
-                            title: 'نقداً',
-                            subtitle: controller.cashRequestStatus.value == 0
-                                ? 'بانتظار تأكيد السائق للاستلام'
-                                : controller.cashRequestStatus.value == 1
-                                    ? 'أكد السائق؛ يجري تسجيل التحصيل'
-                                    : controller.cashRequestStatus.value == 2
-                                        ? 'لم يؤكد السائق الاستلام؛ اختر وسيلة أخرى'
-                                        : 'يرسل طلب تأكيد إلى السائق',
-                            icon: Icons.payments_outlined,
-                          )),
-                    Obx(() => PaymentMethodTile(
-                          id: 'wallet',
-                          title: 'محفظة يمن درايف',
-                          subtitle:
-                              'الرصيد المتاح ${controller.walletBalance.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
-                          icon: Icons.account_balance_wallet_outlined,
-                        )),
-                    Obx(() => ExternalPaymentMethodsTile(
-                          selected: controller.selectedMethod.value,
-                          enabled: !controller.cashPaymentConfirmed.value &&
-                              !controller.isPaying.value,
-                          onSelected: controller.selectMethod,
-                        )),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.lg),
-            const PriceSummary(),
-            const SizedBox(height: AppSpacing.lg),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppSpacing.md,
-                AppSpacing.sm,
-                AppSpacing.md,
-                AppSpacing.md,
-              ),
-              child: Obx(() => AppButton(
-                    label: controller.isPaying.value
-                        ? 'جارٍ إتمام الدفع...'
-                        : controller.cashPaymentConfirmed.value
-                            ? controller.rideCompletedByDriver.value
-                                ? 'متابعة إلى التقييم'
-                                : 'تم الدفع — بانتظار إنهاء السائق'
-                            : 'تأكيد ودفع ${controller.totalDue.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
-                    leading: const Icon(Icons.lock_outline_rounded),
-                    onPressed: controller.isPaying.value
-                        ? null
-                        : controller.cashPaymentConfirmed.value
-                            ? controller.finishCollectedCashRide
-                            : controller.pay,
-                  )),
-            ),
-          ],
-        ),
-      );
+      )));
 }
 
 class ActiveRidePage extends StatelessWidget {

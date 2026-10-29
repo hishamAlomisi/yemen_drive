@@ -62,6 +62,8 @@ void main() {
     api.response = <Object?>[
       <String, Object?>{
         ..._method('API_CODE', 'اسم من الخادم', topUp: false),
+        'id': 7,
+        'providerCode': 'Floosak',
         'imageUrl': 'https://example.com/provider.png',
         'kind': 2,
       },
@@ -72,6 +74,8 @@ void main() {
     expect(await AppEnvironment.loadPaymentMethods(api), isTrue);
     final method = AppEnvironment.externalPaymentMethods.single;
     expect(method.id, 'API_CODE');
+    expect(method.paymentMethodId, 7);
+    expect(method.providerCode, 'Floosak');
     expect(method.label, 'اسم من الخادم');
     expect(method.imageUrl, 'https://example.com/provider.png');
     expect(method.kind, 2);
@@ -209,8 +213,8 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('محفظة إلكترونية تجريبية ذات اسم طويل'), findsOneWidget);
     await tester.runAsync(() async {
-      final boundary =
-          previewKey.currentContext!.findRenderObject()! as RenderRepaintBoundary;
+      final boundary = previewKey.currentContext!.findRenderObject()!
+          as RenderRepaintBoundary;
       final image = await boundary.toImage();
       final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
       final directory = Directory('build/payment-previews')

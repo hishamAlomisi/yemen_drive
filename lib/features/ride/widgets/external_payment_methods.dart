@@ -7,7 +7,7 @@ import '../../../core/network/api_client.dart';
 import '../../account/wallet/models/wallet_models.dart';
 
 /// Uses the same catalog as ride settlement and wallet top-up. Opening or
-/// selecting an item never starts a payment or changes the booking payload.
+/// selecting an item never starts a payment. The booking saves only the choice.
 class ExternalPaymentMethodsTile extends StatelessWidget {
   const ExternalPaymentMethodsTile({
     required this.selected,

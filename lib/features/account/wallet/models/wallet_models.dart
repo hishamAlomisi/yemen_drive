@@ -34,6 +34,8 @@ class PaymentMethodItem {
       required this.subtitle,
       required this.icon,
       this.imageUrl,
+      this.paymentMethodId,
+      this.providerCode = '',
       this.kind = 0,
       this.availableForRidePayment = true,
       this.availableForWalletTopUp = true});
@@ -42,6 +44,8 @@ class PaymentMethodItem {
   final String subtitle;
   final IconData icon;
   final String? imageUrl;
+  final int? paymentMethodId;
+  final String providerCode;
   final int kind;
   final bool availableForRidePayment;
   final bool availableForWalletTopUp;

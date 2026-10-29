@@ -91,6 +91,11 @@ class RideController extends GetxController with WidgetsBindingObserver {
   final RxBool isDriverAssigned = false.obs;
   final RxString activeRideStatus = ''.obs;
   final RxString preferredPaymentMethod = 'cash'.obs;
+  final RxString activePaymentMethodCode = 'cash'.obs;
+  final RxBool paymentRequiredBeforeStart = false.obs;
+  String? _paymentChoiceRideId;
+  bool _paymentPageMounted = false;
+  bool _mandatoryPaymentPageMounted = false;
   final RxBool activeRidePaymentCompleted = false.obs;
   final RxBool customerPaymentEnabled = false.obs;
   final Rxn<Map<String, Object?>> cashCollectionApproval =
@@ -179,6 +184,56 @@ class RideController extends GetxController with WidgetsBindingObserver {
       pendingRatingRideId.value != null ||
       checkingPendingRating.value;
 
+  bool get mandatoryPaymentPending =>
+      _requestId != null &&
+      paymentRequiredBeforeStart.value &&
+      !activeRidePaymentCompleted.value;
+
+  void applyPaymentChoiceSnapshot(Map<Object?, Object?> ride) {
+    final code = ride['paymentMethodCode']?.toString().trim();
+    if (code != null && code.isNotEmpty) {
+      if (_paymentChoiceRideId != _requestId ||
+          activePaymentMethodCode.value.toLowerCase() != code.toLowerCase()) {
+        final method = AppEnvironment.paymentMethods
+            .where((item) => item.id.toLowerCase() == code.toLowerCase())
+            .firstOrNull;
+        preferredPaymentMethod.value = method?.id ?? code;
+      }
+      activePaymentMethodCode.value = code;
+      _paymentChoiceRideId = _requestId;
+    }
+    if (ride['paymentRequiredBeforeStart'] is bool) {
+      paymentRequiredBeforeStart.value =
+          ride['paymentRequiredBeforeStart'] == true;
+    }
+  }
+
+  void openActiveRide() {
+    final target = mandatoryPaymentPending
+        ? RideRoutes.payment
+        : RideRoutes.driverLocation;
+    if (isClosed || Get.currentRoute == target) return;
+    Get.offAllNamed<void>(target);
+  }
+
+  void setPaymentPageMounted(bool mounted) {
+    _paymentPageMounted = mounted;
+    _mandatoryPaymentPageMounted = mounted && mandatoryPaymentPending;
+  }
+
+  void reconcilePaymentNavigation() {
+    if (mandatoryPaymentPending && !_paymentPageMounted) {
+      openActiveRide();
+    } else if (_mandatoryPaymentPageMounted &&
+        !mandatoryPaymentPending &&
+        !activeRidePaymentCompleted.value &&
+        activePaymentMethodCode.value.toLowerCase() == 'cash') {
+      // A cash choice may have committed even if its response was lost.
+      // Leave the required step only after a server snapshot confirms it.
+      openActiveRide();
+    }
+  }
+
   @override
   void onInit() {
     super.onInit();
@@ -231,6 +286,10 @@ class RideController extends GetxController with WidgetsBindingObserver {
   /// The server supplies identifiers, never Flutter route names.
   Future<void> openNotificationPayload(Map<String, String> payload) async {
     if (!await ensureNoPendingRating()) return;
+    if (mandatoryPaymentPending) {
+      openActiveRide();
+      return;
+    }
     final notificationId = payload['notificationId'];
     final action = payload['action']?.trim().toLowerCase();
     final rideId = payload['rideId']?.trim();
@@ -249,6 +308,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
       if (rideId != null && rideId.isNotEmpty) {
         await resumeOpenRide(rideId);
         await _markNotificationRead(notificationId);
+        if (mandatoryPaymentPending) return;
         if (action == 'open_ride_chat') {
           Get.toNamed<void>(RideRoutes.chat, arguments: payload);
         } else if (action == 'open_ride_payment') {
@@ -362,6 +422,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
   void openRequiredRating() {
     if (isClosed ||
         pendingRatingRideId.value == null ||
+        // Let the customer finish a provider challenge and read its receipt.
+        // The pending rating still prevents another booking.
+        Get.currentRoute == RideRoutes.payment ||
         Get.currentRoute == RideRoutes.review) return;
     Get.offAllNamed<void>(RideRoutes.review);
   }
@@ -418,11 +481,12 @@ class RideController extends GetxController with WidgetsBindingObserver {
     await refreshActiveRide();
     if (pendingRatingRideId.value != null || _requestId != rideId) return;
     startRealTracking();
-    if (!isClosed) Get.offAllNamed<void>(RideRoutes.driverLocation);
+    if (!isClosed) openActiveRide();
   }
 
   void _restoreRideSnapshot(String rideId, Map<String, Object?> ride) {
     _requestId = rideId;
+    applyPaymentChoiceSnapshot(ride);
     _confirmedRouteVersion = _asInt(ride['routeVersion']) ?? 0;
     activeRideStatus.value = '${ride['status'] ?? ''}';
     final pickupLatitude = _asDouble(ride['pickupLatitude']) ?? 0;
@@ -447,6 +511,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
       serviceKindId: _asInt(ride['serviceKindId']) ?? 0,
       serviceCatalogItemId: _asInt(ride['serviceCatalogItemId']) ?? 0,
       offeredPrice: price,
+      paymentMethodCode: activePaymentMethodCode.value,
       pickupAddress: '${ride['pickupAddress'] ?? ''}',
       destinationAddress: '${ride['destinationAddress'] ?? ''}',
     );
@@ -1197,7 +1262,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
         'أكمل الرحلة الحالية أو ألغها قبل إنشاء طلب جديد.',
       );
       if (isDriverAssigned.value) {
-        Get.toNamed<void>(RideRoutes.driverLocation);
+        openActiveRide();
       } else {
         Get.toNamed<void>(RideRoutes.negotiationQuote);
       }
@@ -1534,6 +1599,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
       destinationDetails: location.detailsController.text.trim(),
       moreThanFourPassengers: moreThanFourPassengers.value,
       passengerNotes: passengerNotes.value.trim(),
+      paymentMethodCode: preferredPaymentMethod.value,
       routeDistanceMeters: (routeDistanceKm.value * 1000).round(),
       routeDurationSeconds: location.routeDurationSeconds.value > 0
           ? location.routeDurationSeconds.value
@@ -1546,6 +1612,10 @@ class RideController extends GetxController with WidgetsBindingObserver {
     try {
       final started = await _repository.createRequest(draft);
       _requestId = started.rideId;
+      applyPaymentChoiceSnapshot({
+        'paymentMethodCode': draft.paymentMethodCode,
+        'paymentRequiredBeforeStart': false,
+      });
     } on FormatException catch (error) {
       // Keep diagnostic output limited to non-sensitive matching identifiers.
       debugPrint(
@@ -1605,6 +1675,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
         ? Map<Object?, Object?>.from(rawRide)
         : const <Object?, Object?>{};
     final status = _asInt(ride['status']);
+    applyPaymentChoiceSnapshot(ride);
     final rawOffers = detail['offers'];
     final allOffers = rawOffers is List
         ? rawOffers
@@ -1746,6 +1817,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final status = _asInt(payload['rideStatus']);
       if (status == null) return;
       activeRideStatus.value = '$status';
+      applyPaymentChoiceSnapshot(payload);
       customerPaymentEnabled.value = payload['customerPaymentEnabled'] == true;
       if (status == 6 || status == 7) {
         _stopRealTracking();
@@ -1754,6 +1826,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
         unawaited(_refreshAssignedDriverRoute());
       }
       _showArrivalNotice(status, rideId!);
+      reconcilePaymentNavigation();
       unawaited(refreshActiveRide());
       return;
     }
@@ -1796,6 +1869,12 @@ class RideController extends GetxController with WidgetsBindingObserver {
     if (index >= 0) driverOffers[index] = offer;
     if (offer.status == DriverOfferStatus.accepted &&
         _asInt(payload['rideStatus']) == 3) {
+      applyPaymentChoiceSnapshot(payload);
+      if (!payload.containsKey('paymentRequiredBeforeStart')) {
+        paymentRequiredBeforeStart.value =
+            activePaymentMethodCode.value.toLowerCase() != 'cash' &&
+                !activeRidePaymentCompleted.value;
+      }
       acceptedOffer.value = offer;
       activeRideStatus.value = '${payload['rideStatus']}';
       negotiationStatus.value = NegotiationStatus.accepted;
@@ -1846,6 +1925,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
     );
     negotiationStatus.value = NegotiationStatus.accepted;
     activeRideStatus.value = 'DriverAssigned';
+    paymentRequiredBeforeStart.value =
+        activePaymentMethodCode.value.toLowerCase() != 'cash' &&
+            !activeRidePaymentCompleted.value;
     driverFound();
   }
 
@@ -2135,7 +2217,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
     isSearchingForDriver.value = false;
     isDriverAssigned.value = true;
     startRealTracking();
-    Get.offNamed<void>(RideRoutes.driverLocation);
+    openActiveRide();
   }
 
   void startRealTracking() {
@@ -2169,6 +2251,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
         throw const FormatException('تعذر تحديث بيانات الرحلة.');
       }
       if (ride is Map) {
+        applyPaymentChoiceSnapshot(Map<Object?, Object?>.from(ride));
         final status = _asInt(ride['status']);
         activeRideStatus.value = '${ride['status'] ?? ''}';
         _applyConfirmedRoute(Map<String, Object?>.from(ride));
@@ -2196,6 +2279,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
                 final status = '${payment['status'] ?? ''}'.toLowerCase();
                 return status == '2' || status == 'paid';
               }));
+      reconcilePaymentNavigation();
       final approval = detail['cashCollectionApproval'];
       cashCollectionApproval.value =
           approval is Map ? Map<String, Object?>.from(approval) : null;
@@ -2322,6 +2406,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
       destinationDetails: changed ? '' : draft.destinationDetails,
       moreThanFourPassengers: draft.moreThanFourPassengers,
       passengerNotes: draft.passengerNotes,
+      paymentMethodCode: draft.paymentMethodCode,
       routeDistanceMeters:
           _asInt(ride['routeDistanceMeters']) ?? draft.routeDistanceMeters,
       routeDurationSeconds:
@@ -2535,6 +2620,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
     _offersDeadlineTimer?.cancel();
     ++_offersWatchGeneration;
     _requestId = null;
+    _paymentChoiceRideId = null;
+    activePaymentMethodCode.value = 'cash';
+    paymentRequiredBeforeStart.value = false;
     _confirmedRouteVersion = 0;
     _lastPassengerLocationPublished = null;
     if (Get.isRegistered<TrackingHubService>()) {

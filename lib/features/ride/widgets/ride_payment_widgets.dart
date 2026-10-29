@@ -24,8 +24,7 @@ class PaymentMethodTile extends GetView<PaymentController> {
   @override
   Widget build(BuildContext context) => Obx(() {
         final selected = controller.selectedMethod.value == id;
-        final enabled = !controller.cashPaymentConfirmed.value &&
-            !controller.isPaying.value;
+        final enabled = !controller.paymentOptionsLocked;
         final colors = Theme.of(context).colorScheme;
         return Column(
           children: <Widget>[
