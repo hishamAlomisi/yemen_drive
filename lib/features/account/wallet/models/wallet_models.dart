@@ -7,13 +7,18 @@ class WalletTransaction {
       required this.date,
       required this.amount,
       required this.isCredit,
-      required this.type});
+      required this.type,
+      this.externalReference});
   final String id;
   final String title;
   final DateTime date;
   final double amount;
   final bool isCredit;
   final int type;
+  final String? externalReference;
+  String? get topUpId => externalReference?.startsWith('wallet-top-up:') == true
+      ? externalReference!.split(':').last
+      : null;
 }
 
 class WalletSnapshot {
@@ -37,6 +42,10 @@ class PaymentMethodItem {
       this.paymentMethodId,
       this.providerCode = '',
       this.kind = 0,
+      this.isActive = true,
+      this.isProviderConnected = true,
+      this.isServiceAvailable = true,
+      this.sortOrder = 0,
       this.availableForRidePayment = true,
       this.availableForWalletTopUp = true});
   final String id;
@@ -47,6 +56,22 @@ class PaymentMethodItem {
   final int? paymentMethodId;
   final String providerCode;
   final int kind;
+  final bool isActive;
+  final bool isProviderConnected;
+  final bool isServiceAvailable;
+  final int sortOrder;
+  bool get canPayRide =>
+      isActive &&
+      isServiceAvailable &&
+      availableForRidePayment &&
+      isProviderConnected &&
+      const {'floosak', 'jaib'}.contains(providerCode.toLowerCase());
+  bool get canTopUp =>
+      isActive &&
+      isServiceAvailable &&
+      isProviderConnected &&
+      availableForWalletTopUp &&
+      const {'floosak', 'jaib'}.contains(providerCode.toLowerCase());
   final bool availableForRidePayment;
   final bool availableForWalletTopUp;
 }

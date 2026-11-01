@@ -23,6 +23,7 @@ class AuthSessionService extends GetxService {
   String? _pendingRoute;
   Object? _pendingArguments;
   bool _pendingNotificationOpen = false;
+  bool _returnToExistingLocationSearch = false;
   late final String deviceId;
   Future<void> Function()? onAuthenticated;
   Future<void> Function()? onSignedOut;
@@ -118,6 +119,9 @@ class AuthSessionService extends GetxService {
     if (isAuthenticated.value) return true;
     _pendingRoute = returnRoute;
     _pendingArguments = arguments;
+    _returnToExistingLocationSearch =
+        returnRoute == RideRoutes.locationSearch &&
+            Get.currentRoute == returnRoute;
     Get.toNamed<void>(AuthRoutes.signIn);
     return false;
   }
@@ -125,9 +129,16 @@ class AuthSessionService extends GetxService {
   void continueAfterAuthentication({String fallbackRoute = '/home'}) {
     final route = _pendingRoute ?? fallbackRoute;
     final arguments = _pendingArguments;
+    final reuseLocationSearch = _returnToExistingLocationSearch;
+    _returnToExistingLocationSearch = false;
     _pendingRoute = null;
     _pendingArguments = null;
     _pendingNotificationOpen = false;
+    if (reuseLocationSearch) {
+      // Keep the home booking's awaited search route alive across sign-in.
+      Get.until((page) => page.settings.name == route || page.isFirst);
+      if (Get.currentRoute == route) return;
+    }
     Get.offAllNamed<void>(route, arguments: arguments);
   }
 
@@ -136,6 +147,7 @@ class AuthSessionService extends GetxService {
     if (payload.isEmpty) return;
     final arguments = <String, Object?>{'pushNotification': payload};
     _pendingRoute = RideRoutes.homeTransport;
+    _returnToExistingLocationSearch = false;
     _pendingArguments = arguments;
     _pendingNotificationOpen = true;
 

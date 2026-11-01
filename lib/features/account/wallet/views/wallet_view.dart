@@ -2,32 +2,54 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
-import '../../../../../app/theme/app_colors.dart';
-import '../../../../../app/theme/app_spacing.dart';
-import '../../../../../core/config/app_environment.dart';
-import '../../../../../shared/widgets/app_button.dart';
-import '../../../../../shared/widgets/app_card.dart';
-import '../../../../../shared/widgets/app_skeleton.dart';
-import '../../../../../shared/widgets/app_text_field.dart';
+import '../../../../app/theme/app_colors.dart';
+import '../../../../app/theme/app_spacing.dart';
+import '../../../../core/config/app_environment.dart';
+import '../../../../shared/widgets/app_button.dart';
+import '../../../../shared/widgets/app_card.dart';
+import '../../../../shared/widgets/app_skeleton.dart';
+import '../../../../shared/widgets/app_text_field.dart';
 import '../../account_routes.dart';
 import '../../models/account_models.dart';
 import '../../widgets/account_widgets.dart';
 import '../controllers/wallet_controller.dart';
+import '../../../ride/widgets/wallet_ride_payment_panel.dart';
+import '../../../ride/widgets/external_payment_methods.dart';
 
-class WalletPage extends GetView<WalletController> {
+class WalletPage extends StatefulWidget {
   const WalletPage({this.embedded = false, super.key});
 
   final bool embedded;
 
   @override
+  State<WalletPage> createState() => _WalletPageState();
+}
+
+class _WalletPageState extends State<WalletPage> {
+  WalletController get controller => Get.find<WalletController>();
+
+  @override
+  void initState() {
+    super.initState();
+    final walletController = controller;
+    final args = Get.arguments;
+    if (!widget.embedded && args is Map && args['topUpId'] != null) {
+      final id = '${args['topUpId']}';
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) walletController.openInvoice(id);
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) => AccountPageTemplate(
         title: 'المحفظة',
         showBack: false,
-        bottomNavIndex: embedded ? null : 2,
+        bottomNavIndex: widget.embedded ? null : 2,
         actions: <Widget>[
           IconButton(
             tooltip: 'شحن المحفظة',
-            onPressed: () => Get.toNamed<void>(AccountRoutes.addAmount),
+            onPressed: controller.newTopUp,
             icon: Icon(Icons.add_card_rounded),
           ),
         ],
@@ -96,38 +118,44 @@ class _TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = transaction.isCredit ? AppColors.success : AppColors.error;
     return AppCard(
-      child: Row(
-        children: <Widget>[
-          CircleAvatar(
-            backgroundColor: color.withValues(alpha: .14),
-            foregroundColor: color,
-            child: Icon(
-              transaction.isCredit
-                  ? Icons.south_west_rounded
-                  : Icons.north_east_rounded,
+      child: InkWell(
+        onTap: transaction.topUpId == null
+            ? null
+            : () =>
+                Get.find<WalletController>().openInvoice(transaction.topUpId!),
+        child: Row(
+          children: <Widget>[
+            CircleAvatar(
+              backgroundColor: color.withValues(alpha: .14),
+              foregroundColor: color,
+              child: Icon(
+                transaction.isCredit
+                    ? Icons.south_west_rounded
+                    : Icons.north_east_rounded,
+              ),
             ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  transaction.title,
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-                Text(
-                  _arabicDate(transaction.date),
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ],
+            const SizedBox(width: AppSpacing.sm),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Text(
+                    transaction.title,
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  Text(
+                    _arabicDate(transaction.date),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
-          ),
-          Text(
-            '${transaction.isCredit ? '+' : '-'}${transaction.amount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency} ',
-            style: TextStyle(color: color, fontWeight: FontWeight.w800),
-          ),
-        ],
+            Text(
+              '${transaction.isCredit ? '+' : '-'}${transaction.amount.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency} ',
+              style: TextStyle(color: color, fontWeight: FontWeight.w800),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -139,10 +167,15 @@ class AddAmountPage extends GetView<WalletController> {
   @override
   Widget build(BuildContext context) => AccountPageTemplate(
         title: 'إضافة رصيد',
-        bottomAction: AppButton(
-          label: 'متابعة',
-          onPressed: _continue,
-        ),
+        bottomAction: Obx(() => AppButton(
+              label: 'متابعة',
+              isLoading: controller.methodsLoading.value ||
+                  controller.topUp?.busy.value == true,
+              onPressed: controller.methodsLoading.value ||
+                      controller.topUp?.busy.value == true
+                  ? null
+                  : _continue,
+            )),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -158,7 +191,7 @@ class AddAmountPage extends GetView<WalletController> {
                   const TextInputType.numberWithOptions(decimal: true),
               textInputAction: TextInputAction.done,
               inputFormatters: <TextInputFormatter>[
-                FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+                FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩۰-۹.,٫]')),
               ],
               prefixIcon: Icon(Icons.payments_outlined),
               suffixIcon: Padding(
@@ -174,9 +207,8 @@ class AddAmountPage extends GetView<WalletController> {
             ),
             const SizedBox(height: AppSpacing.sm),
             Obx(() {
-              final methods = AppEnvironment.paymentMethods
-                  .where((method) => method.availableForWalletTopUp)
-                  .toList(growable: false);
+              controller.catalogRevision.value;
+              final methods = AppEnvironment.topUpPaymentMethods;
               if (methods.isEmpty) {
                 return const AccountInfoBanner(
                   text: 'لا توجد وسائل شحن مفعلة حالياً.',
@@ -188,15 +220,32 @@ class AddAmountPage extends GetView<WalletController> {
                     .map(
                       (method) => Padding(
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: AccountChoiceTile(
-                          title: method.label,
-                          subtitle: method.subtitle,
-                          icon: method.icon,
-                          imageUrl: method.imageUrl,
-                          selected: controller.selectedPaymentMethodId.value ==
-                              method.id,
-                          onTap: () =>
-                              controller.selectPaymentMethod(method.id),
+                        child: ListTile(
+                          enabled: method.canTopUp &&
+                              controller.methodsError.value.isEmpty &&
+                              !controller.methodsLoading.value,
+                          leading: Opacity(
+                              opacity: method.canTopUp &&
+                                      controller.methodsError.value.isEmpty
+                                  ? 1
+                                  : .35,
+                              child:
+                                  PaymentCatalogIcon(method: method, size: 40)),
+                          title: Text(method.label),
+                          subtitle: Text(
+                              method.canTopUp &&
+                                      controller.methodsError.value.isEmpty
+                                  ? method.subtitle
+                                  : 'الخدمة غير متاحة',
+                              style: Theme.of(context).textTheme.bodySmall),
+                          trailing: Icon(
+                              controller.selectedPaymentMethodId.value ==
+                                      method.id
+                                  ? Icons.radio_button_checked
+                                  : Icons.radio_button_off),
+                          onTap: method.canTopUp
+                              ? () => controller.selectPaymentMethod(method.id)
+                              : null,
                         ),
                       ),
                     )
@@ -222,15 +271,28 @@ class AddAmountPage extends GetView<WalletController> {
       Get.snackbar('طريقة الدفع', 'اختر وسيلة شحن مفعلة أولاً.');
       return;
     }
-    if (controller.requiresBankAccount) {
-      await Get.toNamed<void>(AccountRoutes.bank);
-      return;
-    }
-    Get.snackbar(
-      'شحن المحفظة',
-      'لم يُربط مزود الدفع لهذه الوسيلة بعد، لذلك لن يُضاف أي رصيد قبل التأكيد الفعلي.',
-    );
+    await controller.startTopUp();
   }
+}
+
+class WalletTopUpPaymentPage extends GetView<WalletController> {
+  const WalletTopUpPaymentPage({super.key});
+  @override
+  Widget build(BuildContext context) => AccountPageTemplate(
+        title: 'شحن المحفظة',
+        child: controller.topUp == null
+            ? const Text('سجل الدخول لمتابعة الشحن.')
+            : WalletRidePaymentPanel(
+                controller: controller.topUp!,
+                onRefresh: () => controller.topUp!.refresh('topup'),
+                onRetry: controller.changeTopUpMethod,
+                onChangeMethod: controller.changeTopUpMethod,
+                onDone: () {
+                  controller.loadTransactions();
+                  Get.offNamed<void>(AccountRoutes.wallet);
+                },
+              ),
+      );
 }
 
 class BankAccountPage extends GetView<WalletController> {

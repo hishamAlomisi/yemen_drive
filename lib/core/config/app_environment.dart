@@ -27,7 +27,22 @@ class AppEnvironment {
           !<String>{'cash', 'wallet', 'yemendrivewallet'}
               .contains(method.id.toLowerCase()) &&
           (method.availableForRidePayment || method.availableForWalletTopUp))
-      .toList(growable: false);
+      .toList(growable: false)
+    ..sort((a, b) {
+      final available = (b.canPayRide ? 1 : 0).compareTo(a.canPayRide ? 1 : 0);
+      return available != 0 ? available : a.sortOrder.compareTo(b.sortOrder);
+    });
+
+  static List<PaymentMethodItem> get topUpPaymentMethods =>
+      externalPaymentMethods
+          .where((method) => method.availableForWalletTopUp)
+          .toList()
+        ..sort((a, b) {
+          final available = (b.canTopUp ? 1 : 0).compareTo(a.canTopUp ? 1 : 0);
+          return available != 0
+              ? available
+              : a.sortOrder.compareTo(b.sortOrder);
+        });
 
   static Future<bool> loadPaymentMethods(ApiClient client) async {
     final result = await client.execute<Object?>(
@@ -35,7 +50,7 @@ class AppEnvironment {
     if (result is! ApiSuccess || result.data is! List) return false;
     paymentMethods = (result.data as List)
         .whereType<Map<Object?, Object?>>()
-        .where((raw) => raw['isActive'] == true)
+        .where((raw) => raw['isActive'] == true || raw['kind'] == 3)
         .map((raw) {
       final kind = (raw['kind'] as num?)?.toInt() ?? 0;
       return PaymentMethodItem(
@@ -45,6 +60,13 @@ class AppEnvironment {
         label: '${raw['nameAr'] ?? ''}',
         subtitle: '${raw['descriptionAr'] ?? ''}',
         kind: kind,
+        isActive: raw['isActive'] == true,
+        isProviderConnected: raw['isProviderConnected'] == true,
+        isServiceAvailable: kind == 3
+            ? raw['isServiceAvailable'] == true &&
+                raw['isProviderConnected'] == true
+            : raw['isActive'] == true,
+        sortOrder: (raw['sortOrder'] as num?)?.toInt() ?? 0,
         imageUrl: '${raw['imageUrl'] ?? ''}'.trim().isEmpty
             ? null
             : '${raw['imageUrl']}',

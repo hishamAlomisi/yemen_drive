@@ -44,6 +44,7 @@ class ApiWalletRepository implements WalletRepository {
                       item['type'] == 4 ||
                       item['isCredit'] == true,
                   type: (item['type'] as num?)?.toInt() ?? 0,
+                  externalReference: item['externalReference']?.toString(),
                 ))
             .toList(growable: false)
         : const <WalletTransaction>[];

@@ -23,6 +23,12 @@ class TrackingHubService extends GetxService {
   final Set<Object> _userEventListeners = <Object>{};
   Map<String, Object?>? _nearbyDriverSubscription;
   HubConnection? _connection;
+  bool _foreground = true;
+  Future<void> setForeground(bool foreground) async {
+    _foreground = foreground;
+    if (_connection?.state != HubConnectionState.Connected) return;
+    try { await _connection!.invoke('SetForeground', args: <Object>[foreground]); } on Object { /* Reconnect restores presence. */ }
+  }
   Future<void>? _connectTask;
   Timer? _retryTimer;
   int _connectionGeneration = 0;
@@ -209,6 +215,7 @@ class TrackingHubService extends GetxService {
       'rideRequestViewed',
       'rideSearchRecipientsUpdated',
       'rideCancellationUpdated',
+      'rideArrivalUpdated',
       'rideRouteChangeUpdated',
       'rideStatusUpdated',
       'rideMessageCreated',
@@ -278,6 +285,7 @@ class TrackingHubService extends GetxService {
   }
 
   Future<void> _restoreSubscriptionsAndNotify(HubConnection connection) async {
+    await setForeground(_foreground);
     await _restoreRideSubscriptions(connection);
     await _joinNearbyDriverSubscription(connection);
     if (identical(_connection, connection) &&

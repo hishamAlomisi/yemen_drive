@@ -26,6 +26,7 @@ abstract final class AccountRoutes {
   static const String favourites = '/account/favourites';
   static const String wallet = '/account/wallet';
   static const String addAmount = '/account/wallet/add-amount';
+  static const String topUpPayment = '/account/wallet/top-up-payment';
   static const String bank = '/account/wallet/bank';
   static const String offers = '/account/offers';
   static const String offerDetails = '/account/offers/details';
@@ -68,6 +69,10 @@ List<GetPage<dynamic>> get accountPages => <GetPage<dynamic>>[
         page: BankAccountPage.new,
         binding: WalletBinding(),
       ),
+      GetPage<dynamic>(
+          name: AccountRoutes.topUpPayment,
+          page: WalletTopUpPaymentPage.new,
+          binding: WalletBinding()),
       GetPage<dynamic>(
         name: AccountRoutes.offers,
         page: OffersPage.new,

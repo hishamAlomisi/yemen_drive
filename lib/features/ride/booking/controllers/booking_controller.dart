@@ -192,9 +192,7 @@ class BookingController extends GetxController {
       if (location.isRouteLoading.value) {
         await location.isRouteLoading.stream.firstWhere((loading) => !loading);
       }
-      if (ride.isCatalogLoading.value) {
-        await ride.isCatalogLoading.stream.firstWhere((loading) => !loading);
-      }
+      await ride.ensureHomeServiceReady();
       if (isClosed || !canEnterReview) return;
 
       final selection = selectionKey;

@@ -24,6 +24,7 @@ abstract interface class RideNegotiationRepository {
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
   Future<void> requestCancellation(String requestId, String reason);
+  Future<Map<String, Object?>> getCancellationQuote(String requestId);
   Future<Map<String, Object?>?> findLatestOpenRide();
   Future<Map<String, Object?>> getRideDetail(String requestId);
   Future<List<NearbyDriver>> getNearbyDrivers({
@@ -312,8 +313,25 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       data: <String, Object?>{'rideId': requestId, 'reason': reason},
     );
     if (result is! ApiSuccess) {
-      throw const FormatException('تعذر إرسال طلب الإلغاء إلى الخادم.');
+      throw FormatException(result is ApiFailure
+          ? result.problem.detail ?? result.problem.title
+          : 'تعذر إرسال طلب الإلغاء إلى الخادم.');
     }
+  }
+
+  @override
+  Future<Map<String, Object?>> getCancellationQuote(String requestId) async {
+    final result = await _client.execute<Object?>(
+      model: 'RideCancellationRequestModel',
+      operation: 'get',
+      data: {'rideId': requestId, 'previewOnly': true},
+    );
+    if (result is ApiSuccess && result.data is Map) {
+      return Map<String, Object?>.from(result.data as Map);
+    }
+    throw FormatException(result is ApiFailure
+        ? result.problem.detail ?? result.problem.title
+        : 'تعذر مراجعة مبلغ الاسترداد. حاول مرة أخرى.');
   }
 
   @override

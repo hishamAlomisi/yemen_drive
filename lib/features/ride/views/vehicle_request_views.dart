@@ -7,6 +7,8 @@ import '../../../core/responsive/app_responsive.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../controllers/ride_controller.dart';
+import '../models/ride_cancellation_options.dart';
+import '../widgets/cancellation_refund_dialog.dart';
 import '../booking/views/ride_search_view.dart';
 import '../ride_routes.dart';
 import '../widgets/ride_common_widgets.dart';
@@ -347,75 +349,112 @@ class RideRequestPage extends GetView<RideController> {
 class RideCancelPage extends GetView<RideController> {
   const RideCancelPage({super.key});
 
+  Future<void> _cancel(BuildContext context, String reason) async {
+    if (controller.isCancellingRide.value ||
+        controller.preparingCancellation.value) return;
+    if (controller.isDriverAssigned.value) {
+      controller.preparingCancellation.value = true;
+      try {
+        final quote = await controller.getCancellationQuote();
+        if (!context.mounted) return;
+        controller.preparingCancellation.value = false;
+        if (quote['paymentCompleted'] == true) {
+          final confirmed = await showDialog<bool>(
+              context: context,
+              builder: (_) => CancellationRefundDialog(quote: quote));
+          if (confirmed != true) return;
+        }
+      } catch (error) {
+        Get.snackbar(
+            'تعذر مراجعة الاسترداد',
+            error is FormatException
+                ? error.message.toString()
+                : 'حاول مرة أخرى.');
+        return;
+      } finally {
+        controller.preparingCancellation.value = false;
+      }
+    }
+    await controller.cancelActiveRide(reason);
+  }
+
   @override
-  Widget build(BuildContext context) => RideMapShell(
-        showRoute: true,
-        showRouteGuide: false,
-        showMarker: false,
-        panelMaxHeightFactor: .86,
-        panelFooter: Obx(
-          () => AppButton(
-            label: 'تخطي',
-            variant: AppButtonVariant.secondary,
-            isDisabled: controller.isCancellingRide.value,
-            onPressed: () => Get.back<void>(),
+  Widget build(BuildContext context) => Obx(() {
+        final options = RideCancellationOptions.forRide(
+            controller.activeRideStatus.value,
+            hasOffers: controller.driverOffers.isNotEmpty ||
+                controller.acceptedOffer.value != null,
+            paymentCompleted: controller.activeRidePaymentCompleted.value);
+        return RideMapShell(
+          showRoute: true,
+          showRouteGuide: false,
+          showMarker: false,
+          panelMaxHeightFactor: .86,
+          panelFooter: Obx(
+            () => AppButton(
+              label: 'تخطي',
+              variant: AppButtonVariant.secondary,
+              isDisabled: controller.isCancellingRide.value,
+              onPressed: () => Get.back<void>(),
+            ),
           ),
-        ),
-        panel: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              Row(children: [
-                Expanded(
-                    child: Text('لماذا تريد الإلغاء؟',
-                        style: Theme.of(context).textTheme.headlineSmall)),
-                Obx(() => IconButton(
-                    onPressed: controller.isCancellingRide.value
-                        ? null
-                        : () => Get.back<void>(),
-                    icon: const Icon(Icons.close))),
-              ]),
-              const SearchRequestViewers(),
-              const SizedBox(height: AppSpacing.lg),
-              ...[
-                'عدم وجود سائقين قريبين',
-                'ارتفاع الأجرة',
-                'طلب عن طريق الخطأ',
-                'نقطة الإقلال أو الوجهة خاطئة',
-                'لم أتلق عروضًا من سائقين',
-                'سبب آخر'
-              ].map(
-                (reason) => Obx(() => ListTile(
-                      title: Text(reason),
-                      leading: const Icon(Icons.help_outline),
-                      trailing: const Icon(Icons.chevron_left),
-                      enabled: !controller.isCancellingRide.value,
-                      onTap: () => controller.cancelActiveRide(reason),
-                    )),
-              ),
-              Obx(() => controller.isCancellingRide.value
-                  ? const LinearProgressIndicator()
-                  : const SizedBox.shrink()),
-            ],
+          panel: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(vertical: AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(children: [
+                  Expanded(
+                      child: Text('لماذا تريد الإلغاء؟',
+                          style: Theme.of(context).textTheme.headlineSmall)),
+                  Obx(() => IconButton(
+                      onPressed: controller.isCancellingRide.value
+                          ? null
+                          : () => Get.back<void>(),
+                      icon: const Icon(Icons.close))),
+                ]),
+                Text(options.stage,
+                    key: const ValueKey('cancellation-stage'),
+                    style: Theme.of(context).textTheme.bodyMedium),
+                if (options.showSearchViewers) const SearchRequestViewers(),
+                const SizedBox(height: AppSpacing.lg),
+                ...options.reasons.map(
+                  (reason) => Obx(() => ListTile(
+                        title: Text(reason),
+                        leading: const Icon(Icons.help_outline),
+                        trailing: const Icon(Icons.chevron_left),
+                        enabled: !controller.isCancellingRide.value &&
+                            !controller.preparingCancellation.value,
+                        onTap: () => _cancel(context, reason),
+                      )),
+                ),
+                Obx(() => controller.isCancellingRide.value ||
+                        controller.preparingCancellation.value
+                    ? const LinearProgressIndicator()
+                    : const SizedBox.shrink()),
+              ],
+            ),
           ),
-        ),
-      );
+        );
+      });
 }
 
-class RequestThanksPage extends StatelessWidget {
+class RequestThanksPage extends GetView<RideController> {
   const RequestThanksPage({super.key});
 
   @override
-  Widget build(BuildContext context) => RidePageFrame(
-        showBack: false,
-        body: RideSuccessView(
-          icon: Icons.favorite_rounded,
-          title: 'تم إرسال طلب الإلغاء',
-          message:
-              'أُوقفت الرحلة وسيراجع السائق أو الإدارة طلبك عند الحاجة. سيصلك إشعار بالقرار.',
-          actionLabel: 'العودة إلى الرئيسية',
-          action: () => Get.offAllNamed<void>(RideRoutes.homeTransport),
-        ),
-      );
+  Widget build(BuildContext context) {
+    final reason = controller.cancellationReason.value.trim();
+    return RidePageFrame(
+      showBack: false,
+      body: RideSuccessView(
+        icon: Icons.cancel_outlined,
+        title: 'تم إلغاء الرحلة',
+        message: 'تم إلغاء الرحلة وإيقاف متابعتها.'
+            '${reason.isNotEmpty ? '\nسبب الإلغاء: $reason' : ''}',
+        actionLabel: 'العودة إلى الرئيسية',
+        action: () => Get.offAllNamed<void>(RideRoutes.homeTransport),
+      ),
+    );
+  }
 }

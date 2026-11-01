@@ -19,11 +19,15 @@ class WalletRidePayment {
     this.fees,
     this.providerReference,
     this.paidAtUtc,
+    this.canCancel = false,
+    this.isTopUp = false,
+    this.receipt,
+    this.requestId = '',
   });
 
   factory WalletRidePayment.fromJson(Map<String, Object?> json) {
     final id = '${json['id'] ?? ''}';
-    final rideId = '${json['rideId'] ?? ''}';
+    final rideId = '${json['rideId'] ?? 'topup'}';
     final methodId = int.tryParse('${json['paymentMethodId']}');
     final amount = _number(json['amount']);
     final providerCode = '${json['providerCode'] ?? ''}';
@@ -60,6 +64,15 @@ class WalletRidePayment {
       message: '${json['message'] ?? ''}',
       providerReference: json['providerReference']?.toString(),
       paidAtUtc: DateTime.tryParse('${json['paidAtUtc'] ?? ''}'),
+      canCancel: json['canCancel'] == true ||
+          (!json.containsKey('canCancel') &&
+              const {'AwaitingConfirmation', 'AwaitingCode'}
+                  .contains(json['status'])),
+      isTopUp: json['rideId'] == null,
+      receipt: json['receipt'] is Map
+          ? Map<String, Object?>.from(json['receipt'] as Map)
+          : null,
+      requestId: '${json['requestId'] ?? ''}',
     );
   }
 
@@ -82,6 +95,10 @@ class WalletRidePayment {
   final String message;
   final String? providerReference;
   final DateTime? paidAtUtc;
+  final bool canCancel;
+  final bool isTopUp;
+  final Map<String, Object?>? receipt;
+  final String requestId;
 
   bool get succeeded => status == 'Succeeded';
   bool get awaitingConfirmation =>

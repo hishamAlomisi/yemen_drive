@@ -17,12 +17,18 @@ import 'package:yemen_drive/features/ride/widgets/external_payment_methods.dart'
 import 'package:yemen_drive/features/ride/widgets/ride_booking_widgets.dart';
 
 Map<String, Object?> _method(String code, String name,
-        {bool active = true, bool ride = true, bool topUp = true}) =>
+        {bool active = true,
+        bool ride = true,
+        bool topUp = true,
+        bool connected = true}) =>
     <String, Object?>{
       'code': code,
       'nameAr': name,
       'descriptionAr': 'وصف الوسيلة من قائمة طرق الدفع',
-      'kind': 0,
+      'kind': 3,
+      'providerCode': 'Jaib',
+      'isProviderConnected': connected,
+      'isServiceAvailable': active && connected,
       'isActive': active,
       'isAvailableForRidePayment': ride,
       'isAvailableForWalletTopUp': topUp,
@@ -72,7 +78,7 @@ void main() {
       _method('OFF', 'موقوفة', active: false),
     ];
     expect(await AppEnvironment.loadPaymentMethods(api), isTrue);
-    final method = AppEnvironment.externalPaymentMethods.single;
+    final method = AppEnvironment.externalPaymentMethods.first;
     expect(method.id, 'API_CODE');
     expect(method.paymentMethodId, 7);
     expect(method.providerCode, 'Floosak');
@@ -80,8 +86,24 @@ void main() {
     expect(method.imageUrl, 'https://example.com/provider.png');
     expect(method.kind, 2);
     expect(method.availableForWalletTopUp, isFalse);
-    expect(AppEnvironment.paymentMethodById('OFF'), isNull);
+    expect(AppEnvironment.paymentMethodById('OFF')?.canPayRide, isFalse);
     expect(api.calls, ['PaymentMethodModel.list']);
+  });
+
+  test(
+      'connected external methods sort first and disconnected cannot pay or top up',
+      () async {
+    api.response = [
+      _method('OFFLINE', 'محفظة غير متصلة', connected: false),
+      _method('ONLINE', 'محفظة متصلة'),
+      _method('DISABLED', 'محفظة موقوفة', active: false)
+    ];
+    await AppEnvironment.loadPaymentMethods(api);
+    expect(AppEnvironment.externalPaymentMethods.map((m) => m.id),
+        ['ONLINE', 'OFFLINE', 'DISABLED']);
+    expect(AppEnvironment.topUpPaymentMethods.first.id, 'ONLINE');
+    expect(AppEnvironment.paymentMethodById('OFFLINE')!.canPayRide, isFalse);
+    expect(AppEnvironment.paymentMethodById('OFFLINE')!.canTopUp, isFalse);
   });
 
   testWidgets('third option loads the catalog and returns a preference only',
@@ -105,9 +127,9 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('محفظة تجريبية'), findsOneWidget);
     expect(find.text('وسيلة شحن تجريبية'), findsOneWidget);
-    expect(find.text('وسيلة موقوفة'), findsNothing);
+    expect(find.text('وسيلة موقوفة'), findsOneWidget);
     expect(find.text('وسيلة مخفية'), findsNothing);
-    expect(find.text('لشحن محفظة يمن درايف فقط'), findsOneWidget);
+    expect(find.text('الخدمة غير متاحة'), findsNWidgets(2));
     await tester.tap(find.text('محفظة تجريبية'));
     await tester.pumpAndSettle();
     expect(selected, 'EXTERNAL_A');

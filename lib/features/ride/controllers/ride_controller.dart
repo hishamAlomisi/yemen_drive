@@ -27,6 +27,7 @@ import '../../../core/services/auth_session_service.dart';
 import '../../../core/services/connectivity_service.dart';
 import '../../../core/services/ride_preferences.dart';
 import '../../../core/services/offer_arrival_notifier.dart';
+import '../../../core/services/ride_arrival_notifier.dart';
 import '../../account/account_routes.dart';
 import '../home/repositories/service_kind_repository.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
@@ -71,6 +72,16 @@ class RideController extends GetxController with WidgetsBindingObserver {
   bool _activeSnapshotLoading = false;
   bool _activeSnapshotQueued = false;
   String? _arrivalNoticeRideId;
+  RideArrivalNotifier? _arrivalAlerts;
+  RideArrivalNotifier? _arrivalNotifier() {
+    final userId = _session.currentUserId.value;
+    if (userId == null || !Get.isRegistered<ApiClient>() || !Get.isRegistered<TrackingHubService>()) return null;
+    if (_arrivalAlerts?.userId != userId) {
+      _arrivalAlerts?.onClose();
+      _arrivalAlerts = RideArrivalNotifier(Get.find<ApiClient>(), Get.find<TrackingHubService>(), userId: userId)..onInit();
+    }
+    return _arrivalAlerts;
+  }
   final Rx<RideServiceType> serviceType = RideServiceType.transport.obs;
   final RxnInt selectedServiceKindId = RxnInt();
   final Rx<RideVehicleType> selectedTransport = RideVehicleType.car.obs;
@@ -91,6 +102,11 @@ class RideController extends GetxController with WidgetsBindingObserver {
   final RxBool isDriverAssigned = false.obs;
   final RxString activeRideStatus = ''.obs;
   final RxString preferredPaymentMethod = 'cash'.obs;
+  String _sessionPaymentPreference = 'cash';
+  void selectPaymentPreference(String value) {
+    preferredPaymentMethod.value = value;
+    _sessionPaymentPreference = value;
+  }
   final RxString activePaymentMethodCode = 'cash'.obs;
   final RxBool paymentRequiredBeforeStart = false.obs;
   String? _paymentChoiceRideId;
@@ -192,12 +208,13 @@ class RideController extends GetxController with WidgetsBindingObserver {
   void applyPaymentChoiceSnapshot(Map<Object?, Object?> ride) {
     final code = ride['paymentMethodCode']?.toString().trim();
     if (code != null && code.isNotEmpty) {
-      if (_paymentChoiceRideId != _requestId ||
-          activePaymentMethodCode.value.toLowerCase() != code.toLowerCase()) {
+      if (_paymentChoiceRideId != _requestId || activePaymentMethodCode.value.toLowerCase() != code.toLowerCase()) {
         final method = AppEnvironment.paymentMethods
             .where((item) => item.id.toLowerCase() == code.toLowerCase())
             .firstOrNull;
-        preferredPaymentMethod.value = method?.id ?? code;
+        final selection = method?.id ?? code;
+        if (_paymentChoiceRideId == _requestId) _sessionPaymentPreference = selection;
+        preferredPaymentMethod.value = selection;
       }
       activePaymentMethodCode.value = code;
       _paymentChoiceRideId = _requestId;
@@ -222,7 +239,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
   }
 
   void reconcilePaymentNavigation() {
-    if (mandatoryPaymentPending && !_paymentPageMounted) {
+    if (mandatoryPaymentPending &&
+        !_paymentPageMounted &&
+        Get.currentRoute != RideRoutes.rideCancel) {
       openActiveRide();
     } else if (_mandatoryPaymentPageMounted &&
         !mandatoryPaymentPending &&
@@ -238,6 +257,13 @@ class RideController extends GetxController with WidgetsBindingObserver {
   void onInit() {
     super.onInit();
     WidgetsBinding.instance.addObserver(this);
+    _authenticationWorker =
+        ever(_session.isAuthenticated, (bool authenticated) {
+      if (authenticated) unawaited(_refreshServicesAfterLogin());
+    });
+    _defaultServiceWorker = ever(checkingPendingRating, (bool checking) {
+      if (!checking) unawaited(applyAdminDefaultServiceKind());
+    });
     unawaited(loadServiceCatalog());
     unawaited(_loadHomeServices());
     unawaited(_loadTrackingIcons());
@@ -262,6 +288,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _paused = state != AppLifecycleState.resumed;
+    if (Get.isRegistered<TrackingHubService>()) unawaited(Get.find<TrackingHubService>().setForeground(!_paused));
     if (_paused) return;
     if (pendingRatingRideId.value != null) openRequiredRating();
     final rideId = _requestId;
@@ -285,6 +312,11 @@ class RideController extends GetxController with WidgetsBindingObserver {
   /// Handles only the fixed notification actions defined by the application.
   /// The server supplies identifiers, never Flutter route names.
   Future<void> openNotificationPayload(Map<String, String> payload) async {
+    if (payload['action'] == 'ride_arrival_alert') {
+      final arrivalRideId = int.tryParse(payload['rideId'] ?? '');
+      if (arrivalRideId != null) await _arrivalNotifier()?.refresh(arrivalRideId);
+      return;
+    }
     if (!await ensureNoPendingRating()) return;
     if (mandatoryPaymentPending) {
       openActiveRide();
@@ -330,6 +362,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
   }
 
   bool _opensWallet(String? action, Map<String, String> payload) =>
+      action == 'open_wallet_top_up' ||
       action == 'open_wallet' ||
       action == 'open_wallet_transaction' ||
       payload['walletTransactionId']?.isNotEmpty == true ||
@@ -545,7 +578,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
     try {
       final values = await serviceKinds.getServices();
       homeServices.assignAll(values);
-      applyAdminDefaultServiceKind();
+      await applyAdminDefaultServiceKind();
     } catch (_) {
       homeServicesError.value = 'تعذر تحميل أنواع الرحلات. حاول مرة أخرى.';
     } finally {
@@ -553,14 +586,42 @@ class RideController extends GetxController with WidgetsBindingObserver {
     }
   }
 
-  void applyAdminDefaultServiceKind() {
+  Worker? _authenticationWorker;
+  Worker? _defaultServiceWorker;
+
+  Future<void> _refreshServicesAfterLogin() async {
+    if (isHomeServicesLoading.value) {
+      await isHomeServicesLoading.stream.firstWhere((loading) => !loading);
+    }
+    await loadHomeServices();
+    if (selectedServiceKindId.value != null && catalogVehicles.isEmpty) {
+      await loadServiceCatalog();
+    }
+  }
+
+  Future<void> ensureHomeServiceReady() async {
+    if (isHomeServicesLoading.value) {
+      await isHomeServicesLoading.stream.firstWhere((loading) => !loading);
+    }
+    if (homeServices.isEmpty && _serviceKinds != null) await loadHomeServices();
+    await applyAdminDefaultServiceKind();
+    if (isCatalogLoading.value) {
+      await isCatalogLoading.stream.firstWhere((loading) => !loading);
+    }
+    if (selectedServiceKindId.value != null && catalogVehicles.isEmpty) {
+      await loadServiceCatalog();
+    }
+  }
+
+  Future<void> applyAdminDefaultServiceKind() async {
     // The catalog and the user's carousel interaction load asynchronously.
     // Never let a late default-service response overwrite a manual choice.
     if (selectedServiceKindId.value != null) return;
-    final index =
+    var index =
         homeServices.indexWhere((item) => item.isDefault && item.id != null);
+    if (index < 0) index = homeServices.indexWhere((item) => item.id != null);
     if (index < 0) return;
-    selectHomeService(index);
+    await selectHomeService(index);
   }
 
   /// Commits the home-carousel choice immediately. The route picker can be
@@ -1817,11 +1878,17 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final status = _asInt(payload['rideStatus']);
       if (status == null) return;
       activeRideStatus.value = '$status';
+      if (status == 7) {
+        // The server has already committed cancellation. A slow or failed
+        // snapshot must not leave the passenger on the active trip screen.
+        cancelRide('${payload['cancellationReason'] ?? ''}');
+        return;
+      }
       applyPaymentChoiceSnapshot(payload);
       customerPaymentEnabled.value = payload['customerPaymentEnabled'] == true;
-      if (status == 6 || status == 7) {
+      if (status == 6) {
         _stopRealTracking();
-        if (status == 6) _requireRating(rideId!);
+        _requireRating(rideId!);
       } else if (status == 3 || status == 4 || status == 5 || status == 9) {
         unawaited(_refreshAssignedDriverRoute());
       }
@@ -2170,6 +2237,14 @@ class RideController extends GetxController with WidgetsBindingObserver {
   String _searchErrorMessage(Object error) =>
       error is FormatException ? error.message.toString() : error.toString();
 
+  final RxBool preparingCancellation = false.obs;
+
+  Future<Map<String, Object?>> getCancellationQuote() async {
+    final rideId = _requestId;
+    if (rideId == null) throw const FormatException('الرحلة غير موجودة.');
+    return _repository.getCancellationQuote(rideId);
+  }
+
   Future<void> cancelActiveRide(String reason) async {
     if (isCancellingRide.value) return;
     final requestId = _requestId;
@@ -2186,15 +2261,18 @@ class RideController extends GetxController with WidgetsBindingObserver {
         await refreshActiveRide();
         if (_requestId == requestId) {
           Get.offNamed<void>(RideRoutes.driverLocation);
-          Get.snackbar('أُرسل طلب الإلغاء', 'تستمر الرحلة حتى اعتماد الإلغاء.');
+          Get.snackbar('أُرسل طلب الإلغاء', 'سيصلك إشعار بقرار المراجعة.');
         }
         return;
       } else {
         await _repository.closeSearch(requestId, reason: reason.trim());
       }
-    } catch (_) {
-      Get.snackbar('تعذر إرسال الطلب',
-          'لم يُرسل طلب الإلغاء. تحقق من الاتصال ثم حاول مرة أخرى.');
+    } catch (error) {
+      Get.snackbar(
+          'تعذر إرسال الطلب',
+          error is FormatException
+              ? error.message.toString()
+              : 'لم يُرسل طلب الإلغاء. تحقق من الاتصال ثم حاول مرة أخرى.');
       return;
     } finally {
       isCancellingRide.value = false;
@@ -2261,7 +2339,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
         }
         _showArrivalNotice(status, rideId);
         if (status == 7) {
-          cancelRide('${ride['cancellationReason'] ?? 'تم إلغاء الرحلة'}');
+          cancelRide('${ride['cancellationReason'] ?? ''}');
           return;
         }
         if (status == 6 && detail['requiresRating'] == true) {
@@ -2326,10 +2404,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
   }
 
   void _showArrivalNotice(int? status, String rideId) {
-    if (status != 9 || _arrivalNoticeRideId == rideId) return;
-    _arrivalNoticeRideId = rideId;
-    Get.snackbar(
-        'وصل السائق', 'وصل السائق إلى نقطة الانطلاق. يرجى التوجه إليه.');
+    if (status != 9) return;
+    final id = int.tryParse(rideId);
+    if (id != null) unawaited(_arrivalNotifier()?.refresh(id) ?? Future<void>.value());
   }
 
   Future<void> _refreshDriverCancellation(String rideId) async {
@@ -2348,7 +2425,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
   Future<void> decideDriverCancellation({required bool accept}) async {
     final request = driverCancellationRequest.value;
     if (request == null ||
-        request['requestedByDriver'] != true ||
+        (request['requestedByDriver'] != true && request['refundConsentPending'] != true) ||
         request['canDecide'] != true ||
         isDecidingDriverCancellation.value) return;
     isDecidingDriverCancellation.value = true;
@@ -2356,11 +2433,12 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final result = await Get.find<ApiClient>().execute<Object?>(
         model: 'RideCancellationRequestModel',
         operation: accept ? 'accept' : 'reject',
-        data: {'id': request['id']},
+        data: {'id': request['id'], if (request['refundConsentPending'] == true) 'refundChoiceRevision': request['refundChoiceRevision']},
       );
       if (result is! ApiSuccess) throw const FormatException();
       await refreshActiveRide(requireSuccess: true);
-      if (!accept) Get.snackbar('رُفض طلب الإلغاء', 'تستمر الرحلة دون تغيير.');
+      if (!accept) Get.snackbar(request['refundConsentPending'] == true ? 'رُفضت طريقة الاسترداد' : 'أُحيل الطلب للإدارة',
+          request['refundConsentPending'] == true ? 'سيختار السائق طريقة إعادة المبلغ مجدداً.' : 'تراجع الإدارة طلب السائق وتتخذ القرار.');
     } on Object {
       Get.snackbar('تعذر تنفيذ القرار', 'تحقق من الاتصال ثم أعد المحاولة.');
     } finally {
@@ -2598,15 +2676,25 @@ class RideController extends GetxController with WidgetsBindingObserver {
 
   void cancelRide(String reason) {
     _offersDeadlineTimer?.cancel();
+    final requestReason =
+        '${driverCancellationRequest.value?['reason'] ?? ''}'.trim();
+    final confirmedReason =
+        reason.trim().isNotEmpty ? reason.trim() : requestReason;
     // Cancellation is a terminal booking state. Clear the same transient
     // booking data used by "start a new ride" so the next booking cannot
     // reuse the cancelled route, vehicle, offer, or payment state.
     prepareNewRide();
-    cancellationReason.value = reason;
-    Get.offNamed<void>(RideRoutes.requestThanks);
+    negotiationStatus.value = NegotiationStatus.cancelled;
+    cancellationReason.value = confirmedReason;
+    Get.offAllNamed<void>(RideRoutes.requestThanks);
   }
 
   void prepareNewRide() {
+    if (_requestId != null && const {'8', 'CancellationPending'}.contains(activeRideStatus.value)) {
+      openActiveRide();
+      Get.snackbar('الإلغاء لم يكتمل بعد', 'استكمل الموافقات والاسترداد قبل طلب رحلة جديدة.');
+      return;
+    }
     if (pendingRatingRideId.value != null) {
       openRequiredRating();
       return;
@@ -2622,6 +2710,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
     _requestId = null;
     _paymentChoiceRideId = null;
     activePaymentMethodCode.value = 'cash';
+    preferredPaymentMethod.value = _sessionPaymentPreference;
     paymentRequiredBeforeStart.value = false;
     _confirmedRouteVersion = 0;
     _lastPassengerLocationPublished = null;
@@ -2697,6 +2786,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
 
   @override
   void onClose() {
+    _arrivalAlerts?.onClose();
+    _authenticationWorker?.dispose();
+    _defaultServiceWorker?.dispose();
     WidgetsBinding.instance.removeObserver(this);
     _hubEventSubscription?.cancel();
     _hubConnectionSubscription?.cancel();

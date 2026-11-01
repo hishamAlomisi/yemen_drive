@@ -41,6 +41,7 @@ class PaymentController extends GetxController {
   bool _summaryLoading = false;
   bool _summaryRefreshRequested = false;
   final RxnString _dismissedExternalPaymentId = RxnString();
+  final RxBool choosingReplacementMethod = false.obs;
   late final WalletRidePaymentController externalPayment =
       WalletRidePaymentController(ApiWalletRidePaymentRepository(_api),
           onSucceeded: (_) {
@@ -65,6 +66,19 @@ class PaymentController extends GetxController {
 
   bool get mandatoryPaymentPending => _ride.mandatoryPaymentPending;
 
+  String get bookedPaymentMethodId {
+    final code = _ride.activePaymentMethodCode.value;
+    return AppEnvironment.paymentMethods
+            .where((method) => method.id.toLowerCase() == code.toLowerCase())
+            .firstOrNull
+            ?.id ??
+        code;
+  }
+
+  bool isMethodAllowed(String id) =>
+      const {'cash', 'wallet'}.contains(id) ||
+      AppEnvironment.paymentMethodById(id)?.canPayRide == true;
+
   void setPaymentPageMounted(bool mounted) {
     _ride.setPaymentPageMounted(mounted);
   }
@@ -79,20 +93,47 @@ class PaymentController extends GetxController {
         _dismissedExternalPaymentId.value != current.id;
   }
 
-  void dismissExternalPayment() {
-    final current = externalPayment.payment.value;
+  Future<void> dismissExternalPayment() async {
+    var current = externalPayment.payment.value;
+    if (current?.canCancel == true && !externalPayment.busy.value) {
+      await externalPayment.confirm(false);
+      current = externalPayment.payment.value;
+    }
     if (current == null ||
         !current.canStartAnother ||
         externalPayment.busy.value ||
         !externalPayment.stateKnown.value) return;
     _dismissedExternalPaymentId.value = current.id;
-    selectMethod('cash');
+    choosingReplacementMethod.value = true;
   }
 
   void selectMethod(String id) {
-    if (!paymentOptionsLocked) {
-      selectedMethod.value = id;
+    if (!paymentOptionsLocked && isMethodAllowed(id)) {
+      final previous = choosingReplacementMethod.value
+          ? bookedPaymentMethodId
+          : selectedMethod.value;
+      _ride.selectPaymentPreference(id);
       paymentActionError.value = '';
+      if (choosingReplacementMethod.value) {
+        unawaited(_saveReplacementMethod(id, previous));
+      }
+    }
+  }
+
+  Future<void> _saveReplacementMethod(String id, String previous) async {
+    final rideId = _ride.currentRideId;
+    final wasRequiredBeforeStart = mandatoryPaymentPending;
+    if (!await _saveSelectedPaymentMethod()) {
+      if (_ride.currentRideId == rideId && selectedMethod.value == id) {
+        _ride.selectPaymentPreference(previous);
+      }
+      return;
+    }
+    if (_ride.currentRideId == rideId &&
+        id == 'cash' &&
+        wasRequiredBeforeStart &&
+        !mandatoryPaymentPending) {
+      _ride.openActiveRide();
     }
   }
 
@@ -141,6 +182,7 @@ class PaymentController extends GetxController {
 
   Future<void> _loadPaymentSummary(String rideId) async {
     if (summaryRideId.value != rideId) {
+      choosingReplacementMethod.value = false;
       paymentCompleted.value = false;
       cashPaymentConfirmed.value = false;
       rideCompletedByDriver.value = false;
@@ -211,6 +253,8 @@ class PaymentController extends GetxController {
         cashRequestStatus.value = -1;
       }
       if (_ride.currentRideId != rideId) return;
+      await _restoreBookedPaymentMethod(rideId);
+      if (_ride.currentRideId != rideId) return;
       await externalPayment.refresh(rideId);
       if (_ride.currentRideId == rideId &&
           externalPayment.payment.value?.rideId == rideId &&
@@ -232,6 +276,25 @@ class PaymentController extends GetxController {
     }
   }
 
+  Future<void> _restoreBookedPaymentMethod(String rideId) async {
+    if (!mandatoryPaymentPending ||
+        const {'cash', 'wallet'}.contains(bookedPaymentMethodId) ||
+        AppEnvironment.paymentMethodById(bookedPaymentMethodId) != null) {
+      return;
+    }
+    try {
+      await AppEnvironment.loadPaymentMethods(_api);
+    } on Object {
+      // The existing payment-state refresh remains available after a failed
+      // catalog request, including when the app was started offline.
+    }
+    if (_ride.currentRideId == rideId &&
+        AppEnvironment.paymentMethodById(bookedPaymentMethodId) == null) {
+      summaryError.value =
+          'تعذر تحميل وسيلة الدفع المختارة. حدّث حالة الدفع لإعادة المحاولة أو اختر النقد.';
+    }
+  }
+
   @override
   void onClose() {
     externalPayment.dispose();
@@ -248,6 +311,7 @@ class PaymentController extends GetxController {
   Future<void> pay() async {
     if (paymentCompleted.value ||
         isPaying.value ||
+        !isMethodAllowed(selectedMethod.value) ||
         externalPayment.locksOtherMethods) return;
     if (selectedExternalWalletSupported) {
       await startExternalWalletPayment();
@@ -266,6 +330,7 @@ class PaymentController extends GetxController {
           'الدفع بهذه الوسيلة غير متاح حالياً. اختر النقد أو محفظة يمن درايف.');
       return;
     }
+    if (!await _saveSelectedPaymentMethod()) return;
     final rideId = _ride.currentRideId;
     if (rideId == null || totalDue.value <= 0 || isPaying.value) return;
     isPaying.value = true;
@@ -303,11 +368,15 @@ class PaymentController extends GetxController {
     if (rideId == null ||
         paymentCompleted.value ||
         isPaying.value ||
+        !isMethodAllowed(selectedMethod.value) ||
         method == null ||
         method.paymentMethodId == null ||
         !selectedExternalWalletSupported) {
       return;
     }
+    if (!await _saveSelectedPaymentMethod()) return;
+    if (_ride.currentRideId != rideId || paymentCompleted.value) return;
+    choosingReplacementMethod.value = false;
     await externalPayment.start(rideId, method.paymentMethodId!);
   }
 
@@ -317,13 +386,17 @@ class PaymentController extends GetxController {
     if (current == null ||
         rideId == null ||
         current.rideId != rideId ||
-        !current.canStartAnother ||
+        !(current.canStartAnother || current.canCancel) ||
         paymentCompleted.value ||
         isPaying.value) {
       return;
     }
     // Recovery keeps the provider's server-owned method ID even if the catalog
     // has not been loaded after restarting the app.
+    if (!current.canStartAnother) {
+      await externalPayment.confirm(false);
+      if (externalPayment.payment.value?.canStartAnother != true) return;
+    }
     await externalPayment.start(rideId, current.paymentMethodId);
   }
 
@@ -350,32 +423,45 @@ class PaymentController extends GetxController {
         !mandatoryPaymentPending ||
         paymentOptionsLocked ||
         selectedMethod.value != 'cash') return;
+    if (await _saveSelectedPaymentMethod() &&
+        _ride.currentRideId == rideId &&
+        !_ride.mandatoryPaymentPending) {
+      _ride.openActiveRide();
+    }
+  }
+
+  Future<bool> _saveSelectedPaymentMethod() async {
+    final rideId = _ride.currentRideId;
+    final method = selectedMethod.value;
+    if (rideId == null || paymentOptionsLocked) return false;
+    if (_ride.activePaymentMethodCode.value.toLowerCase() ==
+        method.toLowerCase()) {
+      return true;
+    }
     isPaying.value = true;
     paymentActionError.value = '';
     try {
       final result = await _api.execute<Object?>(
         model: 'RideModel',
         operation: 'update',
-        data: <String, Object?>{
-          'id': rideId,
-          'paymentMethodCode': 'cash',
-        },
+        data: <String, Object?>{'id': rideId, 'paymentMethodCode': method},
       );
       if (result is ApiFailure) {
         throw FormatException(result.problem.detail ?? result.problem.title);
       }
       await _ride.refreshActiveRide(requireSuccess: true);
-      if (_ride.currentRideId != rideId) return;
-      if (_ride.mandatoryPaymentPending ||
-          _ride.activePaymentMethodCode.value.toLowerCase() != 'cash') {
+      if (_ride.currentRideId != rideId) return false;
+      if (_ride.activePaymentMethodCode.value.toLowerCase() !=
+          method.toLowerCase()) {
         throw const FormatException(
             'لم يُؤكد تغيير وسيلة الدفع. حدّث الحالة ثم أعد المحاولة.');
       }
-      _ride.openActiveRide();
+      return !paymentCompleted.value && !_ride.activeRidePaymentCompleted.value;
     } on Object catch (error) {
       paymentActionError.value = error is FormatException
           ? error.message.toString()
-          : 'تعذر اعتماد الدفع النقدي. تحقق من الاتصال ثم أعد المحاولة.';
+          : 'تعذر تغيير وسيلة الدفع. تحقق من الاتصال ثم أعد المحاولة.';
+      return false;
     } finally {
       isPaying.value = false;
     }

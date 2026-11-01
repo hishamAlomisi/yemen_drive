@@ -162,24 +162,24 @@ class _ExternalPaymentMethodsPageState
     final colors = Theme.of(context).colorScheme;
     return ListTile(
       contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
-      enabled: method.availableForRidePayment,
-      leading: PaymentCatalogIcon(method: method),
+      enabled: method.canPayRide,
+      leading: Opacity(opacity: method.canPayRide ? 1 : .35, child: PaymentCatalogIcon(method: method)),
       title: Text(method.label),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           if (method.subtitle.isNotEmpty) Text(method.subtitle),
-          if (!method.availableForRidePayment)
-            Text('booking_external_top_up_only'.tr),
+          if (!method.canPayRide)
+            Text('الخدمة غير متاحة', style: Theme.of(context).textTheme.bodySmall),
         ],
       ),
-      trailing: method.availableForRidePayment
+      trailing: method.canPayRide
           ? Icon(
               selected ? Icons.radio_button_checked : Icons.radio_button_off,
               color: selected ? colors.onSurface : colors.outline,
             )
           : null,
-      onTap: method.availableForRidePayment
+      onTap: method.canPayRide
           ? () => Navigator.of(context).pop(method.id)
           : null,
     );
@@ -187,20 +187,22 @@ class _ExternalPaymentMethodsPageState
 }
 
 class PaymentCatalogIcon extends StatelessWidget {
-  const PaymentCatalogIcon({required this.method, super.key});
+  const PaymentCatalogIcon({required this.method, this.size = 32, super.key});
 
   final PaymentMethodItem method;
+  final double size;
 
   @override
   Widget build(BuildContext context) => SizedBox(
-        width: 32,
-        height: 32,
+        width: size,
+        height: size,
         child: method.imageUrl == null || method.imageUrl!.isEmpty
-            ? Icon(method.icon)
+            ? Icon(method.icon, size: size * .75)
             : PersistentNetworkImage(
                 method.imageUrl!,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => Icon(method.icon),
+                errorBuilder: (_, __, ___) =>
+                    Icon(method.icon, size: size * .75),
               ),
       );
 }

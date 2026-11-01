@@ -42,6 +42,7 @@ import 'package:yemen_drive/features/ride/views/negotiation_views.dart';
 import 'package:yemen_drive/features/ride/views/home_notifications_location_views.dart';
 import 'package:yemen_drive/features/ride/widgets/ride_map_shell.dart';
 import 'package:yemen_drive/features/ride/widgets/ride_booking_widgets.dart';
+import 'package:yemen_drive/features/ride/widgets/ride_trip_widgets.dart';
 import 'package:yemen_drive/shared/widgets/app_button.dart';
 
 const _vehicle = RideVehicle(
@@ -221,10 +222,103 @@ void main() {
     Get.to<void>(() => const RideCancelPage());
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
-    await tester.tap(find.text('ارتفاع الأجرة'));
+    await tester.tap(find.text('الأجرة لا تناسبني'));
     await tester.pump(const Duration(milliseconds: 400));
-    expect(repository.cancellationReasons, ['ارتفاع الأجرة']);
+    expect(repository.cancellationReasons, ['الأجرة لا تناسبني']);
     expect(ride.currentRideId, isNull);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('cancellation reasons follow ride status and received offers',
+      (tester) async {
+    final originalMaps = maps.GoogleMapsFlutterPlatform.instance;
+    maps.GoogleMapsFlutterPlatform.instance = _MapPlatform();
+    addTearDown(() => maps.GoogleMapsFlutterPlatform.instance = originalMaps);
+    ride.activeRideStatus.value = '5';
+    await tester.pumpWidget(_host(const RideCancelPage()));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('لا أشعر بالأمان أثناء الرحلة'), findsOneWidget);
+    expect(find.text('حدث عطل في السيارة'), findsOneWidget);
+    expect(find.textContaining('الأجرة'), findsNothing);
+    expect(find.textContaining('تأخر السائق'), findsNothing);
+    expect(find.textContaining('لا يوجد سائق'), findsNothing);
+    expect(find.byKey(const ValueKey('search-viewers-count')), findsNothing);
+    ride.activeRideStatus.value = '4';
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('تأخر السائق عن موعد الوصول المتوقع'), findsOneWidget);
+    expect(find.text('حدث عطل في السيارة'), findsNothing);
+    ride.activeRideStatus.value = '9';
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.textContaining('تأخر السائق'), findsNothing);
+    expect(find.text('السيارة أو السائق لا يطابقان البيانات المعروضة'),
+        findsOneWidget);
+    ride.activeRideStatus.value = '1';
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('لا يوجد سائق متاح بالقرب مني'), findsOneWidget);
+    ride.driverOffers.add(const DriverOffer(
+        id: '1',
+        driverName: 'سائق',
+        vehicleSummary: '',
+        price: 1500,
+        rating: 4,
+        etaMinutes: 3));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('لا يوجد سائق متاح بالقرب مني'), findsNothing);
+    expect(find.text('الأجرة المعروضة لا تناسبني'), findsOneWidget);
+    ride.activeRideStatus.value = '6';
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('انتهت الرحلة ولا يمكن إلغاؤها'), findsOneWidget);
+    expect(find.byType(ListTile), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'trip action icons stay visible above system navigation with long scrolling details',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final boundary = GlobalKey();
+    var shared = false;
+    var cancelled = false;
+    await tester.pumpWidget(_host(RepaintBoundary(
+        key: boundary,
+        child: MediaQuery(
+            data: const MediaQueryData(
+                size: Size(320, 568),
+                padding: EdgeInsets.only(bottom: 24),
+                textScaler: TextScaler.linear(1.3)),
+            child: RideMapShell(
+              map: const ColoredBox(color: Color(0xFFE5EBDD)),
+              panelMaxHeightFactor: .65,
+              panel: const SizedBox(
+                  height: 1000, child: Text('تفاصيل الرحلة الطويلة')),
+              panelFooter: Column(mainAxisSize: MainAxisSize.min, children: [
+                TripEmergencyActions(
+                    onShareTrip: () => shared = true,
+                    onCancelRide: () => cancelled = true),
+                const SizedBox(height: 8),
+                const AppButton(label: 'بانتظار اكتمال الرحلة'),
+              ]),
+            )))));
+    await tester.pumpAndSettle();
+    for (final icon in [
+      Icons.health_and_safety_outlined,
+      Icons.ios_share_rounded,
+      Icons.cancel_outlined
+    ]) {
+      final rect = tester.getRect(find.byIcon(icon));
+      expect(rect.bottom, lessThan(544));
+      expect(find.byIcon(icon).hitTestable(), findsOneWidget);
+    }
+    await tester.tap(find.byIcon(Icons.ios_share_rounded));
+    await tester.tap(find.byIcon(Icons.cancel_outlined));
+    expect(shared, isTrue);
+    expect(cancelled, isTrue);
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+    await _capture(tester, boundary, 'trip-actions-footer');
     await tester.pumpWidget(const SizedBox());
   });
 

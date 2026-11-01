@@ -22,25 +22,25 @@ class ApiWalletRidePaymentRepository implements WalletRidePaymentRepository {
 
   @override
   Future<ApiResult<WalletRidePayment?>> getCurrent(String rideId) =>
-      _request(_path(rideId));
+      request(_path(rideId));
 
   @override
   Future<ApiResult<WalletRidePayment?>> start(String rideId, int methodId) =>
-      _request(_path(rideId), data: {'paymentMethodId': methodId});
+      request(_path(rideId), data: {'paymentMethodId': methodId});
 
   @override
   Future<ApiResult<WalletRidePayment?>> confirm(
           String rideId, String paymentId, bool approved) =>
-      _request('${_path(rideId)}/${Uri.encodeComponent(paymentId)}/confirm',
+      request('${_path(rideId)}/${Uri.encodeComponent(paymentId)}/confirm',
           data: {'approved': approved});
 
   @override
   Future<ApiResult<WalletRidePayment?>> complete(
           String rideId, String paymentId, String code) =>
-      _request('${_path(rideId)}/${Uri.encodeComponent(paymentId)}/complete',
+      request('${_path(rideId)}/${Uri.encodeComponent(paymentId)}/complete',
           data: {'code': code});
 
-  Future<ApiResult<WalletRidePayment?>> _request(String path,
+  Future<ApiResult<WalletRidePayment?>> request(String path,
       {Map<String, Object?>? data}) async {
     try {
       final response = await api.dio.request<Object?>(path,

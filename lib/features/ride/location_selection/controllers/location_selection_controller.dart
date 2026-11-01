@@ -68,6 +68,8 @@ class LocationController extends GetxController {
   int _searchRequestId = 0;
   int _routeRequestId = 0;
   String? _lastResumedLocationSearchId;
+  Map<String, Object?>? _pendingSearchAfterLogin;
+  Worker? _authenticationWorker;
 
   final RxList<RecentPlace> recentPlaces = <RecentPlace>[].obs;
   final Rxn<BitmapDescriptor> _personalPickupMarkerIcon =
@@ -95,6 +97,14 @@ class LocationController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _authenticationWorker =
+        ever(_session.isAuthenticated, (bool authenticated) {
+      if (!authenticated) return;
+      unawaited(loadSavedPlaces());
+      final pending = _pendingSearchAfterLogin;
+      _pendingSearchAfterLogin = null;
+      if (pending != null) resumeLocationSearchFromArguments(pending);
+    });
     unawaited(loadSavedPlaces());
     unawaited(_loadPersonalPickupMarker());
   }
@@ -351,7 +361,10 @@ class LocationController extends GetxController {
     try {
       var enabled = await Geolocator.isLocationServiceEnabled();
       var permission = await Geolocator.checkPermission();
-      if (!silently && (!enabled || permission == LocationPermission.denied || permission == LocationPermission.deniedForever)) {
+      if (!silently &&
+          (!enabled ||
+              permission == LocationPermission.denied ||
+              permission == LocationPermission.deniedForever)) {
         final granted = await Get.to<bool>(() => const LocationAccessPage());
         if (granted != true) return;
         enabled = await Geolocator.isLocationServiceEnabled();
@@ -457,6 +470,7 @@ class LocationController extends GetxController {
       returnRoute: returnRoute,
       arguments: resumeArguments,
     )) {
+      _pendingSearchAfterLogin = resumeArguments;
       searchResults.clear();
       searchFailed.value = false;
       searchNeedsAuthentication.value = true;
@@ -573,6 +587,7 @@ class LocationController extends GetxController {
       .replaceAll('ى', 'ي');
 
   void cancelSearch() {
+    _pendingSearchAfterLogin = null;
     _searchRequestId++;
     searchResults.clear();
     searchFailed.value = false;
@@ -898,6 +913,7 @@ class LocationController extends GetxController {
 
   @override
   void onClose() {
+    _authenticationWorker?.dispose();
     // The AppGoogleMap widget owns and disposes its native controller.
     _mapController = null;
     fromController.dispose();

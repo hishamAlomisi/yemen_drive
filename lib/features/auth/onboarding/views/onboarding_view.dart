@@ -4,7 +4,7 @@ import 'package:get/get.dart';
 import '../../../../app/theme/app_spacing.dart';
 import '../../../../shared/widgets/app_scaffold.dart';
 import '../../models/auth_models.dart';
-import '../../widgets/auth_illustration.dart';
+import '../widgets/onboarding_illustration.dart';
 import '../controllers/onboarding_controller.dart';
 
 class OnboardingScreen extends GetView<OnboardingController> {
@@ -101,7 +101,7 @@ class _OnboardingSlideView extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                AuthIllustration(
+                OnboardingIllustration(
                   artwork: slide.artwork,
                   height:
                       (constraints.maxHeight * .52).clamp(120, 310).toDouble(),

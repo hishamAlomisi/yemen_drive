@@ -12,6 +12,7 @@ import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
 import '../storage/secure_storage_service.dart';
 import 'auth_session_service.dart';
+import '../../features/ride/controllers/ride_controller.dart';
 
 const String pushNotificationChannelId = 'yemendrive_alerts';
 
@@ -299,6 +300,14 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
   }
 
   Future<void> _showForegroundNotification(RemoteMessage message) async {
+    if (message.data['action'] == 'ride_arrival_alert' &&
+        Get.isRegistered<RideController>()) {
+      await Get.find<RideController>().openNotificationPayload(
+        message.data
+            .map((key, value) => MapEntry(key, value?.toString() ?? '')),
+      );
+      return;
+    }
     final notification = message.notification;
     if (notification == null) return;
     final payload = Map<String, Object?>.from(message.data);

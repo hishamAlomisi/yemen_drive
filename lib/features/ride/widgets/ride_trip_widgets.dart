@@ -371,7 +371,9 @@ class TripEmergencyActions extends StatelessWidget {
   final VoidCallback onCancelRide;
 
   @override
-  Widget build(BuildContext context) => Row(
+  Widget build(BuildContext context) => IntrinsicHeight(
+          child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: <Widget>[
           Expanded(
@@ -381,6 +383,7 @@ class TripEmergencyActions extends StatelessWidget {
               onTap: () => _showSafetySheet(context, onShareTrip),
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(
             child: _EmergencyAction(
               icon: Icons.ios_share_rounded,
@@ -388,6 +391,7 @@ class TripEmergencyActions extends StatelessWidget {
               onTap: onShareTrip,
             ),
           ),
+          const SizedBox(width: 8),
           Expanded(
             child: _EmergencyAction(
               icon: Icons.cancel_outlined,
@@ -397,7 +401,7 @@ class TripEmergencyActions extends StatelessWidget {
             ),
           ),
         ],
-      );
+      ));
 
   void _showSafetySheet(BuildContext context, VoidCallback onShareTrip) {
     final theme = Theme.of(context);
@@ -917,36 +921,37 @@ class _EmergencyAction extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final color = isUrgent ? colors.error : colors.primary;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        Material(
-          color: color.withValues(alpha: .14),
-          shape: CircleBorder(
-            side: BorderSide(color: color.withValues(alpha: .35)),
-          ),
-          child: InkWell(
-            onTap: onTap,
-            customBorder: const CircleBorder(),
-            child: SizedBox(
-              width: 48,
-              height: 48,
-              child: Icon(icon, color: color, size: 23),
+    return Material(
+      key: ValueKey('trip-action-$label'),
+      color: color.withValues(alpha: .08),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: color.withValues(alpha: .20)),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 88),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, color: color, size: 28),
+                const SizedBox(height: 8),
+                Text(label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: color,
+                        fontWeight: FontWeight.w600,
+                        height: 1.3)),
+              ],
             ),
           ),
         ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          textAlign: TextAlign.center,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-                height: 1.3,
-              ),
-        ),
-      ],
+      ),
     );
   }
 }

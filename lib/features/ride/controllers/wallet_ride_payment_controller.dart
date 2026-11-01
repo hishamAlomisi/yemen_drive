@@ -17,6 +17,8 @@ class WalletRidePaymentController {
   final RxBool busy = false.obs;
   final RxBool stateKnown = false.obs;
   final RxString error = ''.obs;
+  final RxString rejectionMessage = ''.obs;
+  final RxInt rejectionRevision = 0.obs;
   String? _rideId;
   int _generation = 0;
   bool _disposed = false;
@@ -41,6 +43,7 @@ class WalletRidePaymentController {
       stateKnown.value = false;
       busy.value = false;
       error.value = '';
+      rejectionMessage.value = '';
       _businessError = '';
       _notifiedPayment = null;
     }
@@ -63,7 +66,7 @@ class WalletRidePaymentController {
         busy.value ||
         !stateKnown.value ||
         current == null ||
-        !current.awaitingConfirmation ||
+        (approved ? !current.awaitingConfirmation : !current.canCancel) ||
         (approved && !current.customerIsProviderVerified)) return;
     await _perform(
         () => repository.confirm(current.rideId, current.id, approved));
@@ -88,7 +91,10 @@ class WalletRidePaymentController {
     busy.value = true;
     // A status refresh must not erase a provider rejection while the customer
     // is reading it. A new explicit action starts a new message lifecycle.
-    if (isMutation) _businessError = '';
+    if (isMutation) {
+      _businessError = '';
+      rejectionMessage.value = '';
+    }
     error.value = _businessError;
     _poll?.cancel();
     try {
@@ -122,6 +128,20 @@ class WalletRidePaymentController {
     } finally {
       if (_current(generation)) {
         busy.value = false;
+        if (isMutation && payment.value?.succeeded != true) {
+          final declined = payment.value?.status == 'Failed';
+          final reason = _businessError.isNotEmpty
+              ? _businessError
+              : declined
+                  ? payment.value!.message.trim()
+                  : '';
+          if (declined || reason.isNotEmpty) {
+            rejectionMessage.value = reason.isEmpty
+                ? 'لم تقبل المحفظة عملية الدفع. يمكنك اختيار طريقة دفع أخرى.'
+                : reason;
+            rejectionRevision.value++;
+          }
+        }
         if (payment.value?.processing == true && _rideId != null) {
           _poll = Timer(const Duration(seconds: 3), () => refresh(_rideId!));
         }
@@ -138,6 +158,10 @@ class WalletRidePaymentController {
     final previousId = payment.value?.id;
     if (previousId != null && value != null && previousId != value.id) {
       _businessError = '';
+      rejectionMessage.value = '';
+    }
+    if (value == null || value.status == 'Cancelled') {
+      rejectionMessage.value = '';
     }
     payment.value = value;
     stateKnown.value = true;
@@ -145,6 +169,7 @@ class WalletRidePaymentController {
     if (value?.succeeded == true) {
       _businessError = '';
       error.value = '';
+      rejectionMessage.value = '';
       if (_notifiedPayment != value!.id) {
         _notifiedPayment = value.id;
         onSucceeded?.call(value);

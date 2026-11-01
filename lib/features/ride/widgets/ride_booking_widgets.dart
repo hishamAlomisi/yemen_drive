@@ -19,7 +19,7 @@ class RidePaymentPreferenceButton extends GetView<RideController> {
             !controller.isSearchingForDriver.value && !controller.bookingLocked,
         onSelected: (method) {
           if (!controller.bookingLocked)
-            controller.preferredPaymentMethod.value = method;
+            controller.selectPaymentPreference(method);
         },
       ));
 }

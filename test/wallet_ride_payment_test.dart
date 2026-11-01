@@ -231,6 +231,12 @@ void main() {
     await controller.refresh('54');
     expect(controller.error.value, reason);
     expect(controller.stateKnown.value, isTrue);
+    repository.current = WalletRidePayment.fromJson({
+      ..._json('AwaitingCode'),
+      'id': 89,
+    });
+    await controller.refresh('54');
+    expect(controller.rejectionMessage.value, isEmpty);
     repository.completion = Future.value(ApiSuccess(_payment('Succeeded')));
     await controller.complete('654321');
     expect(controller.error.value, isEmpty);
@@ -268,6 +274,58 @@ void main() {
     expect(repository.approvals, [false]);
     expect(controller.payment.value!.status, 'Cancelled');
     expect(controller.canStart, isTrue);
+  });
+
+  test('server-authorized preparation cancellation releases a restored review',
+      () async {
+    final repository = _Repository()
+      ..current = WalletRidePayment.fromJson(
+          {..._json('ReviewRequired'), 'canCancel': true});
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    expect(controller.locksOtherMethods, isTrue);
+    await controller.confirm(false);
+    expect(repository.approvals, [false]);
+    expect(controller.canStart, isTrue);
+    expect(repository.starts, 0);
+  });
+
+  test('uncertain debit cannot be cancelled by the client', () async {
+    final repository = _Repository()..current = _payment('ReviewRequired');
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    await controller.confirm(false);
+    expect(repository.approvals, isEmpty);
+    expect(controller.locksOtherMethods, isTrue);
+  });
+
+  testWidgets(
+      'restored preparation review offers an explicit fresh account request',
+      (tester) async {
+    final repository = _Repository()
+      ..current = WalletRidePayment.fromJson(
+          {..._json('ReviewRequired'), 'canCancel': true});
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    await tester.pumpWidget(_host(controller));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('wallet-restart-preparation')),
+        findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('wallet-verification-code')), findsNothing);
+    expect(repository.starts, 0);
+    await controller.confirm(false);
+    await controller.start('54', 4);
+    await tester.pumpAndSettle();
+    expect(repository.approvals, [false]);
+    expect(repository.starts, 1);
+    expect(find.text('أحمد محمد'), findsOneWidget);
+    expect(find.byKey(const ValueKey('wallet-confirm')), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('wallet-verification-code')), findsNothing);
   });
 
   test('stale response from an earlier ride is ignored', () async {
@@ -370,17 +428,37 @@ void main() {
       await controller.refresh('54');
       await tester.pumpWidget(_host(controller));
       await tester.pumpAndSettle();
-      expect(find.text(message), findsOneWidget);
+      expect(find.text(message),
+          status == 'Failed' ? findsNWidgets(2) : findsOneWidget);
       expect(find.text('تم دفع الرحلة بنجاح'),
           status == 'Succeeded' ? findsOneWidget : findsNothing);
       expect(find.byKey(const ValueKey('wallet-receipt-done')),
           status == 'Succeeded' ? findsOneWidget : findsNothing);
+      expect(find.byKey(const ValueKey('wallet-header-change-method')),
+          status == 'Succeeded' ? findsNothing : findsOneWidget);
       expect(tester.takeException(), isNull);
       controller.dispose();
     });
   }
 
-  testWidgets('same persisted and request rejection is shown once',
+  testWidgets('verification header can change a prepared referenced wallet operation', (tester) async {
+    final repository = _Repository()..current = WalletRidePayment.fromJson({
+      ..._json('AwaitingCode'), 'canCancel': true, 'providerReference': 'prepared-only',
+    });
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    var changes = 0;
+    await tester.pumpWidget(_host(controller, onChangeMethod: () => changes++));
+    await tester.pumpAndSettle();
+    final button = find.byKey(const ValueKey('wallet-header-change-method'));
+    expect(button, findsOneWidget);
+    await tester.tap(button);
+    expect(changes, 1);
+    expect(controller.payment.value!.succeeded, isFalse);
+  });
+
+  testWidgets('rejection is highlighted in the panel and a centered dialog',
       (tester) async {
     const reason = 'الرصيد المتاح في حساب فلوسك لا يكفي لإتمام عملية الدفع.';
     final repository = _Repository()
@@ -397,8 +475,152 @@ void main() {
     await controller.refresh('54');
     await tester.pumpWidget(_host(controller));
     await tester.pumpAndSettle();
-    expect(find.text(reason), findsOneWidget);
+    expect(find.text(reason), findsNWidgets(2));
+    expect(
+        find.byKey(const ValueKey('wallet-rejection-dialog')), findsOneWidget);
     expect(find.text('تم دفع الرحلة بنجاح'), findsNothing);
+  });
+
+  testWidgets('Jaib rejected code exposes change method in dialog and page',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const reason = 'أفادت جيب بأن رمز التحقق غير صحيح. تحقق من الرمز المرسل إلى هاتفك.';
+    final repository = _Repository()..current = _jaib('AwaitingCode');
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    var changes = 0;
+    final previewKey = GlobalKey();
+    await tester.pumpWidget(RepaintBoundary(
+        key: previewKey,
+        child: _host(controller, onChangeMethod: () => changes++)));
+    final declined = WalletRidePayment.fromJson({
+      ..._json('Failed'),
+      'providerCode': 'Jaib',
+      'providerName': 'جيب',
+      'mobile': '782782177',
+      'message': reason,
+      'canCancel': false,
+    });
+    repository.completion = Future.value(ApiSuccess(declined));
+    repository.current = declined;
+    await controller.complete('123');
+    await tester.pumpAndSettle();
+    expect(controller.locksOtherMethods, isFalse);
+    expect(find.text('عملية الدفع قيد المراجعة'), findsNothing);
+    expect(find.byKey(const ValueKey('wallet-dialog-change-method')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('wallet-dialog-change-method')));
+    await tester.pumpAndSettle();
+    expect(changes, 1);
+    expect(find.byKey(const ValueKey('wallet-change-method')), findsOneWidget);
+    expect(find.text(reason), findsOneWidget);
+    await tester.runAsync(() async {
+      final boundary = previewKey.currentContext!.findRenderObject()!
+          as RenderRepaintBoundary;
+      final image = await boundary.toImage();
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      final directory = Directory('build/payment-previews')
+        ..createSync(recursive: true);
+      File('${directory.path}/jaib-rejected-change-method.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+      image.dispose();
+    });
+    await tester.tap(find.byKey(const ValueKey('wallet-change-method')));
+    await tester.pumpAndSettle();
+    expect(changes, 2);
+    expect(repository.starts, 0);
+    expect(controller.payment.value!.succeeded, isFalse);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('Jaib insufficient funds before quote offers change without OTP',
+      (tester) async {
+    const reason = 'أفادت جيب بأن رصيد حسابك لا يكفي لإتمام السحب بالمبلغ والعمولة المطلوبة.';
+    final repository = _Repository()
+      ..current = WalletRidePayment.fromJson({
+        ..._json('Failed'),
+        'providerCode': 'Jaib',
+        'providerName': 'جيب',
+        'customerName': null,
+        'customerIsProviderVerified': false,
+        'amount': 1500000,
+        'fees': null,
+        'feesKnown': false,
+        'message': reason,
+        'canCancel': false,
+      });
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    var changes = 0;
+    await tester.pumpWidget(_host(controller, onChangeMethod: () => changes++));
+    await tester.pumpAndSettle();
+    expect(controller.canStart, isTrue);
+    expect(find.text(reason), findsNWidgets(2));
+    expect(find.text('اسم العميل'), findsNothing);
+    expect(find.byKey(const ValueKey('wallet-confirm')), findsNothing);
+    expect(find.byKey(const ValueKey('wallet-verification-code')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('wallet-dialog-change-method')));
+    await tester.pumpAndSettle();
+    expect(changes, 1);
+    expect(find.byKey(const ValueKey('wallet-change-method')), findsOneWidget);
+    expect(find.text('غير محددة من المزود'), findsOneWidget);
+    expect(repository.starts, 0);
+    expect(repository.completions, 0);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+      'rejecting OTP offers correction or change without repeat dialogs on refresh',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    const reason = 'رمز التحقق غير صحيح.';
+    final repository = _Repository()..current = _payment('AwaitingCode');
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    final previewKey = GlobalKey();
+    await tester
+        .pumpWidget(RepaintBoundary(key: previewKey, child: _host(controller)));
+    repository.completion = Future.value(const ApiFailure(ApiProblemDetails(
+        title: reason, status: 422, code: 'wallet_provider_rejected')));
+    await controller.complete('123');
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('wallet-rejection-dialog')), findsOneWidget);
+    expect(find.byKey(const ValueKey('wallet-dialog-change-method')),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await tester.runAsync(() async {
+      final boundary = previewKey.currentContext!.findRenderObject()!
+          as RenderRepaintBoundary;
+      final image = await boundary.toImage();
+      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+      final directory = Directory('build/payment-previews')
+        ..createSync(recursive: true);
+      File('${directory.path}/wallet-rejection-dialog.png')
+          .writeAsBytesSync(bytes!.buffer.asUint8List());
+      image.dispose();
+    });
+    await tester.tap(find.text('تصحيح الرمز'));
+    await tester.pumpAndSettle();
+    await controller.refresh('54');
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.text(reason), findsOneWidget);
+    await controller.complete('456');
+    await tester.pumpAndSettle();
+    expect(
+        find.byKey(const ValueKey('wallet-rejection-dialog')), findsOneWidget);
+    expect(repository.starts, 0);
+    expect(controller.payment.value!.succeeded, isFalse);
   });
 
   for (final nextAction in ['OneTimePassword', 'Pin', 'Voucher']) {
@@ -418,7 +640,8 @@ void main() {
       expect(find.text('اسم العميل'), findsNothing);
       expect(find.text('محمد أحمد من جيب'), findsNothing);
       expect(find.text('771234567'), findsOneWidget);
-      expect(find.text('تظهر بيانات الحساب بعد التحقق.'), findsOneWidget);
+      expect(find.text('بيانات الحساب غير متاحة من مزود الدفع حالياً.'),
+          findsOneWidget);
       expect(find.byKey(const ValueKey('wallet-verification-code')),
           findsOneWidget);
       expect(find.byKey(const ValueKey('wallet-confirm')), findsNothing);
@@ -426,6 +649,45 @@ void main() {
       expect(tester.takeException(), isNull);
     });
   }
+
+  testWidgets(
+      'Jaib customer quote then approval and OTP completes the same payment',
+      (tester) async {
+    final repository = _Repository()
+      ..current = _jaib('AwaitingConfirmation')
+      ..confirmationResult = _jaib('AwaitingCode')
+      ..completion = Future.value(ApiSuccess(_jaib('Succeeded')));
+    final controller = WalletRidePaymentController(repository);
+    addTearDown(controller.dispose);
+    await controller.refresh('54');
+    await tester.pumpWidget(_host(controller));
+    await tester.pumpAndSettle();
+    expect(find.text('محمد أحمد من جيب'), findsOneWidget);
+    expect(find.text('771234567'), findsOneWidget);
+    expect(
+        find.text('تأكيد البيانات والمتابعة إلى رمز التحقق'), findsOneWidget);
+    final input = find.byKey(const ValueKey('wallet-verification-code'));
+    expect(input, findsNothing);
+    final confirm = find.byKey(const ValueKey('wallet-confirm'));
+    await tester.ensureVisible(confirm);
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+    expect(input, findsOneWidget);
+    expect(find.text('محمد أحمد من جيب'), findsOneWidget);
+    expect(find.text('تم دفع الرحلة بنجاح'), findsNothing);
+    await tester.ensureVisible(input);
+    await tester.enterText(input, '123456');
+    await tester.pump();
+    final complete = find.byKey(const ValueKey('wallet-complete'));
+    await tester.ensureVisible(complete);
+    await tester.tap(complete);
+    await tester.pumpAndSettle();
+    expect(find.text('تم دفع الرحلة بنجاح'), findsOneWidget);
+    expect(find.text('JAIB-123456'), findsOneWidget);
+    expect(repository.approvals, [true]);
+    expect(repository.completions, 1);
+    expect(repository.starts, 0);
+  });
 
   testWidgets(
       'Jaib moves from code to verified details before showing a receipt',
@@ -497,7 +759,7 @@ void main() {
 }
 
 Widget _host(WalletRidePaymentController controller,
-        {GlobalKey? boundaryKey}) =>
+        {GlobalKey? boundaryKey, VoidCallback? onChangeMethod}) =>
     GetMaterialApp(
       locale: const Locale('ar', 'SA'),
       theme: AppTheme.light,
@@ -513,7 +775,7 @@ Widget _host(WalletRidePaymentController controller,
                 controller: controller,
                 onRefresh: () {},
                 onRetry: () {},
-                onChangeMethod: () {},
+                onChangeMethod: onChangeMethod ?? () {},
                 onDone: () {},
               ),
             ),

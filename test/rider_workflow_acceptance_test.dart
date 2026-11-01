@@ -30,6 +30,7 @@ import 'package:yemen_drive/features/account/wallet/models/wallet_models.dart';
 import 'package:yemen_drive/features/ride/negotiation/repositories/ride_negotiation_repository.dart';
 import 'package:yemen_drive/features/ride/ride_routes.dart';
 import 'package:yemen_drive/features/ride/views/trip_communication_payment_views.dart';
+import 'package:yemen_drive/features/ride/views/vehicle_request_views.dart';
 import 'package:yemen_drive/shared/widgets/app_button.dart';
 
 class _MemoryStorage implements GetStorage {
@@ -54,6 +55,15 @@ class _Repository implements RideNegotiationRepository {
   bool ratingReadFails = false;
   int bookingAttempts = 0;
   int cancellationAttempts = 0;
+  String? cancellationFailure;
+  int quoteReads = 0;
+  Map<String, Object?> cancellationQuote = {'paymentCompleted': false};
+  @override
+  Future<Map<String, Object?>> getCancellationQuote(String requestId) async {
+    quoteReads++;
+    return cancellationQuote;
+  }
+
   List<DriverOffer> offers = [];
   List<RideRequestViewer> recipients = [];
   Map<String, Object?> get detail => {
@@ -112,6 +122,8 @@ class _Repository implements RideNegotiationRepository {
   @override
   Future<void> requestCancellation(String requestId, String reason) async {
     cancellationAttempts++;
+    if (cancellationFailure != null)
+      throw FormatException(cancellationFailure!);
   }
 
   @override
@@ -134,7 +146,9 @@ class _Api extends ApiClient {
   final cashSwitches = <Object?>[];
   bool failCashSwitch = false;
   int cashRequestAdds = 0;
+  List<Map<String, Object?>> paymentMethods = [];
   bool failRating = false;
+  bool cancellationNeedsAdminReview = false;
   Map<String, Object?>? cancellation;
   final decisions = <String>[];
   @override
@@ -144,6 +158,9 @@ class _Api extends ApiClient {
       Object? data,
       T Function(Object?)? parse}) async {
     Object? result = <String, Object?>{};
+    if (model == 'PaymentMethodModel' && operation == 'list') {
+      result = paymentMethods;
+    }
     if (model == 'RideModel') {
       if (operation == 'update') {
         cashSwitches.add(data);
@@ -151,8 +168,11 @@ class _Api extends ApiClient {
           return const ApiFailure(
               ApiProblemDetails(title: 'تعذر اعتماد النقدي الآن', status: 409));
         }
-        repository.paymentMethodCode = 'cash';
-        repository.paymentRequiredBeforeStart = false;
+        repository.paymentMethodCode =
+            (data as Map)['paymentMethodCode'] as String;
+        repository.paymentRequiredBeforeStart =
+            const {2, 3, 4}.contains(repository.status) &&
+                repository.paymentMethodCode != 'cash';
       }
       result = repository.detail;
     }
@@ -169,7 +189,9 @@ class _Api extends ApiClient {
       if (operation != 'get') {
         decisions.add(operation);
         cancellation?['canDecide'] = false;
-        if (operation == 'accept') repository.status = 7;
+        if (operation == 'accept') {
+          repository.status = cancellationNeedsAdminReview ? 8 : 7;
+        }
       }
       result = cancellation;
     }
@@ -184,6 +206,11 @@ class _WalletAdapter implements HttpClientAdapter {
   Future<ResponseBody> fetch(RequestOptions options,
       Stream<Uint8List>? requestStream, Future<void>? cancelFuture) async {
     requests.add(options);
+    if (options.path.endsWith('/confirm') &&
+        (options.data as Map)['approved'] == false &&
+        current?['canCancel'] == true) {
+      current = {...current!, 'status': 'Cancelled', 'canCancel': false};
+    }
     return ResponseBody.fromString(
       jsonEncode({'success': true, 'data': current}),
       200,
@@ -270,7 +297,10 @@ class _MapPlatform extends maps.GoogleMapsFlutterPlatform {
       const SizedBox.expand();
 }
 
-Widget _host({bool liveRidePage = false, bool livePaymentPage = false}) =>
+Widget _host(
+        {bool liveRidePage = false,
+        bool livePaymentPage = false,
+        bool liveCancelPage = false}) =>
     GetMaterialApp(
       home: const Scaffold(body: Text('home')),
       getPages: [
@@ -289,11 +319,21 @@ Widget _host({bool liveRidePage = false, bool livePaymentPage = false}) =>
                 ? const RidePaymentPage()
                 : const Scaffold(body: Text('wallet payment'))),
         GetPage(
+            name: RideRoutes.rideCancel,
+            page: () => liveCancelPage
+                ? const RideCancelPage()
+                : const Scaffold(body: Text('cancellation reason'))),
+        GetPage(
             name: RideRoutes.rideThanks,
             page: () => const Scaffold(body: Text('rated'))),
         GetPage(
-            name: RideRoutes.requestThanks,
-            page: () => const Scaffold(body: Text('cancelled'))),
+          name: RideRoutes.requestThanks,
+          page: () => const RequestThanksPage(),
+        ),
+        GetPage(
+          name: RideRoutes.homeTransport,
+          page: () => const Scaffold(body: Text('home')),
+        ),
       ],
     );
 
@@ -353,7 +393,6 @@ void main() {
         // Let any queued notices finish before disposing their overlay.
         for (var notice = 0; notice < 3; notice++) {
           await tester.pump(const Duration(seconds: 4));
-          await tester.pumpAndSettle();
         }
         Get.delete<RideController>(force: true);
         Get.delete<PaymentController>(force: true);
@@ -389,13 +428,17 @@ void main() {
     expect(Get.currentRoute, RideRoutes.payment);
     expect(ride.activePaymentMethodCode.value, 'JAIB');
     expect(ride.mandatoryPaymentPending, isTrue);
+    expect(find.text('محفظة يمن درايف'), findsOneWidget);
+    expect(find.byKey(const ValueKey('payment-cancel-ride')), findsOneWidget);
+    payment.selectMethod('wallet');
+    expect(payment.selectedMethod.value, 'wallet');
     expect(tester.widget<PopScope<void>>(find.byType(PopScope<void>)).canPop,
         isFalse);
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
     expect(Get.currentRoute, RideRoutes.payment);
-    await ride.openNotificationPayload(
-        {'action': 'open_ride_chat', 'rideId': '7'});
+    await ride
+        .openNotificationPayload({'action': 'open_ride_chat', 'rideId': '7'});
     await tester.pumpAndSettle();
     expect(Get.currentRoute, RideRoutes.payment);
     expect(
@@ -425,6 +468,219 @@ void main() {
     expect(payment.paymentCompleted.value, isFalse);
   });
 
+  workflowTest(
+      'a failed booked wallet can switch to cash without another withdrawal',
+      (tester) async {
+    tester.view.physicalSize = const Size(480, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    repository.status = 3;
+    repository.paymentMethodCode = 'JAIB';
+    repository.paymentRequiredBeforeStart = true;
+    api.walletAdapter.current = _walletOperation('Failed');
+    await tester.pumpWidget(_host(livePaymentPage: true));
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('wallet-dialog-change-method')));
+    await tester.pumpAndSettle();
+    expect(payment.choosingReplacementMethod.value, isTrue);
+    expect(ride.mandatoryPaymentPending, isTrue);
+    expect(api.cashSwitches, isEmpty);
+    await tester.tap(find.text('نقداً'));
+    await tester.pumpAndSettle();
+
+    expect(Get.currentRoute, RideRoutes.driverLocation);
+    expect(ride.mandatoryPaymentPending, isFalse);
+    expect(api.cashSwitches.single, {'id': '7', 'paymentMethodCode': 'cash'});
+    expect(api.cashRequestAdds, 0);
+    expect(
+        api.walletAdapter.requests.every((request) => request.method == 'GET'),
+        isTrue);
+  });
+
+  workflowTest(
+      'cash replacement after rejection is saved for driver collection without marking paid',
+      (tester) async {
+    tester.view.physicalSize = const Size(480, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    repository.paymentMethodCode = 'JAIB';
+    api.walletAdapter.current = _walletOperation('Failed');
+    await tester.pumpWidget(_host(livePaymentPage: true));
+    await ride.resumeOpenRide('7');
+    Get.toNamed<void>(RideRoutes.payment);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('wallet-dialog-change-method')));
+    await tester.pumpAndSettle();
+    payment.selectMethod('cash');
+    await tester.pumpAndSettle();
+    expect(api.cashSwitches.single, {'id': '7', 'paymentMethodCode': 'cash'});
+    expect(ride.activePaymentMethodCode.value, 'cash');
+    expect(payment.paymentCompleted.value, isFalse);
+    expect(api.cashRequestAdds, 0);
+    expect(
+        api.walletAdapter.requests.every((request) => request.method == 'GET'),
+        isTrue);
+  });
+
+  workflowTest(
+      'failed replacement save keeps the booked wallet and allows retry',
+      (tester) async {
+    repository.paymentMethodCode = 'JAIB';
+    api.walletAdapter.current = _walletOperation('Failed');
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    final summary = payment.loadPaymentSummary();
+    await tester.pumpAndSettle();
+    await summary;
+    await payment.dismissExternalPayment();
+    api.failCashSwitch = true;
+    payment.selectMethod('cash');
+    await tester.pumpAndSettle();
+    expect(ride.activePaymentMethodCode.value, 'JAIB');
+    expect(payment.selectedMethod.value, 'JAIB');
+    expect(payment.paymentActionError.value, 'تعذر اعتماد النقدي الآن');
+    expect(payment.paymentCompleted.value, isFalse);
+    api.failCashSwitch = false;
+    payment.selectMethod('cash');
+    await tester.pumpAndSettle();
+    expect(ride.activePaymentMethodCode.value, 'cash');
+    expect(payment.paymentCompleted.value, isFalse);
+  });
+
+  workflowTest('mandatory payment refresh recovers a missing booking catalog',
+      (tester) async {
+    final oldCatalog = AppEnvironment.paymentMethods;
+    addTearDown(() => AppEnvironment.paymentMethods = oldCatalog);
+    AppEnvironment.paymentMethods = [];
+    repository.status = 3;
+    repository.paymentMethodCode = 'JAIB';
+    repository.paymentRequiredBeforeStart = true;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    var refresh = payment.loadPaymentSummary();
+    await tester.pumpAndSettle();
+    await refresh;
+    expect(payment.selectedExternalWalletSupported, isFalse);
+    expect(payment.summaryError.value, contains('تعذر تحميل وسيلة الدفع'));
+
+    api.paymentMethods = [
+      {
+        'id': 8,
+        'code': 'JAIB',
+        'nameAr': 'جيب',
+        'kind': 3,
+        'providerCode': 'Jaib',
+        'isActive': true,
+        'isAvailableForRidePayment': true,
+        'isProviderConnected': true,
+        'isServiceAvailable': true,
+      },
+    ];
+    refresh = payment.loadPaymentSummary();
+    await tester.pumpAndSettle();
+    await refresh;
+    expect(payment.summaryError.value, isEmpty);
+    expect(payment.selectedExternalWalletSupported, isTrue);
+    expect(payment.bookedPaymentMethodId, 'JAIB');
+    expect(ride.mandatoryPaymentPending, isTrue);
+    expect(
+        api.walletAdapter.requests.every((request) => request.method == 'GET'),
+        isTrue);
+  });
+
+  workflowTest('new wallet choice is confirmed before a provider request',
+      (tester) async {
+    final oldCatalog = AppEnvironment.paymentMethods;
+    addTearDown(() => AppEnvironment.paymentMethods = oldCatalog);
+    AppEnvironment.paymentMethods = const [
+      PaymentMethodItem(
+          id: 'JAIB',
+          label: 'جيب',
+          subtitle: '',
+          icon: Icons.wallet,
+          providerCode: 'Jaib',
+          paymentMethodId: 8)
+    ];
+    repository.status = 3;
+    repository.paymentMethodCode = 'wallet';
+    repository.paymentRequiredBeforeStart = true;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    var action = payment.loadPaymentSummary();
+    await tester.pumpAndSettle();
+    await action;
+    payment.selectMethod('JAIB');
+    api.failCashSwitch = true;
+    action = payment.pay();
+    await tester.pumpAndSettle();
+    await action;
+    expect(
+        api.walletAdapter.requests.where((r) => r.method == 'POST'), isEmpty);
+    expect(ride.activePaymentMethodCode.value, 'wallet');
+    api.failCashSwitch = false;
+    action = payment.pay();
+    await tester.pumpAndSettle();
+    await action;
+    expect(ride.activePaymentMethodCode.value, 'JAIB');
+    expect(ride.mandatoryPaymentPending, isTrue);
+    expect(
+        api.walletAdapter.requests.where((r) => r.method == 'POST').single.data,
+        {'paymentMethodId': 8});
+  });
+
+  workflowTest(
+      'restored preparation offers method change and ride cancellation',
+      (tester) async {
+    tester.view.physicalSize = const Size(480, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    repository.status = 3;
+    repository.paymentMethodCode = 'wallet';
+    repository.paymentRequiredBeforeStart = true;
+    api.walletAdapter.current = {
+      ..._walletOperation('ReviewRequired'),
+      'providerCode': 'Floosak',
+      'providerName': 'فلوسك',
+      'canCancel': true
+    };
+    await tester.pumpWidget(_host(livePaymentPage: true));
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('wallet-change-method')));
+    await tester.pumpAndSettle();
+    expect(find.text('محفظة يمن درايف'), findsOneWidget);
+    expect(payment.paymentOptionsLocked, isFalse);
+    expect(
+        api.walletAdapter.requests.where((r) => r.method == 'POST').single.data,
+        {'approved': false});
+    await tester.tap(find.byKey(const ValueKey('payment-cancel-ride')));
+    await tester.pumpAndSettle();
+    hub.reconnects.add(null);
+    await tester.pumpAndSettle();
+    expect(Get.currentRoute, RideRoutes.rideCancel);
+  });
+
+  workflowTest(
+      'cancellation shows the actual server refusal and retains the trip',
+      (tester) async {
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    repository.cancellationFailure =
+        'يجب التحقق من نتيجة الدفع قبل إلغاء الرحلة.';
+    await ride.cancelActiveRide('تغيير الخطة');
+    await tester.pump();
+    expect(find.text(repository.cancellationFailure!), findsOneWidget);
+    expect(ride.currentRideId, '7');
+  });
+
   workflowTest('cash offer acceptance goes directly to the active trip',
       (tester) async {
     repository.status = 1;
@@ -445,7 +701,8 @@ void main() {
     expect(api.cashRequestAdds, 0);
   });
 
-  workflowTest('a confirmed cash choice recovered over realtime exits the required payment step',
+  workflowTest(
+      'a confirmed cash choice recovered over realtime exits the required payment step',
       (tester) async {
     tester.view.physicalSize = const Size(480, 1000);
     tester.view.devicePixelRatio = 1;
@@ -825,6 +1082,189 @@ void main() {
     expect(ride.currentRideId, isNull);
     expect(Get.currentRoute, RideRoutes.requestThanks);
     expect(api.decisions, ['reject', 'accept']);
+  });
+
+  workflowTest(
+      'admin approval of driver cancellation closes tracking before a pending snapshot completes',
+      (tester) async {
+    await tester.pumpWidget(_host());
+    repository.paymentCompleted = true;
+    api.cancellationNeedsAdminReview = true;
+    api.cancellation = {
+      'id': 22,
+      'requestedByDriver': true,
+      'canDecide': true,
+      'reason': 'عطل مفاجئ',
+    };
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    await ride.decideDriverCancellation(accept: true);
+    await tester.pumpAndSettle();
+    expect(ride.currentRideId, '7');
+    expect(ride.activeRideStatus.value, '8');
+    expect(Get.currentRoute, RideRoutes.driverLocation);
+
+    final staleDetail = repository.detail;
+    final pending = Completer<Map<String, Object?>>();
+    repository.pendingDetail = pending;
+    final refresh = ride.refreshActiveRide();
+    await tester.pump();
+    try {
+      hub.send('rideStatusUpdated', {'rideId': 99, 'rideStatus': 7});
+      await tester.pump();
+      expect(ride.currentRideId, '7');
+
+      // Administration has committed the final status while a previous REST
+      // read is still in flight. Its old pending state must never restore it.
+      hub.send('rideStatusUpdated', {'rideStatus': 7});
+      await tester.pumpAndSettle();
+      expect(pending.isCompleted, isFalse);
+      expect(ride.currentRideId, isNull);
+      expect(ride.isDriverAssigned.value, isFalse);
+      expect(ride.trackedDriver.value, isNull);
+      expect(ride.currentDraft.value, isNull);
+      expect(ride.driverCancellationRequest.value, isNull);
+      expect(ride.bookingLocked, isFalse);
+      expect(Get.currentRoute, RideRoutes.requestThanks);
+      expect(find.text('تم إلغاء الرحلة'), findsOneWidget);
+      expect(find.textContaining('عطل مفاجئ'), findsOneWidget);
+      expect(find.text('تم إرسال طلب الإلغاء'), findsNothing);
+    } finally {
+      repository.pendingDetail = null;
+      pending.complete(staleDetail);
+      await refresh;
+      await tester.pumpAndSettle();
+    }
+    expect(ride.currentRideId, isNull);
+    expect(Get.currentRoute, RideRoutes.requestThanks);
+    hub.send('rideStatusUpdated', {'rideStatus': 7});
+    hub.send('driverLocationUpdated', {'latitude': 15.3, 'longitude': 44.1});
+    await tester.pumpAndSettle();
+    expect(ride.trackedDriver.value, isNull);
+    expect(Get.currentRoute, RideRoutes.requestThanks);
+    await tester.tap(find.text('العودة إلى الرئيسية'));
+    await tester.pumpAndSettle();
+    expect(Get.currentRoute, RideRoutes.homeTransport);
+  });
+
+  workflowTest('final cancellation clears nested trip pages and dialogs',
+      (tester) async {
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    Get.toNamed<void>(RideRoutes.payment);
+    await tester.pumpAndSettle();
+    Get.dialog<void>(const AlertDialog(content: Text('trip dialog')));
+    await tester.pumpAndSettle();
+
+    hub.send('rideStatusUpdated', {'rideStatus': 7});
+    await tester.pumpAndSettle();
+    expect(Get.currentRoute, RideRoutes.requestThanks);
+    expect(Get.isDialogOpen, isFalse);
+    expect(find.text('تم إلغاء الرحلة'), findsOneWidget);
+    expect(Get.key.currentState!.canPop(), isFalse);
+  });
+
+  for (final recovery in ['refresh', 'reconnect', 'app resume']) {
+    workflowTest('missed final cancellation is recovered by $recovery',
+        (tester) async {
+      await tester.pumpWidget(_host());
+      await ride.resumeOpenRide('7');
+      await tester.pumpAndSettle();
+      repository.status = 7;
+      switch (recovery) {
+        case 'refresh':
+          await ride.refreshActiveRide();
+        case 'reconnect':
+          hub.reconnects.add(null);
+        case 'app resume':
+          ride.didChangeAppLifecycleState(AppLifecycleState.resumed);
+      }
+      await tester.pumpAndSettle();
+      expect(ride.currentRideId, isNull);
+      expect(ride.isDriverAssigned.value, isFalse);
+      expect(ride.bookingLocked, isFalse);
+      expect(Get.currentRoute, RideRoutes.requestThanks);
+      expect(find.text('تم إلغاء الرحلة'), findsOneWidget);
+    });
+  }
+
+  workflowTest(
+      'paid cancellation shows refund before sending and dialog dismissal sends nothing',
+      (tester) async {
+    repository.status = 3;
+    repository.paymentCompleted = true;
+    repository.cancellationQuote = {
+      'paymentCompleted': true,
+      'rideStarted': false,
+      'paidAmount': 1000,
+      'serviceFee': 100,
+      'cancellationFee': 50,
+      'totalDeductions': 150,
+      'refundAmount': 850,
+      'currency': 'YER',
+      'canCalculateRefund': true,
+    };
+    await tester.pumpWidget(_host(liveCancelPage: true));
+    await ride.resumeOpenRide('7');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    Get.toNamed<void>(RideRoutes.rideCancel);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(find.text('لا يتوفر لدي رصيد كافٍ في محافظ الدفع'), findsNothing);
+    final reason = find.text('تعذر التواصل مع السائق');
+    await tester.ensureVisible(reason);
+    await tester.tap(reason);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('cancellation-refund-dialog')),
+        findsOneWidget);
+    expect(find.textContaining('850 ريال يمني'), findsOneWidget);
+    expect(repository.cancellationAttempts, 0);
+    await tester.tap(find.text('العودة'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(repository.cancellationAttempts, 0);
+    await tester.tap(reason);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('confirm-cancellation-refund')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(repository.cancellationAttempts, 1);
+    expect(repository.quoteReads, 2);
+  });
+
+  workflowTest(
+      'unpaid cancellation offers payment reasons and sends without refund dialog',
+      (tester) async {
+    repository.status = 3;
+    await tester.pumpWidget(_host(liveCancelPage: true));
+    await ride.resumeOpenRide('7');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    Get.toNamed<void>(RideRoutes.rideCancel);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    final reason = find.text('لم أتمكن من الدفع عبر المحفظة');
+    await tester.ensureVisible(reason);
+    await tester.tap(reason);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+    expect(
+        find.byKey(const ValueKey('cancellation-refund-dialog')), findsNothing);
+    expect(repository.cancellationAttempts, 1);
+    expect(repository.quoteReads, 1);
   });
 
   workflowTest('rider cancellation retains the live trip until server approval',
