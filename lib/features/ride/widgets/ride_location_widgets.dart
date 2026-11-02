@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../account/favourites/widgets/destination_favourites.dart';
 import 'package:get/get.dart';
 
 import '../../../app/theme/app_colors.dart';
@@ -982,13 +983,16 @@ class _LocationPickerSearchOverlayState
       );
 }
 
-class _LocationSearchFormState extends State<LocationSearchForm> {
+class _LocationSearchFormState extends State<LocationSearchForm>
+    with WidgetsBindingObserver {
   final FocusNode _pickupFocus = FocusNode();
   final FocusNode _destinationFocus = FocusNode();
   late final LocationController _controller;
+  int _interactionRevision = 0;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _controller = Get.find<LocationController>();
     _pickupFocus.addListener(_syncActiveField);
     _destinationFocus.addListener(_syncActiveField);
@@ -998,15 +1002,43 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
       final target =
           _controller.activeField.value == 0 ? _pickupFocus : _destinationFocus;
       target.requestFocus();
+      unawaited(_initializePickup());
+      unawaited(_controller.loadSavedPlaces());
     });
   }
 
   void _syncActiveField() {
+    _controller.focusedRouteOwner = this;
     if (_pickupFocus.hasFocus) _controller.activeField.value = 0;
     if (_destinationFocus.hasFocus) _controller.activeField.value = 1;
+    _controller.focusedRouteField.value = _pickupFocus.hasFocus
+        ? 0
+        : _destinationFocus.hasFocus
+            ? 1
+            : null;
+  }
+
+  Future<void> _initializePickup() async {
+    final revision = _interactionRevision;
+    await _controller.ensureInitialPickupLocation();
+    if (mounted &&
+        revision == _interactionRevision &&
+        _controller.pickup.value != null &&
+        _controller.pickupIsCurrentLocation.value &&
+        _controller.activeField.value == 0) {
+      _controller.activeField.value = 1;
+      _destinationFocus.requestFocus();
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted)
+      unawaited(_initializePickup());
   }
 
   void _updateQuery(int field) {
+    _interactionRevision++;
     _controller.clearRouteField(field, clearText: false);
   }
 
@@ -1018,6 +1050,14 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _pickupFocus.removeListener(_syncActiveField);
+    _destinationFocus.removeListener(_syncActiveField);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_controller.isClosed &&
+          identical(_controller.focusedRouteOwner, this))
+        _controller.focusedRouteField.value = null;
+    });
     _pickupFocus.dispose();
     _destinationFocus.dispose();
     super.dispose();
@@ -1038,7 +1078,16 @@ class _LocationSearchFormState extends State<LocationSearchForm> {
             onToSearch: () => _submitSearch(1, _controller.toController.text),
             onFromChanged: (_) => _updateQuery(0),
             onToChanged: (_) => _updateQuery(1),
+            onFromTap: () {
+              _interactionRevision++;
+              _controller.activeField.value = 0;
+            },
+            onToTap: () {
+              _interactionRevision++;
+              _controller.activeField.value = 1;
+            },
           ),
+          const FavouriteDestinationShortcuts(),
           const SizedBox(height: AppSpacing.lg),
           Obx(() => ListTile(
                 key: const ValueKey('location-search-current-location'),

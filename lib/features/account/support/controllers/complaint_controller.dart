@@ -19,6 +19,8 @@ class ComplaintController extends GetxController {
         message: messageController.text.trim(),
       );
       return true;
+    } catch (error) {
+      Get.snackbar('لم تُرسل الشكوى', '$error'); return false;
     } finally {
       isSubmitting.value = false;
     }

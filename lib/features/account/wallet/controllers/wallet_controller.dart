@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -5,6 +6,7 @@ import '../../../../core/config/app_environment.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
 import '../../../../core/services/auth_session_service.dart';
+import '../../../../core/realtime/tracking_hub_service.dart';
 import '../../../ride/controllers/wallet_ride_payment_controller.dart';
 import '../../../ride/models/wallet_ride_payment.dart';
 import '../../account_routes.dart';
@@ -12,13 +14,20 @@ import '../repositories/wallet_top_up_repository.dart';
 import '../../models/account_models.dart';
 import '../repositories/wallet_repository.dart';
 
-class WalletController extends GetxController {
+class WalletController extends GetxController with WidgetsBindingObserver {
   WalletController(this._repository);
 
   final WalletRepository _repository;
+  StreamSubscription<TrackingHubEvent>? _walletEvents;
+  StreamSubscription<void>? _walletReconnects;
+  Future<void>? _walletRefresh;
+  bool _walletRefreshRequested = false;
   final TextEditingController amountController = TextEditingController();
   final RxList<WalletTransaction> transactions = <WalletTransaction>[].obs;
   final RxDouble walletBalance = 0.0.obs;
+  final RxDouble ledgerDebt = 0.0.obs;
+  final RxDouble outstandingRideDebt = 0.0.obs;
+  final rideDebts = <Map<String, Object?>>[].obs;
   final RxDouble totalSpent = 0.0.obs;
   final RxString amountText = ''.obs;
   final RxString selectedPaymentMethodId = ''.obs;
@@ -34,21 +43,38 @@ class WalletController extends GetxController {
     final repository = topUpRepository;
     if (repository == null) return;
     topUp?.dispose();
-    topUp = WalletRidePaymentController(repository, onSucceeded: (_) {
-      loadTransactions();
-    });
+    topUp = WalletRidePaymentController(
+      repository,
+      onSucceeded: (_) {
+        loadTransactions();
+      },
+    );
   }
 
   @override
   void onInit() {
     super.onInit();
+    WidgetsBinding.instance.addObserver(this);
+    if (Get.isRegistered<TrackingHubService>()) {
+      final hub = Get.find<TrackingHubService>();
+      _walletEvents = hub.events.listen((event) {
+        if (event.name == 'notificationCreated' ||
+            event.name == 'paymentUpdated' ||
+            event.name == 'cashApprovalUpdated') unawaited(loadTransactions());
+      });
+      _walletReconnects =
+          hub.connectionRestored.listen((_) => unawaited(loadTransactions()));
+      unawaited(hub.setUserEventListening(this, true));
+    }
     _selectInitialPaymentMethod();
     loadTransactions();
     if (Get.isRegistered<ApiClient>() &&
         Get.isRegistered<AuthSessionService>() &&
         Get.find<AuthSessionService>().currentUserId.value != null) {
-      topUpRepository = WalletTopUpRepository(Get.find<ApiClient>(),
-          Get.find<AuthSessionService>().currentUserId.value ?? 0);
+      topUpRepository = WalletTopUpRepository(
+        Get.find<ApiClient>(),
+        Get.find<AuthSessionService>().currentUserId.value ?? 0,
+      );
       _createTopUpFlow();
       topUp?.refresh('topup');
     }
@@ -79,7 +105,9 @@ class WalletController extends GetxController {
     final flow = topUp;
     if (flow?.busy.value == true ||
         methodsLoading.value ||
-        methodsError.value.isNotEmpty) return;
+        methodsError.value.isNotEmpty) {
+      return;
+    }
     final repository = topUpRepository;
     final method = selectedPaymentMethod;
     final amount = parsedAmount;
@@ -96,9 +124,9 @@ class WalletController extends GetxController {
     }
     repository.amount = amount;
     await flow.start('topup', method!.paymentMethodId!);
-    if (flow.payment.value != null)
+    if (flow.payment.value != null) {
       Get.toNamed<void>(AccountRoutes.topUpPayment);
-    else if (flow.error.value.isNotEmpty)
+    } else if (flow.error.value.isNotEmpty)
       Get.snackbar('تعذر الشحن', flow.error.value);
   }
 
@@ -106,8 +134,9 @@ class WalletController extends GetxController {
     final flow = topUp;
     if (flow == null || flow.busy.value) return;
     if (flow.payment.value?.canCancel == true) await flow.confirm(false);
-    if (!flow.stateKnown.value || flow.payment.value?.canStartAnother != true)
+    if (!flow.stateKnown.value || flow.payment.value?.canStartAnother != true) {
       return;
+    }
     await topUpRepository?.clearFinished();
     _createTopUpFlow();
     await topUp?.refresh('topup');
@@ -122,10 +151,12 @@ class WalletController extends GetxController {
       await topUp?.refresh('topup');
     }
     await refreshMethods();
-    Get.toNamed<void>(topUp?.payment.value != null &&
-            topUp?.payment.value?.canStartAnother != true
-        ? AccountRoutes.topUpPayment
-        : AccountRoutes.addAmount);
+    Get.toNamed<void>(
+      topUp?.payment.value != null &&
+              topUp?.payment.value?.canStartAnother != true
+          ? AccountRoutes.topUpPayment
+          : AccountRoutes.addAmount,
+    );
   }
 
   Future<void> openInvoice(String id) async {
@@ -149,14 +180,34 @@ class WalletController extends GetxController {
     }
   }
 
-  Future<void> loadTransactions() async {
+  Future<void> loadTransactions() {
+    final running = _walletRefresh;
+    if (running != null) {
+      _walletRefreshRequested = true;
+      return running;
+    }
+    final task = _loadTransactions();
+    _walletRefresh = task;
+    return task.whenComplete(() => _walletRefresh = null);
+  }
+
+  Future<void> _loadTransactions() async {
     isLoading.value = true;
     try {
-      final wallet = await _repository.wallet();
-      transactions.assignAll(wallet.transactions);
-      walletBalance.value = wallet.balance;
-      totalSpent.value = wallet.totalSpent;
-      hasLoaded.value = true;
+      do {
+        _walletRefreshRequested = false;
+        final wallet = await _repository.wallet();
+        if (isClosed) return;
+        transactions.assignAll(wallet.transactions);
+        walletBalance.value = wallet.balance;
+        ledgerDebt.value = wallet.ledgerDebt;
+        outstandingRideDebt.value = wallet.outstandingRideDebt;
+        rideDebts.assignAll(wallet.rideDebts);
+        totalSpent.value = wallet.totalSpent;
+        hasLoaded.value = true;
+      } while (_walletRefreshRequested);
+    } catch (_) {
+      // Retain the last confirmed balance until reconnect or manual retry.
     } finally {
       isLoading.value = false;
     }
@@ -165,8 +216,9 @@ class WalletController extends GetxController {
   void setAmount(String value) => amountText.value = value;
 
   void selectPaymentMethod(String id) {
-    if (AppEnvironment.paymentMethodById(id)?.canTopUp == true)
+    if (AppEnvironment.paymentMethodById(id)?.canTopUp == true) {
       selectedPaymentMethodId.value = id;
+    }
   }
 
   PaymentMethodItem? get selectedPaymentMethod {
@@ -180,21 +232,37 @@ class WalletController extends GetxController {
 
   bool get requiresBankAccount => selectedPaymentMethod?.kind == 2;
 
-  double? get parsedAmount => double.tryParse(amountText.value.runes
-      .map((rune) => rune >= 0x0660 && rune <= 0x0669
-          ? '${rune - 0x0660}'
-          : rune >= 0x06F0 && rune <= 0x06F9
-              ? '${rune - 0x06F0}'
-              : String.fromCharCode(rune))
-      .join()
-      .replaceAll(',', '.')
-      .replaceAll('٫', '.')
-      .trim());
+  double? get parsedAmount => double.tryParse(
+        amountText.value.runes
+            .map(
+              (rune) => rune >= 0x0660 && rune <= 0x0669
+                  ? '${rune - 0x0660}'
+                  : rune >= 0x06F0 && rune <= 0x06F9
+                      ? '${rune - 0x06F0}'
+                      : String.fromCharCode(rune),
+            )
+            .join()
+            .replaceAll(',', '.')
+            .replaceAll('٫', '.')
+            .trim(),
+      );
 
   @override
   void onClose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _walletEvents?.cancel();
+    _walletReconnects?.cancel();
+    if (Get.isRegistered<TrackingHubService>())
+      unawaited(
+          Get.find<TrackingHubService>().setUserEventListening(this, false));
     topUp?.dispose();
     amountController.dispose();
     super.onClose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && !isClosed)
+      unawaited(loadTransactions());
   }
 }

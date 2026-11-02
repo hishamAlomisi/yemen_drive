@@ -98,6 +98,7 @@ class RideRouteChangeRequest {
         !const {
           'quoted',
           'pending',
+          'awaiting_payment',
           'accepted',
           'rejected',
           'cancelled',
@@ -137,7 +138,8 @@ class RideRouteChangeRequest {
   late final DateTime? expiresAtUtc;
   late final RideRouteDestination destination;
   late final RideRouteChangeInvoice invoice;
-  bool get isOpen => status == 'quoted' || status == 'pending';
+  bool get isOpen =>
+      status == 'quoted' || status == 'pending' || status == 'awaiting_payment';
   bool isExpired(DateTime now) => isOpen && !now.isBefore(expiresAtUtc!);
 }
 
@@ -150,7 +152,19 @@ class RideRouteChangeInvoice {
               field,
               signed: field == 'difference',
             ),
+          for (final field in settlementFields)
+            if (data[field] != null)
+              field: RideRouteChangeSnapshot.number(data, field),
         });
+
+  static const settlementFields = [
+    'paidAmount',
+    'refundedAmount',
+    'netPaid',
+    'remainingAmount',
+    'refundAmount'
+  ];
+  bool get hasSettlement => values.containsKey('netPaid');
 
   static const fields = <String>[
     'previousTotal',
@@ -168,5 +182,6 @@ class RideRouteChangeInvoice {
   ];
   final Map<String, double> values;
   double operator [](String field) => values[field]!;
-  String get fingerprint => fields.map((field) => values[field]).join('|');
+  String get fingerprint =>
+      [...fields, ...settlementFields].map((field) => values[field]).join('|');
 }

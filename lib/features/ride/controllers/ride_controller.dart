@@ -1,19 +1,11 @@
+import '../../../shared/widgets/ride_financial_follow_up.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart'
-    show
-        Icons,
-        TextEditingController,
-        TextPainter,
-        TextSpan,
-        TextStyle,
-        WidgetsBindingObserver,
-        WidgetsBinding,
-        AppLifecycleState;
+import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -22,6 +14,7 @@ import '../../../core/config/app_environment.dart';
 import '../../../core/cache/persistent_network_image.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_models.dart';
+import '../../../core/utils/utc_timestamp.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
 import '../../../core/services/auth_session_service.dart';
 import '../../../core/services/connectivity_service.dart';
@@ -66,6 +59,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
   final Rxn<Map<String, Object?>> driverCancellationRequest =
       Rxn<Map<String, Object?>>();
   final RxBool isDecidingDriverCancellation = false.obs;
+  final RxBool awaitingCancellationStatus = false.obs;
+  final RxnString cancellationStatusError = RxnString();
   Future<bool>? _ratingCheck;
   final Set<String> _ratedRideIds = <String>{};
   bool _paused = false;
@@ -75,13 +70,19 @@ class RideController extends GetxController with WidgetsBindingObserver {
   RideArrivalNotifier? _arrivalAlerts;
   RideArrivalNotifier? _arrivalNotifier() {
     final userId = _session.currentUserId.value;
-    if (userId == null || !Get.isRegistered<ApiClient>() || !Get.isRegistered<TrackingHubService>()) return null;
+    if (userId == null ||
+        !Get.isRegistered<ApiClient>() ||
+        !Get.isRegistered<TrackingHubService>()) return null;
     if (_arrivalAlerts?.userId != userId) {
       _arrivalAlerts?.onClose();
-      _arrivalAlerts = RideArrivalNotifier(Get.find<ApiClient>(), Get.find<TrackingHubService>(), userId: userId)..onInit();
+      _arrivalAlerts = RideArrivalNotifier(
+          Get.find<ApiClient>(), Get.find<TrackingHubService>(),
+          userId: userId)
+        ..onInit();
     }
     return _arrivalAlerts;
   }
+
   final Rx<RideServiceType> serviceType = RideServiceType.transport.obs;
   final RxnInt selectedServiceKindId = RxnInt();
   final Rx<RideVehicleType> selectedTransport = RideVehicleType.car.obs;
@@ -107,6 +108,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
     preferredPaymentMethod.value = value;
     _sessionPaymentPreference = value;
   }
+
   final RxString activePaymentMethodCode = 'cash'.obs;
   final RxBool paymentRequiredBeforeStart = false.obs;
   String? _paymentChoiceRideId;
@@ -127,6 +129,10 @@ class RideController extends GetxController with WidgetsBindingObserver {
   final Rxn<DriverOffer> acceptedOffer = Rxn<DriverOffer>();
   final RxString assignedDriverName = ''.obs;
   final RxString assignedDriverPhone = ''.obs;
+  final assignedVehicleModel = ''.obs;
+  final assignedPlateNumber = ''.obs;
+  final assignedPassengerSeats = RxnInt();
+  final assignedDriverRating = 0.0.obs;
   final RxDouble offeredPrice = 0.0.obs;
   final RxBool autoAcceptMatchingPrice = false.obs;
   final RxBool moreThanFourPassengers = false.obs;
@@ -167,6 +173,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
   final RxInt trackingNextStepDistanceMeters = 0.obs;
   StreamSubscription<TrackingHubEvent>? _hubEventSubscription;
   StreamSubscription<void>? _hubConnectionSubscription;
+  Timer? _automaticSyncTimer;
+  bool _automaticSyncInFlight = false;
   Timer? _offersDeadlineTimer;
   StreamSubscription<Position>? _passengerPositionSubscription;
   bool _passengerLocationPermissionNoticeShown = false;
@@ -192,12 +200,49 @@ class RideController extends GetxController with WidgetsBindingObserver {
   bool hasShownTripSharePrompt = false;
 
   String? get currentRideId => _requestId;
+  bool get cancellationReviewPending {
+    if (_requestId == null) return false;
+    if (awaitingCancellationStatus.value ||
+        const {'8', 'CancellationPending'}.contains(activeRideStatus.value))
+      return true;
+    final request = driverCancellationRequest.value;
+    if (request == null) return false;
+    final status = _asInt(request['status']);
+    return const {0, 2, 9, 10, 11, 12}.contains(status) ||
+        (status == 5 &&
+            const {'7', 'Cancelled'}.contains(activeRideStatus.value));
+  }
+
+  Future<bool> restorePendingCancellation() async {
+    if (!Get.isRegistered<ApiClient>()) return false;
+    final result = await Get.find<ApiClient>().execute<Object?>(
+        model: 'RideCancellationRequestModel',
+        operation: 'get',
+        data: {'pendingOnly': true});
+    if (result is ApiFailure)
+      throw const FormatException('تعذر التحقق من حالة الإلغاء.');
+    if (result is! ApiSuccess || result.data is! Map) return false;
+    final request = Map<String, Object?>.from(result.data as Map);
+    final rideId = request['rideId']?.toString();
+    if (rideId == null) return false;
+    _requestId = rideId;
+    activeRideStatus.value = '${request['rideStatus'] ?? 8}';
+    driverCancellationRequest.value = request;
+    if (!cancellationReviewPending) return false;
+    if (Get.isRegistered<TrackingHubService>()) {
+      await Get.find<TrackingHubService>()
+          .setRideSubscriptions({int.parse(rideId)});
+    }
+    openActiveRide();
+    return true;
+  }
+
   DateTime get searchTime => DateTime.now();
 
   bool get bookingLocked =>
       _requestId != null ||
-      isSubmittingRequest.value ||
       pendingRatingRideId.value != null ||
+      isSubmittingRequest.value ||
       checkingPendingRating.value;
 
   bool get mandatoryPaymentPending =>
@@ -208,12 +253,14 @@ class RideController extends GetxController with WidgetsBindingObserver {
   void applyPaymentChoiceSnapshot(Map<Object?, Object?> ride) {
     final code = ride['paymentMethodCode']?.toString().trim();
     if (code != null && code.isNotEmpty) {
-      if (_paymentChoiceRideId != _requestId || activePaymentMethodCode.value.toLowerCase() != code.toLowerCase()) {
+      if (_paymentChoiceRideId != _requestId ||
+          activePaymentMethodCode.value.toLowerCase() != code.toLowerCase()) {
         final method = AppEnvironment.paymentMethods
             .where((item) => item.id.toLowerCase() == code.toLowerCase())
             .firstOrNull;
         final selection = method?.id ?? code;
-        if (_paymentChoiceRideId == _requestId) _sessionPaymentPreference = selection;
+        if (_paymentChoiceRideId == _requestId)
+          _sessionPaymentPreference = selection;
         preferredPaymentMethod.value = selection;
       }
       activePaymentMethodCode.value = code;
@@ -225,10 +272,79 @@ class RideController extends GetxController with WidgetsBindingObserver {
     }
   }
 
+  Future<void> openFinancialFollowUp(String rideId) async {
+    final id = int.tryParse(rideId);
+    if (id == null) return;
+    await Get.to<void>(() => RideFinancialFollowUp(
+        rideId: id,
+        onPay: () async {
+          final detail = await _repository.getRideDetail(rideId);
+          final ride = detail['ride'];
+          if (ride is! Map) throw const FormatException('تعذر تحديث الفاتورة.');
+          _requestId = rideId;
+          _restoreRideSnapshot(rideId, Map<String, Object?>.from(ride));
+          activeRidePaymentCompleted.value = detail['paymentCompleted'] == true;
+          await Get.toNamed<void>(RideRoutes.payment);
+          if (_requestId == rideId) prepareNewRide();
+        }));
+  }
+
+  final confirmingBoarding = false.obs;
+  final passengerBoarded = false.obs;
+  Future<void> confirmBoarding() async {
+    final rideId = int.tryParse(currentRideId ?? '');
+    if (rideId == null || confirmingBoarding.value) return;
+    final arrived = activeRideStatus.value == '9' ||
+        activeRideStatus.value == 'DriverArrived';
+    final confirmed = await Get.dialog<bool>(AlertDialog(
+      title: const Text('تأكيد الصعود إلى المركبة'),
+      content: Text(arrived
+          ? 'هل التقيت بالسائق وصعدت إلى المركبة الصحيحة فعلياً؟'
+          : 'استخدم هذا الخيار فقط إذا التقيت بالسائق عند نقطة الانطلاق وصعدت إلى المركبة فعلياً، وتعذر إثبات الوصول بالموقع. لا تؤكد وأنت بعيد عن السائق.'),
+      actions: [
+        TextButton(
+            onPressed: () => Get.back(result: false),
+            child: const Text('رجوع')),
+        FilledButton(
+            onPressed: () => Get.back(result: true),
+            child: const Text('نعم، صعدت إلى المركبة'))
+      ],
+    ));
+    if (confirmed != true) return;
+    confirmingBoarding.value = true;
+    try {
+      final result = await Get.find<ApiClient>().execute<Object?>(
+          model: 'RideServiceModel',
+          operation: arrived ? 'board' : 'confirmPickup',
+          data: {
+            'rideId': rideId,
+            'reason':
+                'أكد الراكب وجود السائق وصعوده فعلياً عند نقطة الانطلاق؛ تعذر إثبات الوصول بالموقع.'
+          });
+      if (result is ApiFailure)
+        throw FormatException(result.problem.detail ?? result.problem.title);
+      await refreshActiveRide(requireSuccess: true);
+    } catch (error) {
+      Get.snackbar('تعذر تأكيد الصعود', '$error');
+    } finally {
+      confirmingBoarding.value = false;
+    }
+  }
+
+  void skipRating() {
+    openRequiredRating();
+  }
+
   void openActiveRide() {
-    final target = mandatoryPaymentPending
-        ? RideRoutes.payment
-        : RideRoutes.driverLocation;
+    if (pendingRatingRideId.value != null) {
+      openRequiredRating();
+      return;
+    }
+    final target = cancellationReviewPending
+        ? RideRoutes.cancellationStatus
+        : mandatoryPaymentPending
+            ? RideRoutes.payment
+            : RideRoutes.driverLocation;
     if (isClosed || Get.currentRoute == target) return;
     Get.offAllNamed<void>(target);
   }
@@ -239,6 +355,10 @@ class RideController extends GetxController with WidgetsBindingObserver {
   }
 
   void reconcilePaymentNavigation() {
+    if (pendingRatingRideId.value != null) {
+      openRequiredRating();
+      return;
+    }
     if (mandatoryPaymentPending &&
         !_paymentPageMounted &&
         Get.currentRoute != RideRoutes.rideCancel) {
@@ -257,6 +377,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
   void onInit() {
     super.onInit();
     WidgetsBinding.instance.addObserver(this);
+    _automaticSyncTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      unawaited(_syncCurrentRide());
+    });
     _authenticationWorker =
         ever(_session.isAuthenticated, (bool authenticated) {
       if (authenticated) unawaited(_refreshServicesAfterLogin());
@@ -288,7 +411,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _paused = state != AppLifecycleState.resumed;
-    if (Get.isRegistered<TrackingHubService>()) unawaited(Get.find<TrackingHubService>().setForeground(!_paused));
+    if (Get.isRegistered<TrackingHubService>())
+      unawaited(Get.find<TrackingHubService>().setForeground(!_paused));
     if (_paused) return;
     if (pendingRatingRideId.value != null) openRequiredRating();
     final rideId = _requestId;
@@ -298,6 +422,28 @@ class RideController extends GetxController with WidgetsBindingObserver {
       unawaited(refreshActiveRide());
     } else {
       unawaited(restoreOpenRideOnLaunch(force: true));
+    }
+  }
+
+  Future<void> _syncCurrentRide() async {
+    if (_paused ||
+        isClosed ||
+        !_session.isAuthenticated.value ||
+        _automaticSyncInFlight ||
+        _searchMutationInProgress ||
+        isRespondingToOffer.value ||
+        isCancellingRide.value) return;
+    final rideId = _requestId;
+    if (rideId == null) return;
+    _automaticSyncInFlight = true;
+    try {
+      if (isSearchingForDriver.value) {
+        await _refreshSearchSnapshotSafely(rideId, _offersWatchGeneration);
+      } else if (pendingRatingRideId.value == null) {
+        await refreshActiveRide();
+      }
+    } finally {
+      _automaticSyncInFlight = false;
     }
   }
 
@@ -314,7 +460,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
   Future<void> openNotificationPayload(Map<String, String> payload) async {
     if (payload['action'] == 'ride_arrival_alert') {
       final arrivalRideId = int.tryParse(payload['rideId'] ?? '');
-      if (arrivalRideId != null) await _arrivalNotifier()?.refresh(arrivalRideId);
+      if (arrivalRideId != null)
+        await _arrivalNotifier()?.refresh(arrivalRideId);
       return;
     }
     if (!await ensureNoPendingRating()) return;
@@ -338,6 +485,13 @@ class RideController extends GetxController with WidgetsBindingObserver {
       }
 
       if (rideId != null && rideId.isNotEmpty) {
+        final notificationDetail = await _repository.getRideDetail(rideId);
+        final notificationRide = notificationDetail['ride'];
+        if (notificationRide is Map &&
+            {6, 7}.contains(_asInt(notificationRide['status']))) {
+          await openFinancialFollowUp(rideId);
+          return;
+        }
         await resumeOpenRide(rideId);
         await _markNotificationRead(notificationId);
         if (mandatoryPaymentPending) return;
@@ -394,6 +548,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
     _hasCheckedForOpenRide = true;
 
     try {
+      if (await restorePendingCancellation()) return;
       if (!await ensureNoPendingRating()) return;
       if (_requestId != null) return;
       final ride = await _repository.findLatestOpenRide();
@@ -426,12 +581,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final pending = await _repository.getPendingRating();
       if (pending != null) {
         final rideId = pending['rideId'].toString();
-        _requestId = rideId;
         pendingRatingRideId.value = rideId;
-        assignedDriverName.value = '${pending['driverName'] ?? ''}';
-        activeRideStatus.value = '6';
-        isSearchingForDriver.value = false;
-        _stopRealTracking();
         openRequiredRating();
         return false;
       }
@@ -441,11 +591,11 @@ class RideController extends GetxController with WidgetsBindingObserver {
       return true;
     } on Object {
       _hasCheckedForOpenRide = false;
-      if (pendingRatingRideId.value != null) openRequiredRating();
       if (showError) {
         Get.snackbar('تعذر التحقق من التقييم',
             'تحقق من الاتصال ثم أعد المحاولة قبل طلب رحلة جديدة.');
       }
+      if (pendingRatingRideId.value != null) openRequiredRating();
       return false;
     } finally {
       checkingPendingRating.value = false;
@@ -457,7 +607,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
         pendingRatingRideId.value == null ||
         // Let the customer finish a provider challenge and read its receipt.
         // The pending rating still prevents another booking.
-        Get.currentRoute == RideRoutes.payment ||
+        (Get.currentRoute == RideRoutes.payment &&
+            !activeRidePaymentCompleted.value) ||
         Get.currentRoute == RideRoutes.review) return;
     Get.offAllNamed<void>(RideRoutes.review);
   }
@@ -486,9 +637,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
     }
     final ride = Map<String, Object?>.from(rawRide);
     final status = _asInt(ride['status']);
-    if (status == 6 && detail['requiresRating'] == true) {
-      _requestId = rideId;
-      _requireRating(rideId);
+    if (status == 6 || status == 7) {
+      await openFinancialFollowUp(rideId);
       return;
     }
     if (status == null || status == 6 || status == 7) {
@@ -1857,7 +2007,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
       return;
     }
 
-    if (event.name == 'paymentUpdated' ||
+    if (event.name == 'rideArrivalUpdated' ||
+        event.name == 'paymentUpdated' ||
         event.name == 'cashApprovalUpdated' ||
         event.name == 'rideCancellationUpdated') {
       unawaited(refreshActiveRide());
@@ -1878,7 +2029,14 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final status = _asInt(payload['rideStatus']);
       if (status == null) return;
       activeRideStatus.value = '$status';
+      if (status == 5 || payload['passengerBoardedAtUtc'] != null) {
+        passengerBoarded.value = true;
+      }
       if (status == 7) {
+        if (cancellationReviewPending || isCancellingRide.value) {
+          unawaited(refreshActiveRide());
+          return;
+        }
         // The server has already committed cancellation. A slow or failed
         // snapshot must not leave the passenger on the active trip screen.
         cancelRide('${payload['cancellationReason'] ?? ''}');
@@ -1901,13 +2059,13 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final latitude = _asDouble(payload['latitude']);
       final longitude = _asDouble(payload['longitude']);
       if (latitude == null || longitude == null) return;
-      final observedAt =
-          DateTime.tryParse('${payload['observedAtUtc'] ?? ''}')?.toUtc();
+      final observedAt = parseUtcTimestamp(payload['observedAtUtc']);
       _animateTrackedDriver(DriverTrackingSnapshot(
         driverId: '${payload['driverId'] ?? ''}',
         location: RideCoordinate(latitude: latitude, longitude: longitude),
         heading: _asDouble(payload['bearing']),
-        updatedAt: observedAt ?? DateTime.now().toUtc(),
+        updatedAt:
+            observedAt ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
       ));
       unawaited(_refreshAssignedDriverRoute());
       return;
@@ -2094,24 +2252,27 @@ class RideController extends GetxController with WidgetsBindingObserver {
     if (restarted) _updateOffersExhausted();
   }
 
-  Future<void> cancelDriverSearch() async {
-    if (_searchMutationInProgress) return;
+  Future<bool> cancelDriverSearch() async {
+    if (_searchMutationInProgress) return false;
     _searchMutationInProgress = true;
-    offersExhausted.value = false;
-    offersStreamDone.value = false;
-    receivedOffersCount.value = 0;
-    driverOffers.clear();
-    requestViewers.clear();
-    requestRecipients.clear();
-    _offersDeadlineTimer?.cancel();
-    isSearchingForDriver.value = false;
-    ++_offersWatchGeneration;
-    negotiationStatus.value = NegotiationStatus.searching;
     try {
       final requestId = _requestId;
       if (requestId != null) await _repository.closeSearch(requestId);
+      offersExhausted.value = false;
+      offersStreamDone.value = false;
+      receivedOffersCount.value = 0;
+      driverOffers.clear();
+      requestViewers.clear();
+      requestRecipients.clear();
+      _offersDeadlineTimer?.cancel();
+      isSearchingForDriver.value = false;
+      ++_offersWatchGeneration;
+      negotiationStatus.value = NegotiationStatus.searching;
+      return true;
     } catch (error) {
       Get.snackbar('تعذر إيقاف البحث', _searchErrorMessage(error));
+      offersExhausted.value = true;
+      return false;
     } finally {
       if (Get.isRegistered<TrackingHubService>()) {
         unawaited(
@@ -2213,25 +2374,11 @@ class RideController extends GetxController with WidgetsBindingObserver {
 
   Future<void> _finishSearchAsExhausted() async {
     if (!isSearchingForDriver.value || _searchMutationInProgress) return;
-    _searchMutationInProgress = true;
     isSearchingForDriver.value = false;
     _offersDeadlineTimer?.cancel();
-    ++_offersWatchGeneration;
-    try {
-      final requestId = _requestId;
-      if (requestId != null) {
-        await _repository.closeSearch(requestId, exhausted: true);
-      }
-    } catch (error) {
-      Get.snackbar('تعذر إغلاق البحث', _searchErrorMessage(error));
-    } finally {
-      if (Get.isRegistered<TrackingHubService>()) {
-        unawaited(
-            Get.find<TrackingHubService>().setRideSubscriptions(const <int>{}));
-      }
-      offersExhausted.value = true;
-      _searchMutationInProgress = false;
-    }
+    // Keep the request and subscriptions alive until the customer chooses.
+    // Closing here emits rideUnavailable and navigates away from the dialog.
+    offersExhausted.value = true;
   }
 
   String _searchErrorMessage(Object error) =>
@@ -2247,6 +2394,10 @@ class RideController extends GetxController with WidgetsBindingObserver {
 
   Future<void> cancelActiveRide(String reason) async {
     if (isCancellingRide.value) return;
+    if (cancellationReviewPending) {
+      openActiveRide();
+      return;
+    }
     final requestId = _requestId;
     if (requestId == null || reason.trim().length < 3) {
       Get.snackbar(
@@ -2256,11 +2407,44 @@ class RideController extends GetxController with WidgetsBindingObserver {
     isCancellingRide.value = true;
     final assigned = isDriverAssigned.value;
     try {
+      final confirmed = await Get.dialog<bool>(AlertDialog(
+        title: const Text('تأكيد إلغاء الرحلة'),
+        content: Text(
+            'هل تريد إرسال طلب إلغاء الرحلة؟\n\nسبب الإلغاء: ${reason.trim()}'),
+        actions: [
+          TextButton(
+              onPressed: () => Get.back(result: false),
+              child: const Text('تراجع')),
+          FilledButton(
+              onPressed: () => Get.back(result: true),
+              child: const Text('تأكيد الإلغاء')),
+        ],
+      ));
+      if (confirmed != true) return;
       if (assigned) {
+        if (activeRideStatus.value == '5' ||
+            activeRideStatus.value == 'InProgress') {
+          final stopped = await Get.dialog<bool>(AlertDialog(
+            title: const Text('تأكيد التوقف الآمن'),
+            content: const Text(
+                'اطلب من السائق التوقف في مكان آمن. أكد فقط بعد توقف النقل فعلياً وخروجك بأمان. الحقوق والمبالغ تُراجع بعد الإلغاء.'),
+            actions: [
+              TextButton(
+                  onPressed: () => Get.back(result: false),
+                  child: const Text('لم نتوقف بعد')),
+              FilledButton(
+                  onPressed: () => Get.back(result: true),
+                  child: const Text('توقفنا بأمان'))
+            ],
+          ));
+          if (stopped != true) return;
+        }
         await _repository.requestCancellation(requestId, reason.trim());
+        awaitingCancellationStatus.value = true;
+        openActiveRide();
         await refreshActiveRide();
         if (_requestId == requestId) {
-          Get.offNamed<void>(RideRoutes.driverLocation);
+          openActiveRide();
           Get.snackbar('أُرسل طلب الإلغاء', 'سيصلك إشعار بقرار المراجعة.');
         }
         return;
@@ -2332,13 +2516,19 @@ class RideController extends GetxController with WidgetsBindingObserver {
         applyPaymentChoiceSnapshot(Map<Object?, Object?>.from(ride));
         final status = _asInt(ride['status']);
         activeRideStatus.value = '${ride['status'] ?? ''}';
+        await _refreshDriverCancellation(rideId);
+        if (rideId != _requestId) return;
         _applyConfirmedRoute(Map<String, Object?>.from(ride));
         customerPaymentEnabled.value = ride['customerPaymentEnabled'] == true;
         if (status == 6 || status == 7) {
           _stopRealTracking();
         }
         _showArrivalNotice(status, rideId);
-        if (status == 7) {
+        if (cancellationReviewPending) {
+          openActiveRide();
+          return;
+        }
+        if (status == 7 && Get.currentRoute != RideRoutes.payment) {
           cancelRide('${ride['cancellationReason'] ?? ''}');
           return;
         }
@@ -2348,15 +2538,10 @@ class RideController extends GetxController with WidgetsBindingObserver {
           ratingSubmitted(rideId);
         }
       }
-      final payments = detail['payments'];
-      activeRidePaymentCompleted.value = detail['paymentCompleted'] == true ||
-          (payments is List &&
-              payments.any((raw) {
-                if (raw is! Map) return false;
-                final payment = Map<Object?, Object?>.from(raw);
-                final status = '${payment['status'] ?? ''}'.toLowerCase();
-                return status == '2' || status == 'paid';
-              }));
+      passengerBoarded.value = ride is Map &&
+          (ride['passengerBoardedAtUtc'] != null ||
+              _asInt(ride['status']) == 5);
+      activeRidePaymentCompleted.value = detail['paymentCompleted'] == true;
       reconcilePaymentNavigation();
       final approval = detail['cashCollectionApproval'];
       cashCollectionApproval.value =
@@ -2365,6 +2550,13 @@ class RideController extends GetxController with WidgetsBindingObserver {
       if (driver is Map) {
         final driverValues = Map<Object?, Object?>.from(driver);
         assignedDriverName.value = '${driverValues['name'] ?? ''}'.trim();
+        assignedVehicleModel.value =
+            '${driverValues['vehicleModel'] ?? ''}'.trim();
+        assignedPlateNumber.value =
+            '${driverValues['plateNumber'] ?? ''}'.trim();
+        assignedPassengerSeats.value =
+            _asInt(driverValues['approvedPassengerSeats']);
+        assignedDriverRating.value = _asDouble(driverValues['rating']) ?? 0;
         assignedDriverPhone.value =
             '${driverValues['phoneNumber'] ?? ''}'.trim();
         final driverId =
@@ -2384,14 +2576,17 @@ class RideController extends GetxController with WidgetsBindingObserver {
             driverId: '${values['driverId'] ?? ''}',
             location: RideCoordinate(latitude: latitude, longitude: longitude),
             heading: _asDouble(values['bearing']),
-            updatedAt: DateTime.tryParse('${values['observedAtUtc'] ?? ''}') ??
-                DateTime.now(),
+            updatedAt: parseUtcTimestamp(values['observedAtUtc']) ??
+                DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
           ));
           unawaited(_refreshAssignedDriverRoute());
         }
       }
-      await _refreshDriverCancellation(rideId);
+      cancellationStatusError.value = null;
     } catch (_) {
+      if (cancellationReviewPending)
+        cancellationStatusError.value =
+            'تعذر تحديث القرار. ستتم إعادة المحاولة تلقائياً عند توفر الاتصال.';
       if (requireSuccess) rethrow;
       // Keep the last confirmed marker visible during a transient network failure.
     } finally {
@@ -2406,7 +2601,8 @@ class RideController extends GetxController with WidgetsBindingObserver {
   void _showArrivalNotice(int? status, String rideId) {
     if (status != 9) return;
     final id = int.tryParse(rideId);
-    if (id != null) unawaited(_arrivalNotifier()?.refresh(id) ?? Future<void>.value());
+    if (id != null)
+      unawaited(_arrivalNotifier()?.refresh(id) ?? Future<void>.value());
   }
 
   Future<void> _refreshDriverCancellation(String rideId) async {
@@ -2416,16 +2612,26 @@ class RideController extends GetxController with WidgetsBindingObserver {
       operation: 'get',
       data: {'rideId': rideId},
     );
-    if (_requestId != rideId || result is! ApiSuccess) return;
+    if (_requestId != rideId) return;
+    if (result is ApiFailure) {
+      if (awaitingCancellationStatus.value ||
+          Get.currentRoute == RideRoutes.cancellationStatus)
+        throw const FormatException('تعذر تحديث حالة الإلغاء.');
+      return;
+    }
+    if (result is! ApiSuccess) return;
     final raw = result.data;
     driverCancellationRequest.value =
         raw is Map ? Map<String, Object?>.from(raw) : null;
+    if (raw is Map) awaitingCancellationStatus.value = false;
   }
 
   Future<void> decideDriverCancellation({required bool accept}) async {
     final request = driverCancellationRequest.value;
     if (request == null ||
-        (request['requestedByDriver'] != true && request['refundConsentPending'] != true) ||
+        (request['requestedByDriver'] != true &&
+            request['refundConsentPending'] != true &&
+            request['cashReceiptPending'] != true) ||
         request['canDecide'] != true ||
         isDecidingDriverCancellation.value) return;
     isDecidingDriverCancellation.value = true;
@@ -2433,12 +2639,25 @@ class RideController extends GetxController with WidgetsBindingObserver {
       final result = await Get.find<ApiClient>().execute<Object?>(
         model: 'RideCancellationRequestModel',
         operation: accept ? 'accept' : 'reject',
-        data: {'id': request['id'], if (request['refundConsentPending'] == true) 'refundChoiceRevision': request['refundChoiceRevision']},
+        data: {
+          'id': request['id'],
+          if (request['refundConsentPending'] == true ||
+              request['cashReceiptPending'] == true)
+            'refundChoiceRevision': request['refundChoiceRevision'],
+          if (request['cashReceiptPending'] == true && accept)
+            'cashReceiptConfirmed': true,
+        },
       );
       if (result is! ApiSuccess) throw const FormatException();
       await refreshActiveRide(requireSuccess: true);
-      if (!accept) Get.snackbar(request['refundConsentPending'] == true ? 'رُفضت طريقة الاسترداد' : 'أُحيل الطلب للإدارة',
-          request['refundConsentPending'] == true ? 'سيختار السائق طريقة إعادة المبلغ مجدداً.' : 'تراجع الإدارة طلب السائق وتتخذ القرار.');
+      if (!accept)
+        Get.snackbar(
+            request['refundConsentPending'] == true
+                ? 'رُفضت طريقة الاسترداد'
+                : 'أُحيل الطلب للإدارة',
+            request['refundConsentPending'] == true
+                ? 'سيختار السائق طريقة إعادة المبلغ مجدداً.'
+                : 'تراجع الإدارة طلب السائق وتتخذ القرار.');
     } on Object {
       Get.snackbar('تعذر تنفيذ القرار', 'تحقق من الاتصال ثم أعد المحاولة.');
     } finally {
@@ -2690,15 +2909,14 @@ class RideController extends GetxController with WidgetsBindingObserver {
   }
 
   void prepareNewRide() {
-    if (_requestId != null && const {'8', 'CancellationPending'}.contains(activeRideStatus.value)) {
+    if (cancellationReviewPending || pendingRatingRideId.value != null) {
       openActiveRide();
-      Get.snackbar('الإلغاء لم يكتمل بعد', 'استكمل الموافقات والاسترداد قبل طلب رحلة جديدة.');
       return;
     }
-    if (pendingRatingRideId.value != null) {
-      openRequiredRating();
-      return;
-    }
+    pendingRatingRideId.value = null;
+    awaitingCancellationStatus.value = false;
+    cancellationStatusError.value = null;
+    passengerBoarded.value = false;
     moreThanFourPassengers.value = false;
     passengerNotes.value = '';
     // The passenger foreground location service is only needed while a ride
@@ -2732,6 +2950,9 @@ class RideController extends GetxController with WidgetsBindingObserver {
     isDriverAssigned.value = false;
     assignedDriverName.value = '';
     assignedDriverPhone.value = '';
+    assignedVehicleModel.value = '';
+    assignedPlateNumber.value = '';
+    assignedPassengerSeats.value = null;
     offeredPrice.value = 0;
     routeDistanceKm.value = 0;
     activeRideStatus.value = '';
@@ -2792,6 +3013,7 @@ class RideController extends GetxController with WidgetsBindingObserver {
     WidgetsBinding.instance.removeObserver(this);
     _hubEventSubscription?.cancel();
     _hubConnectionSubscription?.cancel();
+    _automaticSyncTimer?.cancel();
     _driverMarkerAnimationTimer?.cancel();
     _offersDeadlineTimer?.cancel();
     _passengerPositionSubscription?.cancel();

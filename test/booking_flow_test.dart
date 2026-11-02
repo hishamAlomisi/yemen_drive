@@ -30,6 +30,7 @@ import 'package:yemen_drive/features/ride/booking/views/ride_search_view.dart';
 import 'package:yemen_drive/features/ride/booking/widgets/booking_service_widgets.dart';
 import 'package:yemen_drive/features/ride/bindings/ride_binding.dart';
 import 'package:yemen_drive/features/ride/controllers/ride_controller.dart';
+import 'package:yemen_drive/features/ride/controllers/notifications_controller.dart';
 import 'package:yemen_drive/features/ride/home/repositories/service_kind_repository.dart';
 import 'package:yemen_drive/features/ride/location_selection/controllers/location_selection_controller.dart';
 import 'package:yemen_drive/features/ride/location_selection/repositories/location_search_repository.dart';
@@ -224,6 +225,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 400));
     await tester.tap(find.text('الأجرة لا تناسبني'));
     await tester.pump(const Duration(milliseconds: 400));
+    expect(repository.cancellationReasons, isEmpty);
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
     expect(repository.cancellationReasons, ['الأجرة لا تناسبني']);
     expect(ride.currentRideId, isNull);
     await tester.pumpWidget(const SizedBox());
@@ -450,7 +454,69 @@ void main() {
     expect(ride.searchRemainingSeconds.value, 0);
     expect(ride.isSearchingForDriver.value, isFalse);
     expect(ride.offersExhausted.value, isTrue);
-    expect(repository.closedAsExhausted, [true]);
+    expect(repository.closedAsExhausted, isEmpty,
+        reason:
+            'Timeout must preserve the request until the customer chooses.');
+    await ride.cancelDriverSearch();
+    expect(repository.closedAsExhausted, [false]);
+  });
+
+  testWidgets('notification system back returns home from the root page',
+      (tester) async {
+    final session = AuthSessionService(SecureStorageService(), api);
+    Get.put(NotificationsController(api, session, _QuietHub()));
+    await tester.pumpWidget(_host(const NotificationsPage()));
+    await tester.pumpAndSettle();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('الرئيسية'), findsOneWidget);
+    expect(Get.currentRoute, RideRoutes.homeTransport);
+  });
+
+  testWidgets('notification toolbar back returns home from the root page',
+      (tester) async {
+    final session = AuthSessionService(SecureStorageService(), api);
+    Get.put(NotificationsController(api, session, _QuietHub()));
+    await tester.pumpWidget(_host(const NotificationsPage()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(IconButton).first);
+    await tester.pumpAndSettle();
+    expect(Get.currentRoute, RideRoutes.homeTransport);
+  });
+
+  testWidgets('expired search offers retry and ends only after customer choice',
+      (tester) async {
+    _phoneSize(tester);
+    final originalMaps = maps.GoogleMapsFlutterPlatform.instance;
+    maps.GoogleMapsFlutterPlatform.instance = _MapPlatform();
+    addTearDown(() => maps.GoogleMapsFlutterPlatform.instance = originalMaps);
+    Get.put<TrackingHubService>(_QuietHub());
+    await tester.pumpWidget(_host(const SizedBox(), realReview: true));
+    await booking.refreshQuote();
+    ride.currentSearchTime = DateTime.utc(2026, 11, 2);
+    await ride.requestRide();
+    Get.toNamed<void>(RideRoutes.negotiationQuote);
+    await tester.pump();
+    ride.currentSearchTime =
+        ride.currentSearchTime!.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('search_retry'.tr), findsOneWidget);
+    expect(find.text('search_end_trip'.tr), findsOneWidget);
+    expect(repository.closedAsExhausted, isEmpty);
+    await tester.tap(find.text('search_retry'.tr));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(repository.restartedPrices, hasLength(1));
+    expect(ride.isSearchingForDriver.value, isTrue);
+    ride.currentSearchTime =
+        ride.currentSearchTime!.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(find.text('search_end_trip'.tr));
+    await tester.pumpAndSettle();
+    expect(repository.closedAsExhausted, [false]);
+    expect(ride.currentRideId, isNull);
+    expect(Get.currentRoute, RideRoutes.homeTransport);
   });
 
   testWidgets(
@@ -1065,6 +1131,13 @@ void main() {
       final footerBefore = tester.getRect(find.byType(BookingReviewFooter));
       if (size.width == 390 && !scenario.$2)
         await _capture(tester, boundary, 'price-review-light');
+      await tester.tap(find.byTooltip('إضافة الوجهة إلى المفضلة'));
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.text('إضافة الوجهة إلى المفضلة'), findsOneWidget);
+      expect(location.destination.value, const LatLng(15.38, 44.21));
+      expect(find.byType(BookingReviewRouteCard), findsOneWidget);
+      await tester.tap(find.text('إلغاء'));
+      await tester.pump(const Duration(milliseconds: 400));
       await tester.drag(find.byKey(const ValueKey('review-sheet-handle')),
           const Offset(0, -550));
       await tester.pump(const Duration(seconds: 1));

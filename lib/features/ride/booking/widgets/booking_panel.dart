@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../account/favourites/widgets/destination_favourites.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 
@@ -96,6 +97,9 @@ class BookingPanel extends GetView<BookingController> {
                       icon: Icons.location_on_outlined,
                       onTap: enabled ? () => _continue(field: 1) : null,
                     ),
+                    const Align(
+                        alignment: AlignmentDirectional.centerEnd,
+                        child: SaveDestinationButton()),
                     const SizedBox(height: 6),
                     ValueListenableBuilder<TextEditingValue>(
                       valueListenable: location.detailsController,

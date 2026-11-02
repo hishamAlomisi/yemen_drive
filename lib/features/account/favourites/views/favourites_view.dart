@@ -1,23 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../../../app/theme/app_spacing.dart';
-import '../../../../../shared/widgets/app_states.dart';
-import '../../../../../shared/widgets/app_text_field.dart';
+import '../../../../app/theme/app_spacing.dart';
+import '../../../../shared/widgets/app_states.dart';
+import '../../../../shared/widgets/app_text_field.dart';
 import '../../models/account_models.dart';
 import '../../widgets/account_widgets.dart';
 import '../controllers/favourites_controller.dart';
+import '../models/saved_place_labels.dart';
 
 class FavouritesPage extends GetView<FavouritesController> {
   const FavouritesPage({this.embedded = false, super.key});
 
   final bool embedded;
+  bool get selecting =>
+      !embedded && Get.arguments is Map && Get.arguments['selectPlace'] == true;
 
   @override
   Widget build(BuildContext context) => AccountPageTemplate(
         title: 'الأماكن المفضلة',
-        showBack: false,
-        bottomNavIndex: embedded ? null : 1,
+        showBack: selecting,
+        bottomNavIndex: embedded || selecting ? null : 1,
         actions: <Widget>[
           IconButton(
             tooltip: 'إضافة مكان',
@@ -29,6 +32,13 @@ class FavouritesPage extends GetView<FavouritesController> {
           if (controller.isLoading.value) {
             return const SizedBox(height: 420, child: AppLoading());
           }
+          if (controller.error.value.isNotEmpty)
+            return Column(children: [
+              Text(controller.error.value),
+              TextButton(
+                  onPressed: controller.load,
+                  child: const Text('إعادة المحاولة'))
+            ]);
           if (controller.places.isEmpty) {
             return const SizedBox(
               height: 420,
@@ -46,9 +56,17 @@ class FavouritesPage extends GetView<FavouritesController> {
                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                     child: _FavouritePlaceTile(
                       place: place,
+                      onSelect: selecting && place.hasCoordinates
+                          ? () => Navigator.of(context).pop<dynamic>(place)
+                          : null,
                       onDelete: () async {
-                        await controller.remove(place);
-                        Get.snackbar('تم الحذف', 'أزيل المكان من المفضلة.');
+                        try {
+                          await controller.remove(place);
+                          Get.snackbar('تم الحذف', 'أزيل المكان من المفضلة.');
+                        } catch (_) {
+                          Get.snackbar(
+                              'تعذر الحذف', 'تحقق من الاتصال ثم أعد المحاولة.');
+                        }
                       },
                     ),
                   ),
@@ -76,14 +94,16 @@ class FavouritesPage extends GetView<FavouritesController> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
-                  AppTextField(
-                    controller: label,
-                    label: 'اسم المكان *',
-                    hint: 'المنزل أو العمل',
-                    validator: (value) => value == null || value.trim().isEmpty
-                        ? 'اكتب اسم المكان'
-                        : null,
-                  ),
+                  if (kind != 'unnamed')
+                    AppTextField(
+                      controller: label,
+                      label: 'اسم المكان *',
+                      hint: 'المنزل أو العمل',
+                      validator: (value) =>
+                          value == null || value.trim().isEmpty
+                              ? 'اكتب اسم المكان'
+                              : null,
+                    ),
                   const SizedBox(height: 10),
                   AppTextField(
                     controller: address,
@@ -100,11 +120,19 @@ class FavouritesPage extends GetView<FavouritesController> {
                     items: const <DropdownMenuItem<String>>[
                       DropdownMenuItem(value: 'home', child: Text('المنزل')),
                       DropdownMenuItem(value: 'work', child: Text('العمل')),
-                      DropdownMenuItem(value: 'airport', child: Text('المطار')),
+                      DropdownMenuItem(value: 'park', child: Text('الحديقة')),
+                      DropdownMenuItem(value: 'mall', child: Text('المول')),
+                      DropdownMenuItem(value: 'market', child: Text('السوق')),
+                      DropdownMenuItem(
+                          value: 'unnamed', child: Text('بدون اسم')),
                       DropdownMenuItem(value: 'place', child: Text('مكان آخر')),
                     ],
-                    onChanged: (value) =>
-                        setState(() => kind = value ?? 'place'),
+                    onChanged: (value) => setState(() {
+                      kind = value ?? 'place';
+                      if (savedPlaceKinds.containsKey(kind))
+                        label.text = savedPlaceKinds[kind]!;
+                      if (kind == 'unnamed') label.clear();
+                    }),
                   ),
                   const SizedBox(height: 10),
                   Row(
@@ -148,7 +176,9 @@ class FavouritesPage extends GetView<FavouritesController> {
               onPressed: () async {
                 if (!(formKey.currentState?.validate() ?? false)) return;
                 final ok = await controller.add(
-                  label: label.text,
+                  label: kind == 'unnamed'
+                      ? ''
+                      : savedPlaceKinds[kind] ?? label.text,
                   address: address.text,
                   kind: kind,
                   latitude: double.parse(latitude.text),
@@ -172,18 +202,19 @@ class FavouritesPage extends GetView<FavouritesController> {
 }
 
 class _FavouritePlaceTile extends StatelessWidget {
-  const _FavouritePlaceTile({required this.place, required this.onDelete});
+  const _FavouritePlaceTile(
+      {required this.place, required this.onDelete, this.onSelect});
 
   final FavouritePlace place;
   final VoidCallback onDelete;
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) => AccountListTile(
-        title: place.title,
+        title: place.title.trim().isEmpty ? 'مكان بدون اسم' : place.title,
         subtitle: place.address,
         icon: place.icon,
-        onTap: () =>
-            Get.snackbar(place.title, 'سيُستخدم هذا العنوان كوجهة للحجز.'),
+        onTap: onSelect,
         trailing: IconButton(
           tooltip: 'حذف',
           onPressed: onDelete,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'saved_place_labels.dart';
 
 class FavouritePlace {
   const FavouritePlace(
@@ -16,4 +17,7 @@ class FavouritePlace {
   final String kind;
   final double? latitude;
   final double? longitude;
+  bool get hasCoordinates => validSavedCoordinates(latitude, longitude);
+  bool get isShortcut =>
+      hasCoordinates && kind != 'unnamed' && title.trim().isNotEmpty;
 }

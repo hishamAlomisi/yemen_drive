@@ -1,4 +1,5 @@
 import '../../../../core/network/api_client.dart';
+import '../../../../core/network/api_models.dart';
 
 abstract interface class ComplaintRepository {
   Future<void> submit({required String category, required String message});
@@ -14,10 +15,11 @@ class ApiComplaintRepository implements ComplaintRepository {
   @override
   Future<void> submit(
       {required String category, required String message}) async {
-    await _client.execute<Object?>(
+    final result = await _client.execute<Object?>(
         model: 'SupportTicketModel',
         operation: 'add',
         data: {'category': category, 'message': message});
+    if (result is ApiFailure) throw FormatException(result.problem.detail ?? result.problem.title);
   }
 }
 
@@ -26,7 +28,8 @@ class ApiReferralRepository implements ReferralRepository {
   final ApiClient _client;
   @override
   Future<void> submit(String code) async {
-    await _client.execute<Object?>(
+    final result = await _client.execute<Object?>(
         model: 'ReferralModel', operation: 'add', data: {'code': code});
+    if (result is ApiFailure) throw FormatException(result.problem.detail ?? result.problem.title);
   }
 }

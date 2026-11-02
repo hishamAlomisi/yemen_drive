@@ -3,6 +3,7 @@ import 'package:get/get.dart';
 import '../account/bindings/account_binding.dart';
 import '../account/profile/bindings/profile_binding.dart';
 import 'bindings/ride_binding.dart';
+import 'bindings/ride_review_binding.dart';
 import 'home/views.dart';
 import 'location_selection/bindings/location_selection_binding.dart';
 import 'negotiation/bindings/negotiation_binding.dart';
@@ -28,6 +29,7 @@ abstract final class RideRoutes {
   static const String rideRequest = '/ride/request';
   static const String negotiationQuote = '/ride/negotiation/quote';
   static const String rideCancel = '/ride/request/cancel';
+  static const String cancellationStatus = '/ride/cancellation-status';
   static const String requestThanks = '/ride/request/thanks';
   static const String driverLocation = '/ride/driver-location';
   static const String chat = '/ride/chat';
@@ -79,6 +81,7 @@ List<GetPage<dynamic>> get ridePages => <GetPage<dynamic>>[
       _ridePage(RideRoutes.negotiationQuote, NegotiationQuotePage.new,
           binding: NegotiationBinding()),
       _ridePage(RideRoutes.rideCancel, RideCancelPage.new),
+      _ridePage(RideRoutes.cancellationStatus, RideCancellationStatusPage.new),
       _ridePage(RideRoutes.requestThanks, RequestThanksPage.new),
       _ridePage(RideRoutes.driverLocation, DriverLocationPage.new),
       _ridePage(RideRoutes.chat, RideChatPage.new),
@@ -86,7 +89,11 @@ List<GetPage<dynamic>> get ridePages => <GetPage<dynamic>>[
       _ridePage(RideRoutes.activeCall, ActiveCallPage.new),
       _ridePage(RideRoutes.payment, RidePaymentPage.new),
       _ridePage(RideRoutes.activeRide, ActiveRidePage.new),
-      _ridePage(RideRoutes.review, RideReviewPage.new),
+      _ridePage(RideRoutes.review, RideReviewPage.new,
+          binding: BindingsBuilder(() {
+        RideBinding().dependencies();
+        RideReviewBinding().dependencies();
+      })),
       _ridePage(RideRoutes.rideThanks, RideThanksPage.new),
     ];
 

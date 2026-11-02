@@ -15,6 +15,7 @@ import '../../widgets/account_widgets.dart';
 import '../controllers/wallet_controller.dart';
 import '../../../ride/widgets/wallet_ride_payment_panel.dart';
 import '../../../ride/widgets/external_payment_methods.dart';
+import '../../../ride/controllers/ride_controller.dart';
 
 class WalletPage extends StatefulWidget {
   const WalletPage({this.embedded = false, super.key});
@@ -48,6 +49,11 @@ class _WalletPageState extends State<WalletPage> {
         bottomNavIndex: widget.embedded ? null : 2,
         actions: <Widget>[
           IconButton(
+            tooltip: 'تحويل لحساب',
+            icon: const Icon(Icons.swap_horiz_rounded),
+            onPressed: () => Get.toNamed<void>(AccountRoutes.walletTransfer),
+          ),
+          IconButton(
             tooltip: 'شحن المحفظة',
             onPressed: controller.newTopUp,
             icon: Icon(Icons.add_card_rounded),
@@ -80,6 +86,55 @@ class _WalletPageState extends State<WalletPage> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            Obx(() => controller.ledgerDebt.value <= 0
+                ? const SizedBox.shrink()
+                : AppCard(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                        Text(
+                            'مديونية المحفظة: ${controller.ledgerDebt.value.toStringAsFixed(2)} ر.ي',
+                            style:
+                                const TextStyle(fontWeight: FontWeight.bold)),
+                        const Text(
+                            'تسدد الإيداعات القادمة المديونية أولاً، ثم يضاف المتبقي إلى الرصيد المتاح.'),
+                      ]))),
+            OutlinedButton.icon(
+              onPressed: () => Get.toNamed<void>(AccountRoutes.walletTransfer),
+              icon: const Icon(Icons.swap_horiz_rounded),
+              label: const Text('تحويل لحساب'),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            Obx(
+              () => controller.outstandingRideDebt.value <= 0
+                  ? const SizedBox.shrink()
+                  : AppCard(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            'مديونية الرحلات غير المسددة: ${controller.outstandingRideDebt.value.toStringAsFixed(0)} ${AppEnvironment.defaultCurrency}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          const Text(
+                            'مبلغ مستحق عليك؛ لا يمثل خصماً جديداً أو دفعاً تم بالفعل.',
+                          ),
+                          for (final debt in controller.rideDebts)
+                            TextButton.icon(
+                              icon: const Icon(Icons.receipt_long),
+                              label: Text(
+                                'رحلة #${debt['rideId']} — ${debt['amount']} ر.ي: التفاصيل والسداد',
+                              ),
+                              onPressed: () async {
+                                await Get.find<RideController>()
+                                    .openFinancialFollowUp('${debt['rideId']}');
+                                await controller.loadTransactions();
+                              },
+                            ),
+                        ],
+                      ),
+                    ),
+            ),
             AccountSectionTitle(
               title: 'آخر العمليات',
               subtitle: 'كل عمليات الشحن والدفع من المحفظة',
@@ -119,10 +174,13 @@ class _TransactionTile extends StatelessWidget {
     final color = transaction.isCredit ? AppColors.success : AppColors.error;
     return AppCard(
       child: InkWell(
-        onTap: transaction.topUpId == null
-            ? null
-            : () =>
-                Get.find<WalletController>().openInvoice(transaction.topUpId!),
+        onTap: transaction.transferReference != null
+            ? () => Get.toNamed<void>(AccountRoutes.walletTransfer,
+                arguments: {'reference': transaction.transferReference})
+            : transaction.topUpId == null
+                ? null
+                : () => Get.find<WalletController>()
+                    .openInvoice(transaction.topUpId!),
         child: Row(
           children: <Widget>[
             CircleAvatar(
@@ -167,15 +225,17 @@ class AddAmountPage extends GetView<WalletController> {
   @override
   Widget build(BuildContext context) => AccountPageTemplate(
         title: 'إضافة رصيد',
-        bottomAction: Obx(() => AppButton(
-              label: 'متابعة',
-              isLoading: controller.methodsLoading.value ||
-                  controller.topUp?.busy.value == true,
-              onPressed: controller.methodsLoading.value ||
-                      controller.topUp?.busy.value == true
-                  ? null
-                  : _continue,
-            )),
+        bottomAction: Obx(
+          () => AppButton(
+            label: 'متابعة',
+            isLoading: controller.methodsLoading.value ||
+                controller.topUp?.busy.value == true,
+            onPressed: controller.methodsLoading.value ||
+                    controller.topUp?.busy.value == true
+                ? null
+                : _continue,
+          ),
+        ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -225,24 +285,26 @@ class AddAmountPage extends GetView<WalletController> {
                               controller.methodsError.value.isEmpty &&
                               !controller.methodsLoading.value,
                           leading: Opacity(
-                              opacity: method.canTopUp &&
-                                      controller.methodsError.value.isEmpty
-                                  ? 1
-                                  : .35,
-                              child:
-                                  PaymentCatalogIcon(method: method, size: 40)),
+                            opacity: method.canTopUp &&
+                                    controller.methodsError.value.isEmpty
+                                ? 1
+                                : .35,
+                            child: PaymentCatalogIcon(method: method, size: 40),
+                          ),
                           title: Text(method.label),
                           subtitle: Text(
-                              method.canTopUp &&
-                                      controller.methodsError.value.isEmpty
-                                  ? method.subtitle
-                                  : 'الخدمة غير متاحة',
-                              style: Theme.of(context).textTheme.bodySmall),
+                            method.canTopUp &&
+                                    controller.methodsError.value.isEmpty
+                                ? method.subtitle
+                                : 'الخدمة غير متاحة',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
                           trailing: Icon(
-                              controller.selectedPaymentMethodId.value ==
-                                      method.id
-                                  ? Icons.radio_button_checked
-                                  : Icons.radio_button_off),
+                            controller.selectedPaymentMethodId.value ==
+                                    method.id
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                          ),
                           onTap: method.canTopUp
                               ? () => controller.selectPaymentMethod(method.id)
                               : null,

@@ -108,7 +108,7 @@ class WalletRidePayment {
       const {'OneTimePassword', 'Pin', 'Voucher'}.contains(nextAction);
   bool get processing => status == 'Processing';
   bool get canStartAnother => status == 'Failed' || status == 'Cancelled';
-  bool get locksOtherMethods => !canStartAnother;
+  bool get locksOtherMethods => !canStartAnother && !succeeded;
 
   static double? _number(Object? value) =>
       value is num ? value.toDouble() : double.tryParse('${value ?? ''}');

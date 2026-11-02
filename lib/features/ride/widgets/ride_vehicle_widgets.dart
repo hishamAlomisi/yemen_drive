@@ -203,7 +203,9 @@ class VehiclePreviewCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 5),
                       Text(
-                        'يصل خلال ${vehicle.arrivalMinutes} دقائق',
+                        vehicle.arrivalMinutes > 0
+                            ? 'يصل خلال ${vehicle.arrivalMinutes} دقائق'
+                            : 'يظهر تقدير الوصول عند توفر سائق ومسار حديث',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -269,13 +271,10 @@ class VehicleBookingTile extends GetView<RideController> {
               children: <Widget>[
                 Expanded(
                   child: AppButton(
-                    label: 'احجز لاحقاً',
+                    label: 'الحجز المسبق غير متاح',
                     size: AppButtonSize.small,
                     variant: AppButtonVariant.outline,
-                    onPressed: () {
-                      controller.selectedVehicle.value = vehicle;
-                      controller.requestRide(later: true);
-                    },
+                    onPressed: null,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.sm),

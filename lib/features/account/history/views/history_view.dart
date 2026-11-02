@@ -169,13 +169,10 @@ class _HistoryRideCard extends StatelessWidget {
               const Icon(Icons.calendar_month_outlined, size: 18),
               const SizedBox(width: AppSpacing.xs),
               Expanded(child: Text(_rideDate(ride.date))),
-              if (ride.status == RideHistoryStatus.completed)
+              if (ride.status != RideHistoryStatus.upcoming)
                 TextButton(
-                  onPressed: () => Get.snackbar(
-                    'تفاصيل الرحلة',
-                    'يمكن ربطها بفاتورة الرحلة من الخادم.',
-                  ),
-                  child: const Text('الفاتورة'),
+                  onPressed: () => Get.find<RideController>().openFinancialFollowUp(ride.id),
+                  child: const Text('الفاتورة والمتابعة'),
                 ),
             ],
           ),

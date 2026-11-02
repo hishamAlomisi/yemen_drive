@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../account/favourites/widgets/destination_favourites.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -16,6 +17,7 @@ import '../../../shared/widgets/directional_arrow.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
 import '../controllers/notifications_controller.dart';
 import '../controllers/ride_controller.dart';
+import '../ride_routes.dart';
 import '../models/ride_models.dart';
 import '../widgets/ride_common_widgets.dart';
 import '../widgets/ride_home_template.dart';
@@ -43,46 +45,53 @@ class NotificationsPage extends GetView<NotificationsController> {
   const NotificationsPage({super.key});
 
   @override
-  Widget build(BuildContext context) => RidePageFrame(
-        title: 'الإشعارات',
-        actions: <Widget>[
-          TextButton(
-            onPressed: controller.markAllRead,
-            child: const Text('قراءة الكل'),
+  Widget build(BuildContext context) => PopScope(
+        canPop: false,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) Get.offAllNamed<void>(RideRoutes.homeTransport);
+        },
+        child: RidePageFrame(
+          title: 'الإشعارات',
+          actions: <Widget>[
+            TextButton(
+              onPressed: controller.markAllRead,
+              child: const Text('قراءة الكل'),
+            ),
+          ],
+          body: Obx(
+            () => controller.isLoading.value && controller.items.isEmpty
+                ? const SingleChildScrollView(child: AppSkeletonList())
+                : controller.loadError.value.isNotEmpty &&
+                        controller.items.isEmpty
+                    ? AppEmptyState(
+                        title: 'تعذر تحميل الإشعارات',
+                        message: controller.loadError.value,
+                        actionLabel: 'إعادة المحاولة',
+                        onAction: controller.load,
+                      )
+                    : controller.items.isEmpty
+                        ? const Center(
+                            child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                Icon(Icons.notifications_none, size: 48),
+                                SizedBox(height: 16),
+                                Text('لا توجد إشعارات حالياً'),
+                              ]))
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(
+                                vertical: AppSpacing.md),
+                            itemCount: controller.items.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: AppSpacing.sm),
+                            itemBuilder: (context, index) {
+                              final item = controller.items[index];
+                              return _NotificationTile(
+                                  item: item,
+                                  onTap: () => controller.markRead(item));
+                            },
+                          ),
           ),
-        ],
-        body: Obx(
-          () => controller.isLoading.value && controller.items.isEmpty
-              ? const SingleChildScrollView(child: AppSkeletonList())
-              : controller.loadError.value.isNotEmpty &&
-                      controller.items.isEmpty
-                  ? AppEmptyState(
-                      title: 'تعذر تحميل الإشعارات',
-                      message: controller.loadError.value,
-                      actionLabel: 'إعادة المحاولة',
-                      onAction: controller.load,
-                    )
-                  : controller.items.isEmpty
-                      ? const Center(
-                          child:
-                              Column(mainAxisSize: MainAxisSize.min, children: [
-                          Icon(Icons.notifications_none, size: 48),
-                          SizedBox(height: 16),
-                          Text('لا توجد إشعارات حالياً'),
-                        ]))
-                      : ListView.separated(
-                          padding: const EdgeInsets.symmetric(
-                              vertical: AppSpacing.md),
-                          itemCount: controller.items.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: AppSpacing.sm),
-                          itemBuilder: (context, index) {
-                            final item = controller.items[index];
-                            return _NotificationTile(
-                                item: item,
-                                onTap: () => controller.markRead(item));
-                          },
-                        ),
         ),
       );
 }
@@ -433,6 +442,7 @@ class LocationSearchPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) => const RidePageFrame(
         title: 'أدخل مسارك',
+        actions: [RouteFavouritesButton()],
         resizeToAvoidBottomInset: true,
         body: SingleChildScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,

@@ -16,41 +16,51 @@ class ApiWalletRepository implements WalletRepository {
   Future<WalletSnapshot> wallet() async {
     if (!_session.isAuthenticated.value) {
       return const WalletSnapshot(
-          balance: 0, transactions: <WalletTransaction>[]);
+        balance: 0,
+        transactions: <WalletTransaction>[],
+      );
     }
     final result =
         await _client.execute<Object?>(model: 'WalletModel', operation: 'get');
     if (result is! ApiSuccess || result.data is! Map) {
-      return const WalletSnapshot(
-          balance: 0, transactions: <WalletTransaction>[]);
+      throw Exception('تعذر تحديث رصيد المحفظة.');
     }
     final data = result.data as Map;
     final raw = data['transactions'];
     final transactions = raw is List
         ? raw
             .whereType<Map>()
-            .map((item) => WalletTransaction(
-                  id: item['id']?.toString() ?? '',
-                  title: item['description']?.toString() ??
-                      item['title']?.toString() ??
-                      'عملية محفظة',
-                  date: DateTime.tryParse(
-                        item['createdAtUtc']?.toString() ?? '',
-                      ) ??
-                      DateTime.now(),
-                  amount: (item['amount'] as num?)?.toDouble() ?? 0,
-                  isCredit: item['type'] == 0 ||
-                      item['type'] == 3 ||
-                      item['type'] == 4 ||
-                      item['isCredit'] == true,
-                  type: (item['type'] as num?)?.toInt() ?? 0,
-                  externalReference: item['externalReference']?.toString(),
-                ))
+            .map(
+              (item) => WalletTransaction(
+                id: item['id']?.toString() ?? '',
+                title: item['description']?.toString() ??
+                    item['title']?.toString() ??
+                    'عملية محفظة',
+                date: DateTime.tryParse(
+                      item['createdAtUtc']?.toString() ?? '',
+                    ) ??
+                    DateTime.now(),
+                amount: (item['amount'] as num?)?.toDouble() ?? 0,
+                isCredit: item['type'] == 0 ||
+                    item['type'] == 3 ||
+                    item['type'] == 4 ||
+                    item['isCredit'] == true,
+                type: (item['type'] as num?)?.toInt() ?? 0,
+                externalReference: item['externalReference']?.toString(),
+              ),
+            )
             .toList(growable: false)
         : const <WalletTransaction>[];
     return WalletSnapshot(
       balance: (data['balance'] as num?)?.toDouble() ?? 0,
+      ledgerDebt: (data['ledgerDebt'] as num?)?.toDouble() ?? 0,
       transactions: transactions,
+      outstandingRideDebt:
+          (data['outstandingRideDebt'] as num?)?.toDouble() ?? 0,
+      rideDebts: (data['rideDebts'] as List? ?? [])
+          .whereType<Map>()
+          .map((item) => Map<String, Object?>.from(item))
+          .toList(),
     );
   }
 }

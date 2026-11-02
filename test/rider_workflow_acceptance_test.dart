@@ -20,6 +20,7 @@ import 'package:yemen_drive/core/services/offer_arrival_notifier.dart';
 import 'package:yemen_drive/core/storage/secure_storage_service.dart';
 import 'package:yemen_drive/features/ride/booking/views/ride_search_view.dart';
 import 'package:yemen_drive/features/ride/controllers/payment_controller.dart';
+import 'package:yemen_drive/features/ride/bindings/ride_review_binding.dart';
 import 'package:yemen_drive/features/ride/controllers/ride_controller.dart';
 import 'package:yemen_drive/features/ride/location_selection/controllers/location_selection_controller.dart';
 import 'package:yemen_drive/features/ride/location_selection/repositories/location_search_repository.dart';
@@ -191,6 +192,7 @@ class _Api extends ApiClient {
         cancellation?['canDecide'] = false;
         if (operation == 'accept') {
           repository.status = cancellationNeedsAdminReview ? 8 : 7;
+          cancellation?['status'] = cancellationNeedsAdminReview ? 2 : 3;
         }
       }
       result = cancellation;
@@ -312,7 +314,13 @@ Widget _host(
         GetPage(
             name: RideRoutes.negotiationQuote,
             page: () => const Scaffold(body: SearchRequestRecipients())),
-        GetPage(name: RideRoutes.review, page: () => const RideReviewPage()),
+        GetPage(
+            name: RideRoutes.review,
+            binding: RideReviewBinding(),
+            page: () => const RideReviewPage()),
+        GetPage(
+            name: RideRoutes.cancellationStatus,
+            page: () => const RideCancellationStatusPage()),
         GetPage(
             name: RideRoutes.payment,
             page: () => livePaymentPage
@@ -404,6 +412,24 @@ void main() {
       }
     });
   }
+
+  workflowTest(
+      'periodic sync restores trip state without a Hub event or manual refresh',
+      (tester) async {
+    repository.status = 4;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    expect(ride.activeRideStatus.value, '4');
+    final readsBefore = repository.detailReads;
+    repository.status = 9;
+    repository.customerPaymentEnabled = true;
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    expect(repository.detailReads, greaterThan(readsBefore));
+    expect(ride.activeRideStatus.value, '9');
+    expect(ride.customerPaymentEnabled.value, true);
+  });
 
   workflowTest(
       'accepted noncash offer requires payment and only a confirmed server cash switch unlocks the trip',
@@ -675,7 +701,15 @@ void main() {
     await tester.pumpAndSettle();
     repository.cancellationFailure =
         'يجب التحقق من نتيجة الدفع قبل إلغاء الرحلة.';
-    await ride.cancelActiveRide('تغيير الخطة');
+    final cancellationTask = ride.cancelActiveRide('تغيير الخطة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
+    if (find.text('توقفنا بأمان').evaluate().isNotEmpty) {
+      await tester.tap(find.text('توقفنا بأمان'));
+      await tester.pumpAndSettle();
+    }
+    await cancellationTask;
     await tester.pump();
     expect(find.text(repository.cancellationFailure!), findsOneWidget);
     expect(ride.currentRideId, '7');
@@ -980,8 +1014,7 @@ void main() {
     expect(Get.currentRoute, RideRoutes.review);
   });
 
-  workflowTest(
-      'completion immediately opens a mandatory review without a payment button',
+  workflowTest('completion requires review before starting a new booking',
       (tester) async {
     await tester.pumpWidget(_host());
     await ride.resumeOpenRide('7');
@@ -990,52 +1023,86 @@ void main() {
     repository.requiresRating = true;
     hub.send('rideStatusUpdated', {'rideStatus': 6});
     await tester.pumpAndSettle();
-    expect(Get.currentRoute, RideRoutes.review);
-    expect(find.text('تخطي الآن'), findsNothing);
-    expect(tester.widget<PopScope<void>>(find.byType(PopScope<void>)).canPop,
-        isFalse);
-    ride.prepareNewRide();
-    await ride.requestRide();
-    expect(ride.currentRideId, '7');
-    expect(repository.bookingAttempts, 0);
-    api.failRating = true;
-    payment.setRating(4);
-    await payment.submitReview();
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(seconds: 4));
-    await tester.pumpAndSettle();
     expect(ride.pendingRatingRideId.value, '7');
     expect(Get.currentRoute, RideRoutes.review);
-    api.failRating = false;
-    await payment.submitReview();
-    await tester.pumpAndSettle();
-    await tester.pump(const Duration(seconds: 4));
-    await tester.pumpAndSettle();
-    expect(Get.currentRoute, RideRoutes.rideThanks);
-    expect(ride.pendingRatingRideId.value, isNull);
-    hub.send('rideStatusUpdated', {'rideStatus': 6});
-    await tester.pumpAndSettle();
-    expect(Get.currentRoute, RideRoutes.rideThanks);
     ride.prepareNewRide();
-    expect(ride.bookingLocked, isFalse);
+    expect(ride.currentRideId, '7');
+    expect(ride.bookingLocked, isTrue);
+    await tester.tap(find.text('قيادة آمنة'));
+    await tester.pump();
+    expect(
+        Get.find<PaymentController>(tag: PaymentController.reviewTag)
+            .reviewController
+            .text,
+        contains('قيادة آمنة'));
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(Get.currentRoute, RideRoutes.review);
   });
 
   workflowTest(
-      'startup restores unsubmitted review from server and offline never permits booking',
+      'live completion keeps review interactive after payment route is disposed',
       (tester) async {
-    await tester.pumpWidget(_host());
+    Get.delete<PaymentController>(force: true);
+    Bindings paymentBinding() => BindingsBuilder(() =>
+        Get.lazyPut<PaymentController>(PaymentController.new, fenix: true));
+    await tester.pumpWidget(
+        GetMaterialApp(home: const Scaffold(body: Text('home')), getPages: [
+      GetPage(
+          name: RideRoutes.driverLocation,
+          page: () => const Scaffold(body: Text('active'))),
+      GetPage(
+          name: RideRoutes.payment,
+          binding: paymentBinding(),
+          page: () {
+            Get.find<PaymentController>();
+            return const Scaffold(body: Text('paid'));
+          }),
+      GetPage(
+          name: RideRoutes.review,
+          binding: RideReviewBinding(),
+          page: () => const RideReviewPage()),
+      GetPage(
+          name: RideRoutes.rideThanks,
+          page: () => const Scaffold(body: Text('rated'))),
+    ]));
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    Get.toNamed<void>(RideRoutes.payment);
+    await tester.pumpAndSettle();
+    repository.paymentCompleted = true;
+    ride.activeRidePaymentCompleted.value = true;
     repository.status = 6;
     repository.requiresRating = true;
-    await ride.restoreOpenRideOnLaunch();
+    hub.send('rideStatusUpdated', {'rideStatus': 6});
     await tester.pumpAndSettle();
     expect(Get.currentRoute, RideRoutes.review);
-    expect(ride.pendingRatingRideId.value, '7');
+    await tester.tap(find.byTooltip('4.0 من 5'));
+    await tester.pump();
+    expect(find.byIcon(Icons.star_rounded), findsNWidgets(4));
+    await tester.tap(find.text('قيادة آمنة'));
+    await tester.pump();
+    expect(find.widgetWithText(TextFormField, 'قيادة آمنة'), findsOneWidget);
+    await tester.tap(find.text('إرسال التقييم'));
+    await tester.pumpAndSettle();
+    expect(repository.requiresRating, false);
+    expect(find.text('rated'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
+  workflowTest('pending rating and offline check block a new booking',
+      (tester) async {
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    repository.requiresRating = true;
+    final stage = ride.activeRideStatus.value;
+    expect(await ride.ensureNoPendingRating(), isFalse);
+    expect(ride.activeRideStatus.value, stage);
     repository.ratingReadFails = true;
     expect(await ride.ensureNoPendingRating(), isFalse);
-    ride.didChangeAppLifecycleState(AppLifecycleState.resumed);
     await tester.pumpAndSettle();
     expect(Get.currentRoute, RideRoutes.review);
-    expect(ride.bookingLocked, isTrue);
   });
 
   workflowTest(
@@ -1085,7 +1152,7 @@ void main() {
   });
 
   workflowTest(
-      'admin approval of driver cancellation closes tracking before a pending snapshot completes',
+      'admin approval waits for authoritative cancellation review outcome',
       (tester) async {
     await tester.pumpWidget(_host());
     repository.paymentCompleted = true;
@@ -1102,7 +1169,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(ride.currentRideId, '7');
     expect(ride.activeRideStatus.value, '8');
-    expect(Get.currentRoute, RideRoutes.driverLocation);
+    expect(Get.currentRoute, RideRoutes.cancellationStatus);
 
     final staleDetail = repository.detail;
     final pending = Completer<Map<String, Object?>>();
@@ -1114,22 +1181,15 @@ void main() {
       await tester.pump();
       expect(ride.currentRideId, '7');
 
-      // Administration has committed the final status while a previous REST
-      // read is still in flight. Its old pending state must never restore it.
+      // Transport cancellation alone does not establish the review outcome.
       hub.send('rideStatusUpdated', {'rideStatus': 7});
       await tester.pumpAndSettle();
       expect(pending.isCompleted, isFalse);
-      expect(ride.currentRideId, isNull);
-      expect(ride.isDriverAssigned.value, isFalse);
-      expect(ride.trackedDriver.value, isNull);
-      expect(ride.currentDraft.value, isNull);
-      expect(ride.driverCancellationRequest.value, isNull);
-      expect(ride.bookingLocked, isFalse);
-      expect(Get.currentRoute, RideRoutes.requestThanks);
-      expect(find.text('تم إلغاء الرحلة'), findsOneWidget);
-      expect(find.textContaining('عطل مفاجئ'), findsOneWidget);
-      expect(find.text('تم إرسال طلب الإلغاء'), findsNothing);
+      expect(ride.currentRideId, '7');
+      expect(Get.currentRoute, RideRoutes.cancellationStatus);
     } finally {
+      repository.status = 7;
+      api.cancellation?['status'] = 3;
       repository.pendingDetail = null;
       pending.complete(staleDetail);
       await refresh;
@@ -1238,6 +1298,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
+    expect(repository.cancellationAttempts, 0);
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
     expect(repository.cancellationAttempts, 1);
     expect(repository.quoteReads, 2);
   });
@@ -1263,6 +1326,9 @@ void main() {
     await tester.pump();
     expect(
         find.byKey(const ValueKey('cancellation-refund-dialog')), findsNothing);
+    expect(repository.cancellationAttempts, 0);
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
     expect(repository.cancellationAttempts, 1);
     expect(repository.quoteReads, 1);
   });
@@ -1272,12 +1338,28 @@ void main() {
     await tester.pumpWidget(_host());
     await ride.resumeOpenRide('7');
     await tester.pumpAndSettle();
-    await ride.cancelActiveRide('تغيير الخطة');
+    api.cancellation = {'id': 21, 'rideId': 7, 'status': 0, 'canDecide': false};
+    final cancellationTask = ride.cancelActiveRide('تغيير الخطة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
+    if (find.text('توقفنا بأمان').evaluate().isNotEmpty) {
+      await tester.tap(find.text('توقفنا بأمان'));
+      await tester.pumpAndSettle();
+    }
+    await cancellationTask;
     await tester.pumpAndSettle();
     expect(repository.cancellationAttempts, 1);
     expect(ride.currentRideId, '7');
     expect(ride.isDriverAssigned.value, isTrue);
+    expect(Get.currentRoute, RideRoutes.cancellationStatus);
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(Get.currentRoute, RideRoutes.cancellationStatus);
+    await ride.cancelActiveRide('طلب مكرر');
+    expect(repository.cancellationAttempts, 1);
     repository.status = 7;
+    api.cancellation = {'id': 21, 'rideId': 7, 'status': 3, 'canDecide': false};
     hub.send('rideStatusUpdated', {'rideStatus': 7});
     await tester.pumpAndSettle();
     expect(ride.currentRideId, isNull);

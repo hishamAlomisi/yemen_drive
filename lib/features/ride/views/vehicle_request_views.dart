@@ -215,9 +215,9 @@ class VehicleDetailsPage extends GetView<RideController> {
         children: <Widget>[
           Expanded(
             child: AppButton(
-              label: 'احجز لاحقاً',
+              label: 'الحجز المسبق غير متاح',
               variant: AppButtonVariant.outline,
-              onPressed: () => controller.requestRide(later: true),
+              onPressed: null,
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
@@ -279,7 +279,7 @@ class VehicleDetailsPage extends GetView<RideController> {
                 VehicleFeature(
                   icon: Icons.schedule_rounded,
                   label: 'الوصول',
-                  value: '${vehicle.arrivalMinutes} د',
+                  value: vehicle.arrivalMinutes > 0 ? '${vehicle.arrivalMinutes} د' : '—',
                 ),
               ],
             ),

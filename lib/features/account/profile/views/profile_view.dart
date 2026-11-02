@@ -198,6 +198,11 @@ class SideMenuPage extends StatelessWidget {
                                 onTap: () =>
                                     Get.offNamed<void>(AccountRoutes.wallet)),
                             _MenuTile(
+                                label: 'تحويل لحساب',
+                                icon: Icons.swap_horiz_rounded,
+                                onTap: () => Get.offNamed<void>(
+                                    AccountRoutes.walletTransfer)),
+                            _MenuTile(
                                 label: 'الأماكن المفضلة',
                                 icon: Icons.favorite_border,
                                 onTap: () => Get.offNamed<void>(

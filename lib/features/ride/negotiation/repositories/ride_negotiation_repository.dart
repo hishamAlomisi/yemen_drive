@@ -310,7 +310,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     final result = await _client.execute<Object?>(
       model: 'RideCancellationRequestModel',
       operation: 'add',
-      data: <String, Object?>{'rideId': requestId, 'reason': reason},
+      data: <String, Object?>{'rideId': requestId, 'reason': reason, 'safeStopConfirmed': true},
     );
     if (result is! ApiSuccess) {
       throw FormatException(result is ApiFailure

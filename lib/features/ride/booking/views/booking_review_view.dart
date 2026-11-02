@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 import '../../../../shared/widgets/app_google_map.dart';
+import '../../../account/favourites/widgets/destination_favourites.dart';
 import '../../widgets/ride_common_widgets.dart';
 import '../controllers/booking_controller.dart';
 import '../widgets/booking_review_panel.dart';
@@ -244,12 +245,18 @@ class BookingReviewRouteCard extends GetView<BookingController> {
                 field: 1,
                 icon: Icons.flag_rounded,
                 text: controller.location.toController,
-                action: IconButton(
-                  tooltip: 'home_address_details'.tr,
-                  onPressed: controller.ride.bookingLocked
-                      ? null
-                      : () => showBookingArrivalDetails(context),
-                  icon: const Icon(Icons.add_rounded),
+                action: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SaveDestinationButton(iconOnly: true),
+                    IconButton(
+                      tooltip: 'home_address_details'.tr,
+                      onPressed: controller.ride.bookingLocked
+                          ? null
+                          : () => showBookingArrivalDetails(context),
+                      icon: const Icon(Icons.add_rounded),
+                    ),
+                  ],
                 ),
               ),
               Obx(

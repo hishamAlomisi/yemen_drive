@@ -17,6 +17,7 @@ import '../../ride_routes.dart';
 import '../repositories/location_search_repository.dart';
 import '../repositories/route_repository.dart';
 import '../views/location_access_page.dart';
+import '../../../account/favourites/models/saved_place_labels.dart';
 
 class LocationController extends GetxController {
   LocationController(
@@ -30,9 +31,7 @@ class LocationController extends GetxController {
   final LocationSearchRepository _searchRepository;
   final ApiClient _client;
   final AuthSessionService _session;
-  final TextEditingController fromController = TextEditingController(
-    text: 'موقعي الحالي',
-  );
+  final TextEditingController fromController = TextEditingController();
   final TextEditingController toController = TextEditingController();
   final RxInt activeField = 0.obs;
   final Rx<MapType> mapType = MapType.normal.obs;
@@ -47,7 +46,11 @@ class LocationController extends GetxController {
   final RxString serviceCityName = 'صنعاء'.obs;
   final RxBool isLocating = false.obs;
   final RxBool locationPermissionBlocked = false.obs;
-  bool _initialLocationRequested = false;
+  Future<void>? _initialLocationRequest;
+  int _pickupEditRevision = 0;
+  int _savedPlacesRevision = 0;
+  final RxnInt focusedRouteField = RxnInt();
+  Object? focusedRouteOwner;
   final RxBool isRouteLoading = false.obs;
   final RxList<LatLng> routePoints = <LatLng>[].obs;
   final RxInt routeDistanceMeters = 0.obs;
@@ -76,6 +79,7 @@ class LocationController extends GetxController {
       Rxn<BitmapDescriptor>();
 
   void resetForNewRide() {
+    _pickupEditRevision++;
     pickup.value = null;
     destination.value = null;
     pickupArea.value = '';
@@ -85,7 +89,7 @@ class LocationController extends GetxController {
     routePoints.clear();
     routeDistanceMeters.value = 0;
     routeDurationSeconds.value = 0;
-    fromController.text = 'موقعي الحالي';
+    fromController.clear();
     toController.clear();
     _clearDestinationAddressFields();
     searchResults.clear();
@@ -99,7 +103,11 @@ class LocationController extends GetxController {
     super.onInit();
     _authenticationWorker =
         ever(_session.isAuthenticated, (bool authenticated) {
-      if (!authenticated) return;
+      if (!authenticated) {
+        _savedPlacesRevision++;
+        recentPlaces.clear();
+        return;
+      }
       unawaited(loadSavedPlaces());
       final pending = _pendingSearchAfterLogin;
       _pendingSearchAfterLogin = null;
@@ -110,15 +118,28 @@ class LocationController extends GetxController {
   }
 
   Future<void> loadSavedPlaces() async {
+    final revision = ++_savedPlacesRevision;
+    final owner = _session.currentUserId.value;
+    if (!_session.isAuthenticated.value) {
+      recentPlaces.clear();
+      return;
+    }
     final result = await _client.execute<Object?>(
       model: 'SavedPlaceModel',
       operation: 'list',
       data: const {},
     );
-    if (result is! ApiSuccess || result.data is! List) return;
+    if (isClosed ||
+        revision != _savedPlacesRevision ||
+        owner != _session.currentUserId.value ||
+        result is! ApiSuccess ||
+        result.data is! List) return;
     recentPlaces.assignAll(
       (result.data as List)
           .whereType<Map<String, dynamic>>()
+          .where((item) => validSavedCoordinates(
+              (item['latitude'] as num?)?.toDouble(),
+              (item['longitude'] as num?)?.toDouble()))
           .map(
             (item) => RecentPlace(
               title: '${item['label'] ?? 'مكان محفوظ'}',
@@ -219,21 +240,25 @@ class LocationController extends GetxController {
     }
   }
 
-  Future<bool> saveCurrentDestination({String? kind}) async {
+  Future<bool> saveCurrentDestination({String? kind, String? label}) async {
     final point = destination.value;
-    final label = addressNameController.text.trim();
+    final savedLabel =
+        kind == 'unnamed' ? '' : (label ?? addressNameController.text).trim();
     final address = streetController.text.trim().isEmpty
         ? toController.text.trim()
         : streetController.text.trim();
-    if (point == null || label.isEmpty || address.isEmpty) {
-      Get.snackbar('بيانات المكان ناقصة', 'أدخل اسم المكان والعنوان أولاً.');
+    if (point == null ||
+        (kind != 'unnamed' && savedLabel.isEmpty) ||
+        address.isEmpty) {
+      Get.snackbar(
+          'بيانات المكان ناقصة', 'حدد الوجهة واسمها أو اختر بدون اسم.');
       return false;
     }
     final result = await _client.execute<Object?>(
       model: 'SavedPlaceModel',
       operation: 'add',
       data: {
-        'label': label,
+        'label': savedLabel,
         'kind': kind ?? 'place',
         'address': address,
         'latitude': point.latitude,
@@ -357,6 +382,7 @@ class LocationController extends GetxController {
     bool closeSearchPage = false,
   }) async {
     if (isLocating.value) return;
+    final pickupRevision = _pickupEditRevision;
     isLocating.value = true;
     try {
       var enabled = await Geolocator.isLocationServiceEnabled();
@@ -389,10 +415,16 @@ class LocationController extends GetxController {
         ),
       );
       // A delayed initial GPS fix must not replace a manually chosen origin.
-      if (silently && pickup.value != null) return;
+      if (isClosed ||
+          silently &&
+              (pickup.value != null || pickupRevision != _pickupEditRevision))
+        return;
       final point = LatLng(position.latitude, position.longitude);
-      FocusManager.instance.primaryFocus?.unfocus();
-      cancelSearch();
+      if (!validSavedCoordinates(point.latitude, point.longitude)) return;
+      if (!silently) {
+        FocusManager.instance.primaryFocus?.unfocus();
+        cancelSearch();
+      }
       if (field == 0) {
         pickup.value = point;
         pickupIsCurrentLocation.value = true;
@@ -401,7 +433,9 @@ class LocationController extends GetxController {
         routeDurationSeconds.value = 0;
         fromController.text = 'تم تحديد موقعي الحالي';
         pickupArea.value = 'موقعي الحالي';
-        activeField.value = 1;
+        if (!silently ||
+            activeField.value == 0 && focusedRouteField.value == null)
+          activeField.value = 1;
         await enrichPickupAddress(point);
       } else {
         destination.value = point;
@@ -599,6 +633,7 @@ class LocationController extends GetxController {
   /// depended on it. The map screen owns the focus request so this method can
   /// also be reused by non-interactive route fields safely.
   void clearRouteField(int field, {bool clearText = true}) {
+    if (field == 0) _pickupEditRevision++;
     activeField.value = field;
     cancelSearch();
     _routeRequestId++;
@@ -725,7 +760,10 @@ class LocationController extends GetxController {
     }
   }
 
-  Future<void> selectPlace(RecentPlace place) async {
+  Future<void> selectPlace(RecentPlace place,
+      {int? field, bool closeSearchPage = true}) async {
+    if (!validSavedCoordinates(place.latitude, place.longitude)) return;
+    if (field != null) activeField.value = field;
     FocusManager.instance.primaryFocus?.unfocus();
     cancelSearch();
     final value = place.kind == 'recent' ? place.title : place.address;
@@ -753,12 +791,12 @@ class LocationController extends GetxController {
       await _loadDrivingRoute();
       await _fitSelectedRoute();
     }
-    if (Get.currentRoute == RideRoutes.locationSearch) {
+    if (closeSearchPage && Get.currentRoute == RideRoutes.locationSearch) {
       Get.back<bool>(result: true);
     }
     if (destination.value == null) {
       await _fitSelectedRoute();
-      Get.snackbar('تم تحديد نقطة الانطلاق', 'حدد الوجهة للمتابعة');
+      if (closeSearchPage) Get.snackbar('تم تحديد نقطة الانطلاق', 'حدد الوجهة للمتابعة');
     }
   }
 
@@ -886,9 +924,35 @@ class LocationController extends GetxController {
   }
 
   Future<void> ensureInitialPickupLocation() async {
-    if (_initialLocationRequested || pickup.value != null) return;
-    _initialLocationRequested = true;
-    await useCurrentLocation(silently: true);
+    if (pickup.value != null || isClosed || fromController.text.trim().isNotEmpty) return;
+    final active = _initialLocationRequest;
+    if (active != null) {
+      await active;
+      return;
+    }
+    final task = useCurrentLocation(silently: true);
+    _initialLocationRequest = task;
+    try {
+      await task;
+    } finally {
+      if (identical(_initialLocationRequest, task))
+        _initialLocationRequest = null;
+    }
+  }
+
+  List<RecentPlace> get shortcutPlaces {
+    final seen = <String>{};
+    final named = recentPlaces
+        .where((p) =>
+            p.kind != 'unnamed' &&
+            p.title.trim().isNotEmpty &&
+            validSavedCoordinates(p.latitude, p.longitude))
+        .where((p) => seen.add(p.title.trim().toLowerCase()))
+        .toList();
+    return [
+      ...named.where((p) => !savedPlaceKinds.containsKey(p.kind)),
+      ...named.where((p) => savedPlaceKinds.containsKey(p.kind))
+    ];
   }
 
   String _areaOrFallback(LocationSearchResult result, String fallback) {

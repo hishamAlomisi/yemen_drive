@@ -8,6 +8,7 @@ class FavouritesController extends GetxController {
   final FavouritesRepository _repository;
   final RxList<FavouritePlace> places = <FavouritePlace>[].obs;
   final RxBool isLoading = true.obs;
+  final RxString error = ''.obs;
 
   @override
   void onInit() {
@@ -17,8 +18,11 @@ class FavouritesController extends GetxController {
 
   Future<void> load() async {
     isLoading.value = true;
+    error.value = '';
     try {
       places.assignAll(await _repository.list());
+    } catch (_) {
+      error.value = 'تعذر تحميل المفضلة. أعد المحاولة.';
     } finally {
       isLoading.value = false;
     }

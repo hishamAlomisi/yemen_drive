@@ -35,22 +35,25 @@ class WalletTopUpRepository implements WalletRidePaymentRepository {
   Future<ApiResult<WalletRidePayment?>> getById(String id) async {
     final result = await transport.request('wallet/top-ups/$id');
     if (result is ApiSuccess<WalletRidePayment?> &&
-        result.data?.succeeded == true) _invoiceId = id;
+        result.data?.succeeded == true) {
+      _invoiceId = id;
+    }
     return result;
   }
 
   @override
   Future<ApiResult<WalletRidePayment?>> getCurrent(String rideId) async {
-    if (_invoiceId != null)
+    if (_invoiceId != null) {
       return transport.request('wallet/top-ups/$_invoiceId');
+    }
     final saved = storage.read<Map<String, dynamic>>(storageKey);
     var result = await transport.request('wallet/top-ups/current');
     if (result is ApiSuccess<WalletRidePayment?> &&
         result.data == null &&
         saved != null) {
-      if (saved['id'] != null)
+      if (saved['id'] != null) {
         result = await transport.request('wallet/top-ups/${saved['id']}');
-      else if (saved['requestId'] != null)
+      } else if (saved['requestId'] != null)
         result = await transport
             .request('wallet/top-ups/by-reference/${saved['requestId']}');
     }
@@ -68,42 +71,57 @@ class WalletTopUpRepository implements WalletRidePaymentRepository {
       'id': operation.id,
       'requestId': operation.requestId,
       'amount': operation.amount,
-      'methodId': operation.paymentMethodId
+      'methodId': operation.paymentMethodId,
     });
   }
 
   @override
   Future<ApiResult<WalletRidePayment?>> start(
-      String rideId, int methodId) async {
+    String rideId,
+    int methodId,
+  ) async {
     final saved = storage.read<Map<String, dynamic>>(storageKey);
     _reference =
         _terminal ? null : _reference ?? saved?['requestId']?.toString();
     _reference ??= const Uuid().v4();
     _terminal = false;
     // Save before HTTP dispatch so a closed app can resume the same reference.
-    await storage.write(storageKey,
-        {'requestId': _reference, 'amount': amount, 'methodId': methodId});
-    final result = await transport.request('wallet/top-ups', data: {
-      'paymentMethodId': methodId,
-      'amount': amount,
-      'requestId': _reference
-    });
+    await storage.write(
+      storageKey,
+      {'requestId': _reference, 'amount': amount, 'methodId': methodId},
+    );
+    final result = await transport.request(
+      'wallet/top-ups',
+      data: {
+        'paymentMethodId': methodId,
+        'amount': amount,
+        'requestId': _reference,
+      },
+    );
     await _remember(result);
     return result;
   }
 
   @override
   Future<ApiResult<WalletRidePayment?>> confirm(
-      String rideId, String paymentId, bool approved) async {
-    final result = await transport.request('wallet/top-ups/$paymentId/confirm',
-        data: {'approved': approved});
+    String rideId,
+    String paymentId,
+    bool approved,
+  ) async {
+    final result = await transport.request(
+      'wallet/top-ups/$paymentId/confirm',
+      data: {'approved': approved},
+    );
     await _remember(result);
     return result;
   }
 
   @override
   Future<ApiResult<WalletRidePayment?>> complete(
-      String rideId, String paymentId, String code) async {
+    String rideId,
+    String paymentId,
+    String code,
+  ) async {
     final result = await transport
         .request('wallet/top-ups/$paymentId/complete', data: {'code': code});
     await _remember(result);

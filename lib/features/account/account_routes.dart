@@ -21,10 +21,12 @@ import 'settings/views/settings_view.dart'
 import 'support/views/support_view.dart';
 import 'wallet/bindings/wallet_binding.dart';
 import 'wallet/views/wallet_view.dart';
+import 'wallet/views/wallet_transfer_view.dart';
 
 abstract final class AccountRoutes {
   static const String favourites = '/account/favourites';
   static const String wallet = '/account/wallet';
+  static const String walletTransfer = '/account/wallet/transfer';
   static const String addAmount = '/account/wallet/add-amount';
   static const String topUpPayment = '/account/wallet/top-up-payment';
   static const String bank = '/account/wallet/bank';
@@ -49,6 +51,8 @@ abstract final class AccountRoutes {
 }
 
 List<GetPage<dynamic>> get accountPages => <GetPage<dynamic>>[
+      GetPage<dynamic>(
+          name: AccountRoutes.walletTransfer, page: WalletTransferPage.new),
       GetPage<dynamic>(
         name: AccountRoutes.favourites,
         page: FavouritesPage.new,

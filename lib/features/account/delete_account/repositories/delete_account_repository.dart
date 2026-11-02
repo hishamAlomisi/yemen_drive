@@ -1,4 +1,5 @@
 import '../../../../core/network/api_client.dart';
+import '../../../../core/network/api_models.dart';
 
 abstract interface class DeleteAccountRepository {
   Future<void> delete();
@@ -10,8 +11,7 @@ class ApiDeleteAccountRepository implements DeleteAccountRepository {
   @override
   Future<void> delete() async {
     final result = await _client.execute<Object?>(
-        model: 'UserModel', operation: 'delete', data: const {});
-    if (result.runtimeType.toString().contains('Failure'))
-      throw Exception('تعذر حذف الحساب');
+        model: 'AccountDeletionModel', operation: 'add', data: const {'reason': 'أطلب حذف حسابي بعد مراجعة أموالي والتزاماتي، وأفهم حفظ السجلات المالية وفق السياسة المعتمدة.'});
+    if (result is ApiFailure) throw FormatException(result.problem.detail ?? result.problem.title);
   }
 }

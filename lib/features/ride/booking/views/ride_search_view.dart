@@ -37,17 +37,20 @@ class _RideSearchViewState extends State<RideSearchView> {
         Get.currentRoute != RideRoutes.negotiationQuote) return;
     _dialogOpen = true;
     final retry = await Get.dialog<bool>(
-        AlertDialog(
-          title: Text('search_timeout_title'.tr),
-          content: Text('search_timeout_body'.tr),
-          actions: [
-            TextButton(
-                onPressed: () => Get.back<bool>(result: false),
-                child: Text('search_cancel'.tr)),
-            FilledButton(
-                onPressed: () => Get.back<bool>(result: true),
-                child: Text('search_retry'.tr)),
-          ],
+        PopScope(
+          canPop: false,
+          child: AlertDialog(
+            title: Text('search_timeout_title'.tr),
+            content: Text('search_timeout_body'.tr),
+            actions: [
+              TextButton(
+                  onPressed: () => Get.back<bool>(result: false),
+                  child: Text('search_end_trip'.tr)),
+              FilledButton(
+                  onPressed: () => Get.back<bool>(result: true),
+                  child: Text('search_retry'.tr)),
+            ],
+          ),
         ),
         barrierDismissible: false);
     _dialogOpen = false;
@@ -56,7 +59,10 @@ class _RideSearchViewState extends State<RideSearchView> {
     if (retry) {
       await _ride.retryDriverSearch();
     } else {
-      widget.onCancel();
+      if (await _ride.cancelDriverSearch()) {
+        _ride.prepareNewRide();
+        Get.offAllNamed<void>(RideRoutes.homeTransport);
+      }
     }
   }
 

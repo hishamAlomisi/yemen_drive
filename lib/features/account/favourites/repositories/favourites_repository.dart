@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import '../models/saved_place_labels.dart';
 
 import '../../models/account_models.dart';
 import '../../../../core/network/api_client.dart';
@@ -25,14 +25,15 @@ class ApiFavouritesRepository implements FavouritesRepository {
     if (!_session.isAuthenticated.value) return const [];
     final result = await _client.execute<Object?>(
         model: 'SavedPlaceModel', operation: 'list', data: const {});
-    if (result is! ApiSuccess || result.data is! List) return const [];
+    if (result is! ApiSuccess || result.data is! List)
+      throw Exception('تعذر تحميل المفضلة. أعد المحاولة.');
     return (result.data as List)
         .whereType<Map<String, dynamic>>()
         .map((item) => FavouritePlace(
               id: '${item['id'] ?? ''}',
               title: '${item['label'] ?? item['title'] ?? 'مكان محفوظ'}',
               address: '${item['address'] ?? ''}',
-              icon: _icon('${item['kind'] ?? 'place'}'),
+              icon: savedPlaceIcon('${item['kind'] ?? 'place'}'),
               kind: '${item['kind'] ?? 'place'}',
               latitude: (item['latitude'] as num?)?.toDouble(),
               longitude: (item['longitude'] as num?)?.toDouble(),
@@ -42,11 +43,13 @@ class ApiFavouritesRepository implements FavouritesRepository {
 
   @override
   Future<void> remove(String id) async {
-    if (!_session.isAuthenticated.value) return;
-    await _client.execute<Object?>(
+    if (!_session.isAuthenticated.value)
+      throw Exception('سجل الدخول لإدارة المفضلة.');
+    final result = await _client.execute<Object?>(
         model: 'SavedPlaceModel',
         operation: 'delete',
         data: {'id': int.tryParse(id)});
+    if (result is! ApiSuccess) throw Exception('تعذر حذف المكان.');
   }
 
   @override
@@ -56,8 +59,9 @@ class ApiFavouritesRepository implements FavouritesRepository {
       required double latitude,
       required double longitude,
       String kind = 'place'}) async {
-    if (!_session.isAuthenticated.value) return;
-    await _client
+    if (!_session.isAuthenticated.value)
+      throw Exception('سجل الدخول لحفظ المفضلة.');
+    final result = await _client
         .execute<Object?>(model: 'SavedPlaceModel', operation: 'add', data: {
       'label': label,
       'kind': kind,
@@ -65,12 +69,9 @@ class ApiFavouritesRepository implements FavouritesRepository {
       'latitude': latitude,
       'longitude': longitude
     });
+    if (result is! ApiSuccess)
+      throw Exception(result is ApiFailure
+          ? result.problem.detail ?? result.problem.title
+          : 'تعذر حفظ المكان.');
   }
-
-  IconData _icon(String kind) => switch (kind.toLowerCase()) {
-        'home' => Icons.home_rounded,
-        'work' => Icons.work_rounded,
-        'airport' => Icons.flight_rounded,
-        _ => Icons.place_rounded,
-      };
 }

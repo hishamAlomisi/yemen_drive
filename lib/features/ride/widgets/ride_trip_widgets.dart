@@ -99,10 +99,10 @@ class DriverCard extends StatelessWidget {
             : ride.assignedDriverName.value.isNotEmpty
                 ? ride.assignedDriverName.value
                 : 'السائق المعين';
-        final vehicle = offer?.vehicleSummary.trim().isNotEmpty == true
+        final vehicle = ride.assignedVehicleModel.value.isNotEmpty ? ride.assignedVehicleModel.value : offer?.vehicleSummary.trim().isNotEmpty == true
             ? offer!.vehicleSummary
             : 'بيانات المركبة قيد التحميل';
-        final rating = offer?.rating ?? 0;
+        final rating = ride.assignedDriverRating.value > 0 ? ride.assignedDriverRating.value : offer?.rating ?? 0;
         return AppCard(
           child: Column(
             children: <Widget>[
@@ -154,7 +154,8 @@ class DriverCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 3),
-                      const Text(''),
+                      Text(ride.assignedPlateNumber.value.isEmpty ? 'اللوحة قيد التحميل' : 'اللوحة: ${ride.assignedPlateNumber.value}'),
+                      if (ride.assignedPassengerSeats.value != null) Text('السعة المعتمدة: ${ride.assignedPassengerSeats.value} ركاب'),
                     ],
                   )),
                 ],

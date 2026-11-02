@@ -100,7 +100,7 @@ class ComplaintSuccessPage extends StatelessWidget {
           child: AccountSuccessPanel(
             title: 'أُرسلت الشكوى بنجاح',
             message:
-                'استلم فريق الدعم طلبك، وستصلك التحديثات عبر الإشعارات والبريد الإلكتروني.',
+                'سُجلت الشكوى. تابع الردود وسجل المعالجة من الدعم ومتابعة الحساب في الإعدادات.',
             actionLabel: 'العودة إلى الرئيسية',
             onAction: () => Get.offAllNamed<void>('/home'),
           ),
@@ -134,54 +134,17 @@ class ReferralPage extends GetView<ReferralController> {
             ),
             const SizedBox(height: AppSpacing.lg),
             Text(
-              'اربح رصيدًا مع أصدقائك',
+              'خدمة الإحالة غير متاحة حالياً',
               style: Theme.of(context).textTheme.headlineSmall,
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.xs),
             Text(
-              'أدخل رمز إحالة صديقك، أو شارك رمزك الخاص بعد ربط بيانات الحساب.',
+              'لم تعتمد آلية مكافآت الإحالة بعد. ستظهر الخدمة عند تفعيلها بالكامل.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: AppSpacing.lg),
-            AppTextField(
-              controller: controller.codeController,
-              label: 'رمز الإحالة',
-              hint: 'مثال: RIDE2026',
-              textInputAction: TextInputAction.done,
-              prefixIcon: Icon(Icons.confirmation_number_outlined),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            Obx(
-              () => AppButton(
-                label: 'تطبيق الرمز',
-                isLoading: controller.isSubmitting.value,
-                onPressed: () async {
-                  if (await controller.submit()) {
-                    Get.snackbar(
-                      'تم قبول الرمز',
-                      'سيُضاف رصيد المكافأة بعد تحقق الشروط.',
-                    );
-                  } else {
-                    Get.snackbar(
-                      'رمز غير مكتمل',
-                      'أدخل رمزًا من أربعة أحرف على الأقل.',
-                    );
-                  }
-                },
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            AppButton(
-              label: 'مشاركة رمزي',
-              variant: AppButtonVariant.outline,
-              leading: Icon(Icons.share_outlined),
-              onPressed: () => Get.snackbar(
-                'مشاركة الرمز',
-                'يمكن ربط الزر بحزمة المشاركة عند إضافة الرمز من API.',
-              ),
-            ),
           ],
         ),
       );

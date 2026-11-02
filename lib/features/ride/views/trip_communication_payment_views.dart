@@ -1,3 +1,4 @@
+import '../../../shared/widgets/ride_financial_follow_up.dart';
 import 'dart:async';
 import '../../../shared/widgets/ride_waiting_panel.dart';
 
@@ -13,6 +14,7 @@ import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../../../shared/widgets/app_text_field.dart';
+import '../../../shared/widgets/chat_quick_replies.dart';
 import '../../../shared/widgets/ride_route_change_panel.dart';
 import '../../../shared/widgets/ride_route_destination_picker.dart';
 import '../controllers/chat_controller.dart';
@@ -43,10 +45,14 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
   bool _isFollowingLiveRoute = true;
   int _liveRouteFocusRevision = 0;
   Worker? _cashShortfallOpenWorker;
+  Timer? _recencyTimer;
 
   @override
   void initState() {
     super.initState();
+    _recencyTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      if (mounted) setState(() {});
+    });
     _cashShortfallOpenWorker = ever<int?>(
       controller.cashShortfallApprovalToOpen,
       _openRequestedCashShortfall,
@@ -77,6 +83,7 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
 
   @override
   void dispose() {
+    _recencyTimer?.cancel();
     _cashShortfallOpenWorker?.dispose();
     super.dispose();
   }
@@ -201,6 +208,8 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
   @override
   Widget build(BuildContext context) => Obx(() {
         final location = Get.find<LocationController>();
+        final transportEnded = const {'Completed', '6', 'Cancelled', '7'}
+            .contains(controller.activeRideStatus.value);
         final canProceedToPayment =
             controller.activeRideStatus.value == 'Completed' ||
                 controller.activeRideStatus.value == '6' ||
@@ -217,11 +226,9 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           'DriverEnRoute',
           'DriverArrived',
           'InProgress',
-          'Completed',
           '3',
           '4',
           '5',
-          '6',
           '9',
         }.contains(controller.activeRideStatus.value);
         final statusLabel = switch (controller.activeRideStatus.value) {
@@ -230,11 +237,15 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           'DriverArrived' || '9' => 'وصل السائق، يرجى التوجه إليه',
           'InProgress' || '5' => 'الرحلة جارية',
           'Completed' || '6' => 'تم الوصول',
+          'Cancelled' || '7' => 'انتهى النقل بالإلغاء',
           _ => 'جاري تحديث حالة الرحلة',
         };
         final liveRouteBounds =
             controller.trackingFocusBounds ?? location.selectedRouteBounds;
         final gps = controller.latestDriverGpsSample;
+        final positionAge = gps == null
+            ? null
+            : DateTime.now().toUtc().difference(gps.updatedAt.toUtc());
         return PopScope<void>(
           canPop: !lockBackNavigation,
           child: RideMapShell(
@@ -285,27 +296,46 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
             panelFooter: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TripEmergencyActions(
-                  onShareTrip: _shareTrip,
-                  onCancelRide: _showCancelDecision,
-                ),
+                if (!transportEnded)
+                  TripEmergencyActions(
+                    onShareTrip: _shareTrip,
+                    onCancelRide: _showCancelDecision,
+                  ),
                 const SizedBox(height: AppSpacing.sm),
-                AppButton(
-                  label: approvalPending
-                      ? 'موافقة مطلوبة لفرق الدفع'
-                      : paymentReadyForReview
-                          ? 'متابعة إلى التقييم'
-                          : canProceedToPayment
-                              ? 'متابعة إلى الدفع'
-                              : 'بانتظار اكتمال الرحلة',
-                  onPressed: approvalPending
-                      ? () => _showCashShortfallDecision(cashApproval)
-                      : paymentReadyForReview
-                          ? () => Get.toNamed<void>(RideRoutes.review)
-                          : canProceedToPayment
-                              ? () => Get.toNamed<void>(RideRoutes.payment)
-                              : null,
-                ),
+                if (transportEnded) ...[
+                  AppButton(
+                      label: operationalText('فاتورة الرحلة والدفع والاسترداد',
+                          'Trip invoice, payment and refunds'),
+                      onPressed: () async {
+                        final id = controller.currentRideId;
+                        if (id != null)
+                          await controller.openFinancialFollowUp(id);
+                      }),
+                  TextButton.icon(
+                      onPressed: () {
+                        controller.prepareNewRide();
+                        Get.offAllNamed<void>(RideRoutes.homeTransport);
+                      },
+                      icon: const Icon(Icons.add_road),
+                      label: Text(operationalText(
+                          'طلب رحلة جديدة', 'Book another trip'))),
+                ] else
+                  AppButton(
+                    label: approvalPending
+                        ? 'موافقة مطلوبة لفرق الدفع'
+                        : paymentReadyForReview
+                            ? 'متابعة إلى التقييم'
+                            : canProceedToPayment
+                                ? 'متابعة إلى الدفع'
+                                : 'بانتظار اكتمال الرحلة',
+                    onPressed: approvalPending
+                        ? () => _showCashShortfallDecision(cashApproval)
+                        : paymentReadyForReview
+                            ? () => Get.toNamed<void>(RideRoutes.review)
+                            : canProceedToPayment
+                                ? () => Get.toNamed<void>(RideRoutes.payment)
+                                : null,
+                  ),
               ],
             ),
             top: Row(
@@ -324,7 +354,35 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 DriverCard(status: statusLabel),
+                if (!transportEnded)
+                  Text(gps == null || gps.updatedAt.year < 2000
+                      ? operationalText(
+                          'موقع السائق غير متاح حالياً. استخدم الاتصال أو الرسائل.',
+                          'Driver position is unavailable. Use calling or messaging.')
+                      : positionAge!.inSeconds > 30
+                          ? operationalText(
+                              'آخر موقع معروف قبل ${positionAge.inMinutes > 0 ? '${positionAge.inMinutes} دقيقة' : '${positionAge.inSeconds} ثانية'}. الاتصال المباشر متاح؛ هذا الموقع ليس تحديثاً حياً.',
+                              'Last known position ${positionAge.inSeconds} seconds ago. Contact remains available; this position is not live.')
+                          : operationalText(
+                              'آخر تحديث لموقع السائق قبل ${positionAge.inSeconds.clamp(0, 30)} ثانية.',
+                              'Driver position updated ${positionAge.inSeconds.clamp(0, 30)} seconds ago.')),
                 const DriverCancellationDecisionCard(),
+                if (const {
+                      '3',
+                      '4',
+                      '9',
+                      'DriverAssigned',
+                      'DriverEnRoute',
+                      'DriverArrived'
+                    }.contains(controller.activeRideStatus.value) &&
+                    !controller.passengerBoarded.value)
+                  OutlinedButton.icon(
+                      onPressed: controller.confirmingBoarding.value
+                          ? null
+                          : controller.confirmBoarding,
+                      icon:
+                          const Icon(Icons.airline_seat_recline_normal_rounded),
+                      label: const Text('صعدت إلى المركبة')),
                 const SizedBox(height: AppSpacing.sm),
                 RouteSummaryCard(compact: true),
                 if (int.tryParse(controller.currentRideId ?? '')
@@ -345,6 +403,10 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                     rideId: int.parse(controller.currentRideId!),
                     selectDestination: _selectChangedDestination,
                     onRouteChanged: _refreshChangedRoute,
+                    onPayDifference: () async {
+                      await Get.toNamed<void>(RideRoutes.payment);
+                      await _refreshChangedRoute();
+                    },
                   ),
                 const SizedBox(height: AppSpacing.sm),
               ],
@@ -430,7 +492,7 @@ class _RideCancelDecisionDialog extends StatelessWidget {
     final colors = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
     final driverName = offer?.driverName ?? 'driver'.tr;
-    final eta = offer?.etaMinutes ?? 3;
+    final eta = offer?.etaMinutes ?? 0;
     return Dialog(
       elevation: 0,
       backgroundColor: Colors.transparent,
@@ -513,10 +575,14 @@ class _RideCancelDecisionDialog extends StatelessWidget {
               ),
               const SizedBox(height: 14),
               Text(
-                'driver_arrives_in'.trParams(<String, String>{
-                  'driver': driverName,
-                  'minutes': '$eta',
-                }),
+                eta > 0
+                    ? 'driver_arrives_in'.trParams(<String, String>{
+                        'driver': driverName,
+                        'minutes': '$eta',
+                      })
+                    : operationalText(
+                        'تم تعيين $driverName. سيظهر تقدير الوصول عند توفر مسار حديث.',
+                        '$driverName has been assigned. An arrival estimate will appear when a current route is available.'),
                 textAlign: TextAlign.center,
                 style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w600,
@@ -823,6 +889,15 @@ class RideChatPage extends GetView<ChatController> {
                         ),
             ),
           ),
+          ChatQuickReplies(
+              controller: controller.messageController,
+              suggestions: const [
+                'أنا في نقطة الانطلاق',
+                'سأصل خلال دقائق',
+                'أين أنت الآن؟',
+                'انتظرني قليلاً',
+                'شكراً لك',
+              ]),
           SafeArea(
             top: false,
             child: Padding(
@@ -938,6 +1013,14 @@ class _RidePaymentPageState extends State<RidePaymentPage>
       canPop: !controller.mandatoryPaymentPending,
       child: RidePageFrame(
         title: 'طريقة الدفع',
+        actions: [
+          if (Get.find<RideController>().isDriverAssigned.value)
+            IconButton(
+              tooltip: 'محادثة السائق',
+              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              onPressed: () => Get.toNamed<void>(RideRoutes.chat),
+            ),
+        ],
         showBack: !controller.mandatoryPaymentPending,
         footer: controller.paymentCompleted.value ||
                 controller.rideCompletedByDriver.value
@@ -1133,8 +1216,67 @@ class ActiveRidePage extends StatelessWidget {
   Widget build(BuildContext context) => const DriverLocationPage();
 }
 
+class RideCancellationStatusPage extends GetView<RideController> {
+  const RideCancellationStatusPage({super.key});
+
+  @override
+  Widget build(BuildContext context) => PopScope<void>(
+        canPop: false,
+        child: RidePageFrame(
+          showBack: false,
+          title: 'حالة طلب الإلغاء',
+          body: Obx(() {
+            final request = controller.driverCancellationRequest.value;
+            final status = int.tryParse('${request?['status']}');
+            final label = switch (status) {
+              0 => 'بانتظار مراجعة السائق',
+              2 || 12 => 'قيد مراجعة الإدارة',
+              9 => 'بانتظار تحديد طريقة الاسترداد',
+              10 || 11 => 'بانتظار تأكيد الاسترداد',
+              _ => 'جارٍ متابعة طلب الإلغاء',
+            };
+            return SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Icon(Icons.hourglass_top_rounded,
+                        size: 52, color: Theme.of(context).colorScheme.primary),
+                    const SizedBox(height: 16),
+                    Text(label,
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 12),
+                    const Text(
+                        'أُرسل طلب الإلغاء. ستتحدث هذه الشاشة تلقائياً عند صدور القرار. لا ترسل طلباً آخر للرحلة نفسها.',
+                        textAlign: TextAlign.center),
+                    if (request?['reason'] != null)
+                      Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: AppCard(
+                              child:
+                                  Text('سبب الإلغاء: ${request!['reason']}'))),
+                    const SizedBox(height: 16),
+                    const DriverCancellationDecisionCard(),
+                    if (controller.cancellationStatusError.value
+                        case final String error)
+                      Text(error, textAlign: TextAlign.center),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                        onPressed: controller.refreshActiveRide,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('التحقق من الحالة')),
+                  ]),
+            );
+          }),
+        ),
+      );
+}
+
 class RideReviewPage extends GetView<PaymentController> {
   const RideReviewPage({super.key});
+  @override
+  String? get tag => PaymentController.reviewTag;
 
   @override
   Widget build(BuildContext context) => PopScope<void>(
@@ -1175,21 +1317,29 @@ class RideReviewPage extends GetView<PaymentController> {
               ),
               const SizedBox(height: AppSpacing.xs),
               const Text(
-                'أكمل تقييم هذه الرحلة قبل حجز رحلة جديدة.',
+                'يرجى تقييم الرحلة لإكمالها. لا يمكن بدء رحلة جديدة قبل إرسال التقييم.',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.md),
-              const RatingStars(),
+              const RatingStars(controllerTag: PaymentController.reviewTag),
               const SizedBox(height: AppSpacing.md),
               const Wrap(
                 alignment: WrapAlignment.center,
                 spacing: AppSpacing.xs,
                 runSpacing: AppSpacing.xs,
                 children: <Widget>[
-                  ReviewTag(label: 'قيادة آمنة'),
-                  ReviewTag(label: 'سيارة نظيفة'),
-                  ReviewTag(label: 'سائق محترم'),
-                  ReviewTag(label: 'وصول سريع'),
+                  ReviewTag(
+                      label: 'قيادة آمنة',
+                      controllerTag: PaymentController.reviewTag),
+                  ReviewTag(
+                      label: 'سيارة نظيفة',
+                      controllerTag: PaymentController.reviewTag),
+                  ReviewTag(
+                      label: 'سائق محترم',
+                      controllerTag: PaymentController.reviewTag),
+                  ReviewTag(
+                      label: 'وصول سريع',
+                      controllerTag: PaymentController.reviewTag),
                 ],
               ),
               const SizedBox(height: AppSpacing.lg),
@@ -1213,10 +1363,13 @@ class DriverCancellationDecisionCard extends GetView<RideController> {
   Widget build(BuildContext context) => Obx(() {
         final request = controller.driverCancellationRequest.value;
         if (request == null ||
-            (request['requestedByDriver'] != true && request['refundConsentPending'] != true) ||
+            (request['requestedByDriver'] != true &&
+                request['refundConsentPending'] != true &&
+                request['cashReceiptPending'] != true) ||
             request['canDecide'] != true) return const SizedBox.shrink();
         final busy = controller.isDecidingDriverCancellation.value;
         final refund = request['refundConsentPending'] == true;
+        final cashReceipt = request['cashReceiptPending'] == true;
         return Card(
           shape: RoundedRectangleBorder(
             side: BorderSide(
@@ -1228,17 +1381,30 @@ class DriverCancellationDecisionCard extends GetView<RideController> {
             child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(refund ? 'الموافقة على طريقة الاسترداد' : 'يطلب السائق إلغاء الرحلة',
+                  Text(
+                      cashReceipt
+                          ? 'تأكيد استلام الاسترداد النقدي'
+                          : refund
+                              ? 'الموافقة على طريقة الاسترداد'
+                              : 'يطلب السائق إلغاء الرحلة',
                       style: Theme.of(context).textTheme.titleMedium),
                   Text('${request['reason'] ?? ''}'),
-                  Text(refund ? 'اختار السائق إعادة ${(request['refundQuote'] as Map?)?['refundAmount']} ريال يمني إلى محفظتك. لا تكتمل التسوية إلا بعد موافقتك.' : 'لا يكتمل الإلغاء إلا بعد الموافقات والتسوية. إذا رفضت الطلب تراجعه الإدارة.'),
+                  Text(cashReceipt
+                      ? 'أكد فقط بعد استلام مبلغ الاسترداد نقداً من السائق.'
+                      : refund
+                          ? 'اختار السائق إعادة ${(request['refundQuote'] as Map?)?['refundAmount']} ريال يمني إلى محفظتك. لا تكتمل التسوية إلا بعد موافقتك.'
+                          : 'لا يكتمل الإلغاء إلا بعد الموافقات والتسوية. إذا رفضت الطلب تراجعه الإدارة.'),
                   FilledButton(
                     key: const ValueKey('approve-driver-cancellation'),
                     onPressed: busy
                         ? null
                         : () =>
                             controller.decideDriverCancellation(accept: true),
-                    child: Text(refund ? 'أوافق على الاسترداد إلى محفظتي' : 'الموافقة على إلغاء الرحلة'),
+                    child: Text(cashReceipt
+                        ? 'استلمت مبلغ الاسترداد نقداً'
+                        : refund
+                            ? 'أوافق على الاسترداد إلى محفظتي'
+                            : 'الموافقة على إلغاء الرحلة'),
                   ),
                   OutlinedButton(
                     key: const ValueKey('reject-driver-cancellation'),
@@ -1246,7 +1412,11 @@ class DriverCancellationDecisionCard extends GetView<RideController> {
                         ? null
                         : () =>
                             controller.decideDriverCancellation(accept: false),
-                    child: Text(refund ? 'رفض الطريقة وطلب اختيار جديد' : 'رفض الطلب وإحالته للإدارة'),
+                    child: Text(cashReceipt
+                        ? 'لم أستلم المبلغ'
+                        : refund
+                            ? 'رفض الطريقة وطلب اختيار جديد'
+                            : 'رفض الطلب وإحالته للإدارة'),
                   ),
                   if (busy) const LinearProgressIndicator(),
                 ]),

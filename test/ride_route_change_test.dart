@@ -107,6 +107,34 @@ Future<void> mountRoute(
 
 void main() {
   tearDown(Get.reset);
+  testWidgets(
+      'prepaid change invoice credits paid money and exposes settlement after acceptance',
+      (tester) async {
+    final data =
+        routeSnapshot(status: 'accepted', version: 1, canRequest: true);
+    final request = data['request'] as Map<String, Object?>;
+    (request['invoice'] as Map<String, Object?>).addAll({
+      'paidAmount': 1000,
+      'refundedAmount': 0,
+      'netPaid': 1000,
+      'remainingAmount': 200,
+      'refundAmount': 0
+    });
+    final api = Get.put<ApiClient>(RouteApi()) as RouteApi;
+    api.handle = (_, __) async => data;
+    await mountRoute(tester);
+    expect(
+        find.text('المتبقي: 200 ر.ي — المسترد المستحق: 0 ر.ي'), findsOneWidget);
+    expect(find.text('الفاتورة وتسوية الفرق والاسترداد'), findsOneWidget);
+    final parsed = RideRouteChangeSnapshot(data, expectedRideId: 7);
+    await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+            body: SingleChildScrollView(
+                child: RideRouteChangeInvoiceView(request: parsed.request!)))));
+    expect(find.text('صافي المدفوع المحتسب: 1000 ر.ي'), findsOneWidget);
+    expect(find.text('المتبقي بعد اعتماد الوجهة: 200 ر.ي'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets('rider never receives approval controls from a stale server role',
       (tester) async {

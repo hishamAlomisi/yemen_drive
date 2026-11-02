@@ -59,7 +59,10 @@ class PaymentMethodTile extends GetView<PaymentController> {
 }
 
 class RatingStars extends GetView<PaymentController> {
-  const RatingStars({super.key});
+  const RatingStars({super.key, this.controllerTag});
+  final String? controllerTag;
+  @override
+  String? get tag => controllerTag;
 
   @override
   Widget build(BuildContext context) => Obx(
@@ -84,16 +87,16 @@ class RatingStars extends GetView<PaymentController> {
 }
 
 class ReviewTag extends StatelessWidget {
-  const ReviewTag({required this.label, super.key});
+  const ReviewTag({required this.label, this.controllerTag, super.key});
 
   final String label;
+  final String? controllerTag;
 
   @override
-  Widget build(BuildContext context) => FilterChip(
+  Widget build(BuildContext context) => ActionChip(
         label: Text(label),
-        onSelected: (_) {},
-        selected: false,
-        showCheckmark: false,
+        onPressed: () => Get.find<PaymentController>(tag: controllerTag)
+            .appendReviewTag(label),
         side: BorderSide(
           color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .12),
         ),

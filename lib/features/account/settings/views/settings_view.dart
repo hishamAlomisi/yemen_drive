@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
+import '../../../../../shared/widgets/account_follow_up.dart';
 
 import '../../../../../app/theme/app_colors.dart';
 import '../../../../../app/theme/app_palette.dart';
@@ -87,15 +88,15 @@ class SettingsPage extends GetView<SettingsController> {
             ),
             const SizedBox(height: AppSpacing.sm),
             AccountListTile(
-              title: 'تواصل معنا',
+              title: 'الدعم ومتابعة الحساب',
               subtitle: 'أرسل رسالة إلى فريق الدعم',
               icon: Icons.contact_support_outlined,
-              onTap: () => Get.toNamed<void>(AccountRoutes.contact),
+              onTap: () => Get.to<void>(() => const AccountFollowUp()),
             ),
             const SizedBox(height: AppSpacing.sm),
             AccountListTile(
               title: 'حذف الحساب',
-              subtitle: 'حذف بيانات الحساب نهائيًا',
+              subtitle: 'طلب الحذف ومراجعة الأموال والالتزامات',
               icon: Icons.delete_forever_outlined,
               iconColor: AppColors.error,
               onTap: () => Get.toNamed<void>(AccountRoutes.deleteAccount),
@@ -522,20 +523,20 @@ class DeleteAccountPage extends GetView<DeleteAccountController> {
             ),
             const SizedBox(height: AppSpacing.sm),
             const Text(
-              'سيؤدي الحذف إلى إلغاء الوصول إلى حسابك ومسح الأماكن المفضلة والإعدادات الشخصية. قد نحتفظ ببعض سجلات المعاملات للمدة المطلوبة نظاميًا.',
+              'تراجع الإدارة الطلب وأموال المحفظة والديون والاستردادات أولاً. تعطيل الحساب يلغي الوصول والجلسات، وتبقى السجلات المالية والتاريخية محفوظة وفق سياسة الاحتفاظ المعتمدة.',
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: AppSpacing.lg),
             AccountInfoBanner(
               text:
-                  'هذا الإجراء نهائي ولا يمكن التراجع عنه بعد تأكيده من الخادم.',
+                  'إرسال الطلب لا يمسح الرصيد أو السجلات. يمكنك متابعة قرار الإدارة قبل تعطيل الحساب.',
               icon: Icons.warning_amber_rounded,
               color: AppColors.error,
             ),
             const SizedBox(height: AppSpacing.lg),
             Obx(
               () => AppButton(
-                label: 'حذف الحساب نهائيًا',
+                label: 'إرسال طلب حذف الحساب',
                 variant: AppButtonVariant.danger,
                 isLoading: controller.isSubmitting.value,
                 onPressed: () => _confirmDelete(context),
@@ -578,7 +579,8 @@ class DeleteAccountPage extends GetView<DeleteAccountController> {
         false;
     if (!confirmed) return;
     if (await controller.deleteAccount()) {
-      await Get.offAllNamed<void>('/login');
+      Get.snackbar('أُرسل طلب الحذف', 'تراجع الإدارة الأموال والالتزامات وسيصلك قرارها. لا يزال حسابك متاحاً للمتابعة.');
+      await Get.offNamed<void>(AccountRoutes.settings);
     }
   }
 }

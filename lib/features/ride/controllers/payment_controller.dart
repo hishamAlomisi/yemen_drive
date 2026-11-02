@@ -5,6 +5,7 @@ import 'package:get/get.dart';
 
 import '../../../core/config/app_environment.dart';
 import '../../../core/network/api_client.dart';
+import '../../../core/storage/secure_storage_service.dart';
 import '../../../core/network/api_models.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
 import '../ride_routes.dart';
@@ -13,6 +14,7 @@ import 'ride_controller.dart';
 import 'wallet_ride_payment_controller.dart';
 
 class PaymentController extends GetxController {
+  static const reviewTag = 'ride-review';
   final ApiClient _api = Get.find<ApiClient>();
   final RideController _ride = Get.find<RideController>();
   RxString get selectedMethod => _ride.preferredPaymentMethod;
@@ -45,8 +47,7 @@ class PaymentController extends GetxController {
   late final WalletRidePaymentController externalPayment =
       WalletRidePaymentController(ApiWalletRidePaymentRepository(_api),
           onSucceeded: (_) {
-    paymentCompleted.value = true;
-    _ride.activeRidePaymentCompleted.value = true;
+    unawaited(loadPaymentSummary());
     unawaited(_ride.refreshActiveRide());
   });
 
@@ -86,6 +87,8 @@ class PaymentController extends GetxController {
   bool get showExternalPayment {
     final current = externalPayment.payment.value;
     if (current == null || current.rideId != _ride.currentRideId) return false;
+    if (current.succeeded && totalDue.value > 0 && !paymentCompleted.value)
+      return false;
     // A failed earlier wallet attempt must not replace a later confirmed cash
     // or internal-wallet payment for this ride.
     if (current.canStartAnother && paymentCompleted.value) return false;
@@ -212,21 +215,20 @@ class PaymentController extends GetxController {
       serviceFeeAmount.value = serviceFee;
       // Older development rides can predate the total snapshot. The agreed
       // fare plus its stored fee remains the authoritative display fallback.
-      totalDue.value =
-          storedTotal > 0 ? storedTotal : fare + serviceFee + waitingFee.value;
+      final finance = values['finance'] is Map
+          ? Map<Object?, Object?>.from(values['finance'] as Map)
+          : const <Object?, Object?>{};
+      totalDue.value = finance.containsKey('outstandingAmount')
+          ? _number(finance['outstandingAmount'])
+          : storedTotal > 0
+              ? storedTotal
+              : fare + serviceFee + waitingFee.value;
       cancellationFee.value = _number(ride['cancellationFee']);
       final rideStatus = '${ride['status'] ?? values['status'] ?? ''}';
       rideCompletedByDriver.value =
           rideStatus == 'Completed' || rideStatus == '6';
       final payments = values['payments'];
-      paymentCompleted.value = values['paymentCompleted'] == true ||
-          payments is List &&
-              payments.any((raw) {
-                if (raw is! Map) return false;
-                final payment = Map<Object?, Object?>.from(raw);
-                final status = '${payment['status'] ?? ''}'.toLowerCase();
-                return status == '2' || status == 'paid';
-              });
+      paymentCompleted.value = values['paymentCompleted'] == true;
       _ride.activeRidePaymentCompleted.value = paymentCompleted.value;
       _ride.reconcilePaymentNavigation();
       cashPaymentConfirmed.value = payments is List &&
@@ -256,11 +258,6 @@ class PaymentController extends GetxController {
       await _restoreBookedPaymentMethod(rideId);
       if (_ride.currentRideId != rideId) return;
       await externalPayment.refresh(rideId);
-      if (_ride.currentRideId == rideId &&
-          externalPayment.payment.value?.rideId == rideId &&
-          externalPayment.payment.value?.succeeded == true) {
-        paymentCompleted.value = true;
-      }
     } else {
       summaryError.value = detail is ApiFailure
           ? detail.problem.detail ?? detail.problem.title
@@ -334,7 +331,14 @@ class PaymentController extends GetxController {
     final rideId = _ride.currentRideId;
     if (rideId == null || totalDue.value <= 0 || isPaying.value) return;
     isPaying.value = true;
+    final owner = await SecureStorageService.read(key: 'authenticated_user_id');
+    final key = 'ride_wallet_request_${owner}_$rideId';
     try {
+      var reference = await SecureStorageService.read(key: key);
+      if (reference.isEmpty) {
+        reference = 'wallet-$rideId-${DateTime.now().microsecondsSinceEpoch}';
+        await SecureStorageService.write(key: key, value: reference);
+      }
       final result = await _api.execute<Object?>(
         model: 'PaymentModel',
         operation: 'add',
@@ -342,12 +346,16 @@ class PaymentController extends GetxController {
           'rideId': rideId,
           'amount': totalDue.value,
           'provider': 'YemenDriveWallet',
-          'idempotencyKey':
-              'wallet-$rideId-${DateTime.now().microsecondsSinceEpoch}',
+          'idempotencyKey': reference,
         },
       );
-      if (result is! ApiSuccess)
-        throw const FormatException('تعذر إتمام الدفع من المحفظة.');
+      if (result is ApiFailure) {
+        if (result.problem.status != 0 &&
+            result.problem.code != 'network_error')
+          await SecureStorageService.delete(key: key);
+        throw FormatException(result.problem.detail ?? result.problem.title);
+      }
+      await SecureStorageService.delete(key: key);
       await loadPaymentSummary();
       if (rideCompletedByDriver.value) {
         Get.offAllNamed<void>(RideRoutes.review);
@@ -500,6 +508,15 @@ class PaymentController extends GetxController {
     }
   }
 
+  void appendReviewTag(String text) {
+    final current = reviewController.text.trimRight();
+    if (current.contains(text)) return;
+    final updated = current.isEmpty ? text : '$current، $text';
+    reviewController.value = TextEditingValue(
+        text: updated,
+        selection: TextSelection.collapsed(offset: updated.length));
+  }
+
   Future<void> finishCollectedCashRide() async {
     // Completing a ride is exclusively a driver operation. The customer can
     // only observe the confirmed payment and wait for the driver's finish.
@@ -588,7 +605,7 @@ class PaymentController extends GetxController {
       Get.snackbar('اختر التقييم', 'حدد عدد النجوم قبل إرسال التقييم.');
       return;
     }
-    final rideId = _ride.currentRideId;
+    final rideId = _ride.pendingRatingRideId.value ?? _ride.currentRideId;
     if (rideId == null || isSubmittingReview.value) {
       Get.snackbar('تعذر إرسال التقييم', 'لم يتم العثور على الرحلة الحالية.');
       return;
@@ -611,6 +628,8 @@ class PaymentController extends GetxController {
       _ride.ratingSubmitted(rideId);
       rating.value = 0;
       reviewController.clear();
+      if (!await _ride.ensureNoPendingRating()) return;
+      _ride.prepareNewRide();
       Get.offAllNamed<void>(RideRoutes.rideThanks);
     } catch (_) {
       Get.snackbar('تعذر إرسال التقييم', 'تحقق من الاتصال ثم حاول مرة أخرى.');

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:get_storage/get_storage.dart';
+import 'package:geolocator_platform_interface/geolocator_platform_interface.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:yemen_drive/core/config/app_environment.dart';
 import 'package:yemen_drive/core/network/api_client.dart';
@@ -34,6 +35,14 @@ class _Storage extends SecureStorageService {
   Future<void> saveAuthenticatedUserId(int userId) async {}
   @override
   Future<void> setRememberMe(bool remember) async {}
+}
+
+class _NoGps extends GeolocatorPlatform {
+  @override
+  Future<bool> isLocationServiceEnabled() async => false;
+  @override
+  Future<LocationPermission> checkPermission() async =>
+      LocationPermission.denied;
 }
 
 class _Api extends ApiClient {
@@ -155,7 +164,7 @@ void main() {
             (_) async => directory.absolute.path);
     await GetStorage.init();
   });
-  setUp(() {
+  void initialize() {
     Get.testMode = true;
     final api = Get.put<ApiClient>(_Api());
     session = Get.put(AuthSessionService(_Storage(), api));
@@ -166,8 +175,27 @@ void main() {
     places = _Places();
     location = Get.put(LocationController(_Routes(), places, api, session));
     booking = Get.put(BookingController(ride, location));
-  });
+  }
+
   tearDown(Get.reset);
+  void routeTest(String name, Future<void> Function(WidgetTester) body) {
+    testWidgets(name, (tester) async {
+      final oldGeo = GeolocatorPlatform.instance;
+      GeolocatorPlatform.instance = _NoGps();
+      initialize();
+      try {
+        await body(tester);
+      } finally {
+        Get.delete<RideController>(force: true);
+        Get.delete<LocationController>(force: true);
+        Get.delete<BookingController>(force: true);
+        await tester.pumpWidget(const SizedBox());
+        await tester.pump(const Duration(seconds: 4));
+        GeolocatorPlatform.instance = oldGeo;
+        Get.reset();
+      }
+    });
+  }
 
   Future<void> signIn(WidgetTester tester) async {
     await session.activate(
@@ -175,7 +203,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets(
+  routeTest(
       'sign-in preserves the awaited pickup/destination flow and enters fare review',
       (tester) async {
     await tester.pumpWidget(GetMaterialApp(
@@ -223,7 +251,7 @@ void main() {
     expect(booking.isOpeningHomeBooking.value, isFalse);
   });
 
-  testWidgets(
+  routeTest(
       'login reloads a previously failed guest catalog without a manual service choice',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
@@ -234,7 +262,7 @@ void main() {
     expect(ride.vehicles.single.serviceCatalogItemId, 10);
   });
 
-  testWidgets(
+  routeTest(
       'late default loading preserves a manual choice and fills its missing catalog',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
@@ -245,7 +273,7 @@ void main() {
     expect(ride.vehicles.single.serviceKindId, 2);
   });
 
-  testWidgets(
+  routeTest(
       'default selection deferred by rating check recovers when the check completes',
       (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SizedBox()));
