@@ -248,7 +248,6 @@ class BookingReviewRouteCard extends GetView<BookingController> {
                 action: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const SaveDestinationButton(iconOnly: true),
                     IconButton(
                       tooltip: 'home_address_details'.tr,
                       onPressed: controller.ride.bookingLocked
@@ -256,6 +255,7 @@ class BookingReviewRouteCard extends GetView<BookingController> {
                           : () => showBookingArrivalDetails(context),
                       icon: const Icon(Icons.add_rounded),
                     ),
+                    const SaveDestinationButton(iconOnly: true),
                   ],
                 ),
               ),
@@ -301,7 +301,7 @@ class BookingReviewRouteCard extends GetView<BookingController> {
             Obx(
               () => controller.location.routeDurationSeconds.value <= 0
                   ? const SizedBox.shrink()
-                  : Flexible(
+                  : Expanded(
                       child: Text(
                         'review_eta'.trParams({
                           'minutes':
