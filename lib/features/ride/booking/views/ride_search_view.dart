@@ -41,7 +41,8 @@ class _RideSearchViewState extends State<RideSearchView> {
           canPop: false,
           child: AlertDialog(
             title: Text('search_timeout_title'.tr),
-            content: Text('search_timeout_body'.tr),
+            content:
+                Text(_ride.searchRetryError.value ?? 'search_timeout_body'.tr),
             actions: [
               TextButton(
                   onPressed: () => Get.back<bool>(result: false),
@@ -96,7 +97,17 @@ class _RideSearchViewState extends State<RideSearchView> {
                               .headlineMedium
                               ?.copyWith(color: Colors.white)),
                       const SizedBox(height: 16),
-                      Expanded(child: ListView(children: widget.offerCards)),
+                      Expanded(
+                          child: ListView(children: [
+                        Material(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerLow,
+                            borderRadius: BorderRadius.circular(20),
+                            child: const SearchRequestRecipients()),
+                        const SizedBox(height: 16),
+                        ...widget.offerCards,
+                      ])),
                     ]),
               )),
             ),
@@ -129,6 +140,22 @@ class _RideSearchViewState extends State<RideSearchView> {
                           controller: scroll,
                           padding: EdgeInsets.zero,
                           children: [
+                            if (_ride.isRetryingSearch.value)
+                              const Padding(
+                                key: ValueKey('search-retry-progress'),
+                                padding: EdgeInsets.all(16),
+                                child: Row(children: [
+                                  SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2)),
+                                  SizedBox(width: 12),
+                                  Expanded(
+                                      child: Text(
+                                          'جارٍ إعادة إرسال الطلب إلى السائقين…')),
+                                ]),
+                              ),
                             const SearchRequestRecipients(),
                             const SearchRequestViewers(),
                             _section(
@@ -464,23 +491,36 @@ class SearchRequestRecipients extends GetView<RideController> {
             ),
             if (recipients.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: recipients
-                      .map((driver) => Chip(
+              SingleChildScrollView(
+                key: const ValueKey('search-recipients-photos'),
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: 48 + (recipients.length - 1) * 34,
+                  height: 48,
+                  child: Stack(children: [
+                    for (var i = recipients.length - 1; i >= 0; i--)
+                      PositionedDirectional(
+                        start: i * 34,
+                        top: 0,
+                        child: Semantics(
+                          label: recipients[i].name.isEmpty
+                              ? 'السائق ${recipients[i].driverId}'
+                              : recipients[i].name,
+                          image: true,
+                          child: _ViewerAvatar(
                             key: ValueKey(
-                                'request-recipient-${driver.driverId}'),
-                            avatar: _ViewerAvatar(viewer: driver),
-                            label: Text(driver.name.isEmpty
-                                ? 'السائق ${driver.driverId}'
-                                : driver.name),
-                            side: BorderSide(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .outlineVariant),
-                          ))
-                      .toList(growable: false)),
+                                'request-recipient-${recipients[i].driverId}'),
+                            viewer: recipients[i],
+                            size: 48,
+                          ),
+                        ),
+                      ),
+                  ]),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text('بمن فيهم السائقون الذين لم يقدموا عرضًا بعد',
+                  style: Theme.of(context).textTheme.bodySmall),
             ],
           ]),
         );
@@ -534,14 +574,15 @@ class SearchRequestViewers extends GetView<RideController> {
 }
 
 class _ViewerAvatar extends StatelessWidget {
-  const _ViewerAvatar({required this.viewer});
+  const _ViewerAvatar({required this.viewer, this.size = 36, super.key});
   final RideRequestViewer viewer;
+  final double size;
   @override
   Widget build(BuildContext context) => Tooltip(
-      message: viewer.name,
+      message: viewer.name.isEmpty ? 'السائق ${viewer.driverId}' : viewer.name,
       child: Container(
-          width: 36,
-          height: 36,
+          width: size,
+          height: size,
           padding: const EdgeInsets.all(2),
           decoration: BoxDecoration(
               shape: BoxShape.circle,

@@ -1,12 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 
+import '../core/realtime/ride_map_route_observer.dart';
 import '../core/services/locale_service.dart';
 import '../core/services/startup_connection_service.dart';
 import '../core/services/theme_service.dart';
 import '../features/auth/routes/auth_routes.dart';
 import '../features/auth/splash/views/splash_view.dart';
+import '../shared/widgets/api_availability_gate.dart';
 import 'bindings/initial_binding.dart';
 import 'localization/app_translations.dart';
 import 'routes/app_pages.dart';
@@ -27,6 +31,8 @@ class EasyRideApp extends StatefulWidget {
 
 class _EasyRideAppState extends State<EasyRideApp> {
   late final StartupConnectionService _connection;
+  late final ApiAvailabilityNavigatorObserver _availabilityNavigation;
+  StreamSubscription<void>? _startupRecovery;
   bool _initialized = false;
   bool _starting = false;
 
@@ -36,14 +42,23 @@ class _EasyRideAppState extends State<EasyRideApp> {
     _connection = Get.isRegistered<StartupConnectionService>()
         ? Get.find<StartupConnectionService>()
         : Get.put(StartupConnectionService(), permanent: true);
+    _availabilityNavigation = ApiAvailabilityNavigatorObserver(_connection);
+    _startupRecovery = _connection.recovered.listen((_) {
+      if (!_initialized && mounted) unawaited(_start());
+    });
     _start();
   }
 
-  Future<void> _start() async {
+  Future<void> _start({bool userInitiated = false}) async {
     if (_starting) return;
     _starting = true;
     try {
-      if (!await _connection.verify() || !mounted) return;
+      if ((!_connection.isVerified &&
+              !await _connection.verify(userInitiated: userInitiated)) ||
+          !mounted) {
+        return;
+      }
+      _connection.startMonitoring();
       _connection.initializing();
       await InitialBinding().dependencies();
       if (mounted) setState(() => _initialized = true);
@@ -51,17 +66,32 @@ class _EasyRideAppState extends State<EasyRideApp> {
       if (mounted) _connection.initializationFailed();
     } finally {
       _starting = false;
+      if (mounted) _connection.startMonitoring();
     }
   }
 
   @override
+  void dispose() {
+    _startupRecovery?.cancel();
+    _availabilityNavigation.dispose();
+    _connection.stopMonitoring();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) => _initialized
-      ? const _ConfiguredApp()
-      : _BootstrapApp(connection: _connection, onRetry: _start);
+      ? _ConfiguredApp(
+          connection: _connection,
+          availabilityNavigation: _availabilityNavigation)
+      : _BootstrapApp(
+          connection: _connection, onRetry: () => _start(userInitiated: true));
 }
 
 class _ConfiguredApp extends StatelessWidget {
-  const _ConfiguredApp();
+  const _ConfiguredApp(
+      {required this.connection, required this.availabilityNavigation});
+  final StartupConnectionService connection;
+  final ApiAvailabilityNavigatorObserver availabilityNavigation;
 
   @override
   Widget build(BuildContext context) {
@@ -74,6 +104,7 @@ class _ConfiguredApp extends StatelessWidget {
         initialBinding: InitialBinding(),
         initialRoute: AuthRoutes.splash,
         getPages: AppPages.pages,
+        navigatorObservers: [rideMapRouteObserver, availabilityNavigation],
         translations: AppTranslations(),
         locale: localeService.locale.value,
         fallbackLocale: EasyRideApp.fallbackLocale,
@@ -94,7 +125,10 @@ class _ConfiguredApp extends StatelessWidget {
                 context,
               ).clamp(minScaleFactor: .85, maxScaleFactor: 1.35),
             ),
-            child: child ?? const SizedBox.shrink(),
+            child: ApiAvailabilityGate(
+              connection: connection,
+              child: child ?? const SizedBox.shrink(),
+            ),
           ),
         ),
       ),

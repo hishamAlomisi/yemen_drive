@@ -57,8 +57,8 @@ class SplashArtwork extends StatefulWidget {
   final VoidCallback? onRetry;
   final bool animateEntrance;
 
-  static const logoAsset = 'assets/images/branding/rider_splash_logo.png';
-  static const appIconAsset = 'assets/images/branding/yemen_drive_logo.png';
+  static const logoAsset = 'assets/images/branding/brand_logo.webp';
+  static const appIconAsset = 'assets/images/branding/app_icon.webp';
   static const backgroundColor = Color(0xFF003C30);
   static const gold = Color(0xFFFFD46B);
 

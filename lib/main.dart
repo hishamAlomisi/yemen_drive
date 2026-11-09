@@ -40,7 +40,7 @@ Future<void> main() async {
   AppEnvironment.configure(
     baseUrl: const String.fromEnvironment(
       'API_BASE_URL',
-      defaultValue: 'http://192.168.89.72:5080/api',
+      defaultValue: 'http://yemen-drive.ertiqasoft.net/api',
     ),
     signalRHubUrl: const String.fromEnvironment('SIGNALR_HUB_URL'),
   );

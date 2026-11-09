@@ -70,10 +70,13 @@ class AuthBackdrop extends StatelessWidget {
                         Expanded(
                           child: Center(
                             child: Image.asset(
-                              'assets/images/branding/yemen_drive_brand_logo.png',
+                              'assets/images/branding/brand_logo.webp',
                               width: 75,
                               height: 75,
-                              fit: BoxFit.cover,
+                              cacheWidth:
+                                  (75 * MediaQuery.devicePixelRatioOf(context))
+                                      .round(),
+                              fit: BoxFit.contain,
                               semanticLabel: 'يمن درايف',
                             ),
                           ),

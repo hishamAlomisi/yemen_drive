@@ -10,6 +10,7 @@ import 'package:yemen_drive/core/services/auth_session_service.dart';
 import 'package:yemen_drive/core/storage/secure_storage_service.dart';
 import 'package:yemen_drive/features/ride/controllers/payment_controller.dart';
 import 'package:yemen_drive/features/ride/controllers/ride_controller.dart';
+import 'package:yemen_drive/features/ride/models/ride_models.dart';
 import 'package:yemen_drive/features/ride/location_selection/controllers/location_selection_controller.dart';
 import 'package:yemen_drive/features/ride/location_selection/repositories/location_search_repository.dart';
 import 'package:yemen_drive/features/ride/location_selection/repositories/route_repository.dart';
@@ -71,7 +72,9 @@ class _Places implements LocationSearchRepository {
 }
 
 class _Ride extends RideController {
-  _Ride(super.repository, super.session);
+  _Ride(RideNegotiationRepository repository, AuthSessionService session,
+      [RouteRepository? routes])
+      : super(repository, session, null, null, routes);
   @override
   // Tests explicitly restore the ride and skip network subscriptions.
   // ignore: must_call_super
@@ -80,6 +83,19 @@ class _Ride extends RideController {
   void onReady() {}
   @override
   void startRealTracking() {}
+}
+
+class _RoadRoutes implements RouteRepository {
+  static const turn = LatLng(15.31, 44.18);
+  @override
+  Future<DrivingRoute> getDrivingRoute(
+          {required LatLng origin,
+          required LatLng destination,
+          bool includeSteps = false}) async =>
+      DrivingRoute(
+          points: [origin, turn, destination],
+          distanceMeters: 1500,
+          durationSeconds: 300);
 }
 
 class _Location extends LocationController {
@@ -105,6 +121,89 @@ class _MapPlatform extends maps.GoogleMapsFlutterPlatform {
 
 void main() {
   tearDown(Get.reset);
+
+  testWidgets(
+      'approach map retains road route to destination in a distinct color',
+      (tester) async {
+    Get.testMode = true;
+    final api = Get.put<ApiClient>(_Api());
+    final session = AuthSessionService(SecureStorageService(), api);
+    final repository = _Repository();
+    (repository.state['ride'] as Map)['status'] = 4;
+    final location = Get.put<LocationController>(_Location(api, session));
+    final ride =
+        Get.put<RideController>(_Ride(repository, session, _RoadRoutes()));
+    await tester.pumpWidget(GetMaterialApp(home: const SizedBox(), getPages: [
+      GetPage(name: RideRoutes.driverLocation, page: () => const SizedBox()),
+    ]));
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    expect(location.routePoints, contains(_RoadRoutes.turn));
+    ride.trackingRoutePoints
+        .assignAll(const [LatLng(15.29, 44.1), LatLng(15.3, 44.1)]);
+    final polylines = ride.trackingPolylines;
+    expect(polylines, hasLength(2));
+    final approach = polylines.singleWhere(
+        (line) => line.polylineId.value == 'assigned-driver-route');
+    final passenger = polylines
+        .singleWhere((line) => line.polylineId.value == 'selected-route');
+    expect(approach.color, isNot(passenger.color));
+    expect(passenger.points, contains(_RoadRoutes.turn));
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'ongoing route ignores remote travel history and keeps the next local turn',
+      (tester) async {
+    Get.testMode = true;
+    final api = Get.put<ApiClient>(_Api());
+    final session = AuthSessionService(SecureStorageService(), api);
+    final repository = _Repository();
+    repository.state['driverRouteSamples'] = [
+      {
+        'latitude': 15.30,
+        'longitude': 44.1,
+        'observedAtUtc': '2026-11-04T10:00:00Z'
+      },
+      {
+        'latitude': 15.301,
+        'longitude': 44.1,
+        'observedAtUtc': '2026-11-04T10:00:05Z'
+      },
+      {
+        'latitude': 15.302,
+        'longitude': 44.1,
+        'observedAtUtc': '2026-11-04T10:00:10Z'
+      },
+    ];
+    Get.put<LocationController>(_Location(api, session));
+    final ride = Get.put<RideController>(_Ride(repository, session));
+    await tester.pumpWidget(GetMaterialApp(home: const SizedBox(), getPages: [
+      GetPage(name: RideRoutes.driverLocation, page: () => const SizedBox()),
+    ]));
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    repository.state = detail(version: 1);
+    await ride.refreshActiveRide(requireSuccess: true);
+    expect(ride.trackingPolylines, isEmpty,
+        reason: 'ongoing map must not import the remote driver trail');
+    ride.trackedVehicle.value = DriverTrackingSnapshot(
+        driverId: 'ride:7',
+        location: const RideCoordinate(latitude: 15.302, longitude: 44.1),
+        updatedAt: DateTime.now());
+    ride.trackingRoutePoints.assignAll(const [
+      LatLng(15.30, 44.1),
+      LatLng(15.303, 44.1),
+      LatLng(15.303, 44.104),
+    ]);
+    expect(ride.remainingTrackingRoutePoints, const [
+      LatLng(15.302, 44.1),
+      LatLng(15.303, 44.1),
+      LatLng(15.303, 44.104),
+    ]);
+    expect(ride.trackingPolylines, hasLength(1));
+    await tester.pumpWidget(const SizedBox());
+  });
 
   testWidgets(
       'accepted snapshot updates destination/fare and rejects older route versions',

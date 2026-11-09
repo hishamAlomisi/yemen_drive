@@ -12,9 +12,18 @@
 
 ## التشغيل
 
+عنوان الـAPI الافتراضي هو `http://yemen-drive.ertiqasoft.net/api`، ويُشتق منه عنوان التتبع المباشر `http://yemen-drive.ertiqasoft.net/hubs/tracking` تلقائيًا. يحتاج هذا الرابط بدون رقم منفذ إلى توجيه اتصالات الدومين على المنفذ `80` إلى خدمة الـAPI التي تستمع على `5080`.
+
 ```bash
 flutter pub get
 flutter run
+```
+
+لبناء APK على الدومين الحالي:
+
+```bash
+flutter build apk --release \
+  --dart-define=API_BASE_URL=http://yemen-drive.ertiqasoft.net/api
 ```
 
 لربط بيئة تطوير ASP.NET:

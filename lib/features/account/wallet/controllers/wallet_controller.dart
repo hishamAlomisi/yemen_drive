@@ -57,6 +57,12 @@ class WalletController extends GetxController with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     if (Get.isRegistered<TrackingHubService>()) {
       final hub = Get.find<TrackingHubService>();
+      hub.stateChanges.register(this, (changes) async {
+        if (changes.any((change) =>
+            const {'wallet', 'account', 'ride'}.contains(change.resource))) {
+          await loadTransactions(requireSuccess: true);
+        }
+      });
       _walletEvents = hub.events.listen((event) {
         if (event.name == 'notificationCreated' ||
             event.name == 'paymentUpdated' ||
@@ -180,15 +186,26 @@ class WalletController extends GetxController with WidgetsBindingObserver {
     }
   }
 
-  Future<void> loadTransactions() {
+  Future<void> loadTransactions({bool requireSuccess = false}) async {
     final running = _walletRefresh;
     if (running != null) {
       _walletRefreshRequested = true;
-      return running;
+      try {
+        await running;
+      } catch (_) {
+        if (requireSuccess) rethrow;
+      }
+      return;
     }
     final task = _loadTransactions();
     _walletRefresh = task;
-    return task.whenComplete(() => _walletRefresh = null);
+    try {
+      await task;
+    } catch (_) {
+      if (requireSuccess) rethrow;
+    } finally {
+      if (identical(_walletRefresh, task)) _walletRefresh = null;
+    }
   }
 
   Future<void> _loadTransactions() async {
@@ -196,8 +213,17 @@ class WalletController extends GetxController with WidgetsBindingObserver {
     try {
       do {
         _walletRefreshRequested = false;
+        final hub = Get.isRegistered<TrackingHubService>()
+            ? Get.find<TrackingHubService>()
+            : null;
+        const resources = {'wallet', 'account', 'ride'};
+        final epoch = hub?.stateChanges.epochForResources(resources);
         final wallet = await _repository.wallet();
         if (isClosed) return;
+        if (epoch != hub?.stateChanges.epochForResources(resources)) {
+          _walletRefreshRequested = true;
+          continue;
+        }
         transactions.assignAll(wallet.transactions);
         walletBalance.value = wallet.balance;
         ledgerDebt.value = wallet.ledgerDebt;
@@ -208,6 +234,7 @@ class WalletController extends GetxController with WidgetsBindingObserver {
       } while (_walletRefreshRequested);
     } catch (_) {
       // Retain the last confirmed balance until reconnect or manual retry.
+      rethrow;
     } finally {
       isLoading.value = false;
     }
@@ -249,6 +276,8 @@ class WalletController extends GetxController with WidgetsBindingObserver {
 
   @override
   void onClose() {
+    if (Get.isRegistered<TrackingHubService>())
+      Get.find<TrackingHubService>().stateChanges.unregister(this);
     WidgetsBinding.instance.removeObserver(this);
     _walletEvents?.cancel();
     _walletReconnects?.cancel();

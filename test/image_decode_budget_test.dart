@@ -18,7 +18,7 @@ void main() {
     await tester.runAsync(() async {
       final cache = Directory('${directory.path}/yemen_drive_network_images');
       await cache.create(recursive: true);
-      await File('assets/images/branding/rider_splash_logo.png')
+      await File('assets/images/branding/brand_logo.webp')
           .copy('${cache.path}/$key.image');
     });
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger

@@ -20,7 +20,8 @@ class NotificationsController extends GetxController {
   int get unreadCount => items.where((item) => !item.isRead).length;
   StreamSubscription<TrackingHubEvent>? _eventSubscription;
   StreamSubscription<void>? _connectionSubscription;
-  bool _loadInFlight = false;
+
+  Future<void>? _loadTask;
   bool _reloadRequested = false;
   bool _initialLoadComplete = false;
   String? _notificationIdFromPush;
@@ -28,6 +29,10 @@ class NotificationsController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    _hub.stateChanges.register(this, (changes) async {
+      if (changes.any((change) => change.resource == 'notifications'))
+        await load(requireSuccess: true);
+    });
     final arguments = Get.arguments;
     if (arguments is Map) {
       _notificationIdFromPush = arguments['notificationId']?.toString();
@@ -56,12 +61,26 @@ class NotificationsController extends GetxController {
     }
   }
 
-  Future<void> load() async {
-    if (_loadInFlight) {
-      _reloadRequested = true;
-      return;
+  Future<void> load({bool requireSuccess = false}) async {
+    _reloadRequested = true;
+    final existing = _loadTask;
+    late final Future<void> task;
+    if (existing != null) {
+      task = existing;
+    } else {
+      task = _drainLoads().whenComplete(() {
+        if (identical(_loadTask, task)) _loadTask = null;
+      });
+      _loadTask = task;
     }
-    _loadInFlight = true;
+    try {
+      await task;
+    } catch (_) {
+      if (requireSuccess) rethrow;
+    }
+  }
+
+  Future<void> _drainLoads() async {
     isLoading.value = true;
     loadError.value = '';
     try {
@@ -71,8 +90,8 @@ class NotificationsController extends GetxController {
       } while (_reloadRequested && !isClosed);
     } catch (_) {
       loadError.value = 'تعذر تحميل الإشعارات. أعد المحاولة.';
+      rethrow;
     } finally {
-      _loadInFlight = false;
       isLoading.value = false;
     }
   }
@@ -82,13 +101,20 @@ class NotificationsController extends GetxController {
       items.clear();
       return;
     }
+    final userId = _session.currentUserId.value;
+    final epoch = _hub.stateChanges.epochForResources(const {'notifications'});
     final result = await _client.execute<Object?>(
       model: 'NotificationModel',
       operation: 'list',
     );
+    if (isClosed || userId != _session.currentUserId.value) return;
+    if (epoch != _hub.stateChanges.epochForResources(const {'notifications'})) {
+      _reloadRequested = true;
+      return;
+    }
     if (result is! ApiSuccess || result.data is! List) {
       loadError.value = 'تعذر تحميل الإشعارات. أعد المحاولة.';
-      return;
+      throw StateError(loadError.value);
     }
     items.assignAll(
       (result.data as List).whereType<Map<Object?, Object?>>().map((item) {
@@ -129,6 +155,7 @@ class NotificationsController extends GetxController {
 
   @override
   void onClose() {
+    _hub.stateChanges.unregister(this);
     _eventSubscription?.cancel();
     _connectionSubscription?.cancel();
     unawaited(_hub.setUserEventListening(this, false));

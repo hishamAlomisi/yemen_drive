@@ -187,7 +187,8 @@ void main() {
           GetPage(
               name: AccountRoutes.favourites,
               binding: BindingsBuilder(() => Get.lazyPut<FavouritesController>(
-                  () => FavouritesController(ApiFavouritesRepository(api, session)))),
+                  () => FavouritesController(
+                      ApiFavouritesRepository(api, session)))),
               page: () => const FavouritesPage()),
         ]));
     Get.toNamed<void>('/route-test');
@@ -234,6 +235,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(location.destination.value, const LatLng(15.4, 44.2));
     expect(location.pickup.value, const LatLng(15.36, 44.19));
+  });
+  testWidgets(
+      'saved shortcut uses the focused pickup and retains ready coordinates and address',
+      (tester) async {
+    await open(tester);
+    await tester.tap(find.byType(TextFormField).at(0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ActionChip, 'مكتب أحمد'));
+    await tester.pumpAndSettle();
+    expect(location.pickup.value, const LatLng(15.5, 44.3));
+    expect(location.fromController.text, 'شارع المكتب');
+    expect(location.destination.value, isNull);
+    await tester.tap(find.byType(TextFormField).at(1));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ActionChip, 'المنزل'));
+    await tester.pumpAndSettle();
+    expect(location.destination.value, const LatLng(15.4, 44.2));
+    expect(location.toController.text, 'شارع المنزل');
+    expect(location.addressNameController.text, 'المنزل');
+    expect(location.detailsController.text, 'شارع المنزل');
+    expect(location.hasDrivingRoute, isTrue);
   });
   for (final field in [0, 1]) {
     testWidgets(

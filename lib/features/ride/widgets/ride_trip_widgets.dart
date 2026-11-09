@@ -11,8 +11,10 @@ import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../account/account_routes.dart';
 import '../controllers/ride_controller.dart';
+import '../controllers/chat_controller.dart';
 import '../controllers/payment_controller.dart';
 import '../controllers/safety_recording_controller.dart';
+import '../controllers/route_deviation_controller.dart';
 import '../ride_routes.dart';
 import 'ride_common_widgets.dart';
 
@@ -47,6 +49,26 @@ class RideSafetyPage extends StatelessWidget {
               onTap: () => Get.toNamed<void>(AccountRoutes.help),
             ),
             const Divider(),
+            if (Get.isRegistered<RouteDeviationController>())
+              Obx(() {
+                final deviation = Get.find<RouteDeviationController>();
+                if (!deviation.tripInProgress) return const SizedBox.shrink();
+                return ListTile(
+                  key: const ValueKey('safety-report-route-deviation'),
+                  leading: const Icon(Icons.alt_route_rounded),
+                  title: const Text('الإبلاغ عن انحراف المسار'),
+                  subtitle: const Text(
+                      'التحقق من موقع السائق والمسار قبل إرسال البلاغ'),
+                  trailing: deviation.reporting.value
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : const Icon(Icons.chevron_left),
+                  enabled: !deviation.reporting.value,
+                  onTap: deviation.reportFromSafety,
+                );
+              }),
             ListTile(
               leading: const Icon(Icons.contacts_outlined),
               title: const Text('إضافة جهة اتصال للطوارئ'),
@@ -99,10 +121,14 @@ class DriverCard extends StatelessWidget {
             : ride.assignedDriverName.value.isNotEmpty
                 ? ride.assignedDriverName.value
                 : 'السائق المعين';
-        final vehicle = ride.assignedVehicleModel.value.isNotEmpty ? ride.assignedVehicleModel.value : offer?.vehicleSummary.trim().isNotEmpty == true
-            ? offer!.vehicleSummary
-            : 'بيانات المركبة قيد التحميل';
-        final rating = ride.assignedDriverRating.value > 0 ? ride.assignedDriverRating.value : offer?.rating ?? 0;
+        final vehicle = ride.assignedVehicleModel.value.isNotEmpty
+            ? ride.assignedVehicleModel.value
+            : offer?.vehicleSummary.trim().isNotEmpty == true
+                ? offer!.vehicleSummary
+                : 'بيانات المركبة قيد التحميل';
+        final rating = ride.assignedDriverRating.value > 0
+            ? ride.assignedDriverRating.value
+            : offer?.rating ?? 0;
         return AppCard(
           child: Column(
             children: <Widget>[
@@ -154,8 +180,12 @@ class DriverCard extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodyMedium,
                       ),
                       const SizedBox(height: 3),
-                      Text(ride.assignedPlateNumber.value.isEmpty ? 'اللوحة قيد التحميل' : 'اللوحة: ${ride.assignedPlateNumber.value}'),
-                      if (ride.assignedPassengerSeats.value != null) Text('السعة المعتمدة: ${ride.assignedPassengerSeats.value} ركاب'),
+                      Text(ride.assignedPlateNumber.value.isEmpty
+                          ? 'اللوحة قيد التحميل'
+                          : 'اللوحة: ${ride.assignedPlateNumber.value}'),
+                      if (ride.assignedPassengerSeats.value != null)
+                        Text(
+                            'السعة المعتمدة: ${ride.assignedPassengerSeats.value} ركاب'),
                     ],
                   )),
                 ],
@@ -174,6 +204,10 @@ class DriverCard extends StatelessWidget {
                     RideIconButton(
                       icon: Icons.chat_bubble_outline_rounded,
                       tooltip: 'محادثة',
+                      badgeColor: const Color(0xFFD93025),
+                      badgeCount: Get.isRegistered<ChatController>()
+                          ? Get.find<ChatController>().unreadCount.value
+                          : 0,
                       onPressed: () => Get.toNamed<void>(RideRoutes.chat),
                     ),
                     const SizedBox(width: AppSpacing.xs),
@@ -527,13 +561,22 @@ class _SafetySheetContentState extends State<_SafetySheetContent> {
               ),
               const SizedBox(height: 16),
               GridView.count(
-                crossAxisCount: 3,
+                crossAxisCount: MediaQuery.sizeOf(context).width < 360 ? 2 : 3,
                 shrinkWrap: true,
                 physics: const NeverScrollableScrollPhysics(),
                 mainAxisSpacing: 8,
                 crossAxisSpacing: 6,
-                childAspectRatio: 1.15,
+                childAspectRatio: 1.1 /
+                    MediaQuery.textScalerOf(context).scale(1).clamp(1.0, 2.0),
                 children: <Widget>[
+                  if (Get.isRegistered<RouteDeviationController>() &&
+                      Get.find<RouteDeviationController>().tripInProgress)
+                    _SafetySheetAction(
+                      icon: Icons.alt_route_rounded,
+                      label: 'الإبلاغ عن انحراف المسار',
+                      onTap: () => Get.find<RouteDeviationController>()
+                          .reportFromSafety(),
+                    ),
                   _SafetySheetAction(
                     icon: Icons.ios_share_rounded,
                     label: 'share_my_trip'.tr,

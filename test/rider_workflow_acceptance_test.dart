@@ -33,6 +33,7 @@ import 'package:yemen_drive/features/ride/ride_routes.dart';
 import 'package:yemen_drive/features/ride/views/trip_communication_payment_views.dart';
 import 'package:yemen_drive/features/ride/views/vehicle_request_views.dart';
 import 'package:yemen_drive/shared/widgets/app_button.dart';
+import 'package:yemen_drive/shared/widgets/app_google_map.dart';
 
 class _MemoryStorage implements GetStorage {
   final values = <String, Object?>{};
@@ -50,6 +51,8 @@ class _Repository implements RideNegotiationRepository {
   String paymentMethodCode = 'cash';
   bool paymentRequiredBeforeStart = false;
   bool paymentCompleted = false;
+  bool passengerBoarded = false;
+  Map<String, Object?>? driver;
   Completer<Map<String, Object?>>? pendingDetail;
   int detailReads = 0;
   bool requiresRating = false;
@@ -57,6 +60,9 @@ class _Repository implements RideNegotiationRepository {
   int bookingAttempts = 0;
   int cancellationAttempts = 0;
   String? cancellationFailure;
+  Map<String, Object?>? cancellationDecision;
+  final safeStopConfirmations = <bool>[];
+  bool failDetailReads = false;
   int quoteReads = 0;
   Map<String, Object?> cancellationQuote = {'paymentCompleted': false};
   @override
@@ -67,6 +73,7 @@ class _Repository implements RideNegotiationRepository {
 
   List<DriverOffer> offers = [];
   List<RideRequestViewer> recipients = [];
+  final recipientResponses = <Completer<List<RideRequestViewer>>>[];
   Map<String, Object?> get detail => {
         'ride': {
           'id': 7,
@@ -79,7 +86,10 @@ class _Repository implements RideNegotiationRepository {
           'customerPaymentEnabled': customerPaymentEnabled,
           'paymentMethodCode': paymentMethodCode,
           'paymentRequiredBeforeStart': paymentRequiredBeforeStart,
+          'passengerBoardedAtUtc':
+              passengerBoarded ? '2026-11-04T10:00:00Z' : null,
         },
+        'driver': driver,
         'paymentCompleted': paymentCompleted,
         'requiresRating': requiresRating,
         'offers': offers.map((offer) => {'offer': offer}).toList(),
@@ -88,6 +98,7 @@ class _Repository implements RideNegotiationRepository {
   @override
   Future<Map<String, Object?>> getRideDetail(String requestId) async {
     detailReads++;
+    if (failDetailReads) throw const FormatException('تعذر قراءة الرحلة');
     return pendingDetail?.future ?? detail;
   }
 
@@ -105,9 +116,12 @@ class _Repository implements RideNegotiationRepository {
   }
 
   @override
-  Future<List<RideRequestViewer>> getRequestRecipients(
-          String requestId) async =>
-      recipients;
+  Future<List<RideRequestViewer>> getRequestRecipients(String requestId) async {
+    if (recipientResponses.isNotEmpty)
+      return recipientResponses.removeAt(0).future;
+    return recipients;
+  }
+
   @override
   Future<List<RideRequestViewer>> getRequestViewers(String requestId) async =>
       [];
@@ -121,10 +135,14 @@ class _Repository implements RideNegotiationRepository {
   }
 
   @override
-  Future<void> requestCancellation(String requestId, String reason) async {
+  Future<Map<String, Object?>?> requestCancellation(
+      String requestId, String reason,
+      {bool safeStopConfirmed = false}) async {
     cancellationAttempts++;
+    safeStopConfirmations.add(safeStopConfirmed);
     if (cancellationFailure != null)
       throw FormatException(cancellationFailure!);
+    return cancellationDecision;
   }
 
   @override
@@ -151,6 +169,8 @@ class _Api extends ApiClient {
   bool failRating = false;
   bool cancellationNeedsAdminReview = false;
   Map<String, Object?>? cancellation;
+  ApiProblemDetails? cancellationReadFailure;
+  final boardingOperations = <String>[];
   final decisions = <String>[];
   @override
   Future<ApiResult<T>> execute<T>(
@@ -159,6 +179,13 @@ class _Api extends ApiClient {
       Object? data,
       T Function(Object?)? parse}) async {
     Object? result = <String, Object?>{};
+    if (model == 'RideServiceModel' &&
+        const {'board', 'confirmPickup'}.contains(operation)) {
+      boardingOperations.add(operation);
+      repository.passengerBoarded = true;
+      repository.status = 9;
+      result = {'id': 7, 'passengerBoardedAtUtc': '2026-11-04T10:00:00Z'};
+    }
     if (model == 'PaymentMethodModel' && operation == 'list') {
       result = paymentMethods;
     }
@@ -187,6 +214,9 @@ class _Api extends ApiClient {
       repository.requiresRating = false;
     }
     if (model == 'RideCancellationRequestModel') {
+      if (operation == 'get' && cancellationReadFailure != null) {
+        return ApiFailure<T>(cancellationReadFailure!);
+      }
       if (operation != 'get') {
         decisions.add(operation);
         cancellation?['canDecide'] = false;
@@ -412,6 +442,65 @@ void main() {
       }
     });
   }
+
+  workflowTest(
+      'boarding and driver details refresh when the legacy API has no cancellation request',
+      (tester) async {
+    repository.status = 9;
+    repository.driver = {
+      'id': 2,
+      'name': 'أحمد',
+      'plateNumber': '1234',
+      'rating': 4.8
+    };
+    api.cancellationReadFailure = const ApiProblemDetails(
+        title: 'طلب الإلغاء غير موجود',
+        status: 404,
+        code: 'cancellation_request_not_found');
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    final boarding = ride.confirmBoarding();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('نعم، صعدت إلى المركبة'));
+    await tester.pumpAndSettle();
+    await boarding;
+    expect(api.boardingOperations, ['board']);
+    expect(ride.passengerBoarded.value, true);
+    expect(ride.assignedPlateNumber.value, '1234');
+    expect(ride.assignedDriverRating.value, 4.8);
+    expect(ride.driverCancellationRequest.value, isNull);
+    expect(find.text('تعذر تأكيد الصعود'), findsNothing);
+  });
+
+  workflowTest(
+      'cancellation outage preserves review while applying live driver and payment state',
+      (tester) async {
+    repository.status = 9;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    final review = {'id': 21, 'rideId': 7, 'status': 2, 'canDecide': false};
+    ride.driverCancellationRequest.value = review;
+    api.cancellationReadFailure =
+        const ApiProblemDetails(title: 'offline', status: 503);
+    repository.driver = {
+      'id': 2,
+      'name': 'أحمد',
+      'plateNumber': '1234',
+      'rating': 4.8
+    };
+    repository.paymentCompleted = true;
+    await ride.refreshActiveRide(requireSuccess: true);
+    expect(ride.driverCancellationRequest.value, review);
+    expect(ride.cancellationStatusError.value, isNotNull);
+    expect(ride.assignedPlateNumber.value, '1234');
+    expect(ride.activeRidePaymentCompleted.value, true);
+    api.cancellationReadFailure = null;
+    api.cancellation = review;
+    await ride.refreshActiveRide(requireSuccess: true);
+    expect(ride.cancellationStatusError.value, isNull);
+  });
 
   workflowTest(
       'periodic sync restores trip state without a Hub event or manual refresh',
@@ -840,6 +929,66 @@ void main() {
   });
 
   workflowTest(
+      'disconnected trip animates its vehicle without rebuilding controls or blocking navigation on slow REST',
+      (tester) async {
+    final previousMaps = maps.GoogleMapsFlutterPlatform.instance;
+    maps.GoogleMapsFlutterPlatform.instance = _MapPlatform();
+    addTearDown(() => maps.GoogleMapsFlutterPlatform.instance = previousMaps);
+    tester.view.physicalSize = const Size(480, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ride.hasShownTripSharePrompt = true;
+    await tester.pumpWidget(_host(liveRidePage: true));
+    await ride.resumeOpenRide('7');
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    final footer = tester.widget<AppButton>(
+        find.widgetWithText(AppButton, 'بانتظار اكتمال الرحلة'));
+    final pending = Completer<Map<String, Object?>>();
+    repository.pendingDetail = pending;
+    final refresh = ride.refreshActiveRide();
+    try {
+      for (var index = 0; index < 60; index++) {
+        ride.trackedVehicle.value = DriverTrackingSnapshot(
+          driverId: '2',
+          location:
+              RideCoordinate(latitude: 15.31 + index / 10000, longitude: 44.11),
+          updatedAt: DateTime.now(),
+          heading: 30,
+        );
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await tester.pump(const Duration(milliseconds: 34));
+      final map = tester.widget<AppGoogleMap>(find.byType(AppGoogleMap));
+      expect(
+          map.markers
+              .singleWhere(
+                  (marker) => marker.markerId.value == 'tracked-driver')
+              .position
+              .latitude,
+          closeTo(15.3159, .0000001));
+      expect(
+          tester.widget<AppButton>(
+              find.widgetWithText(AppButton, 'بانتظار اكتمال الرحلة')),
+          same(footer),
+          reason: 'GPS frames must rebuild only the map, never the trip panel');
+      expect(pending.isCompleted, isFalse);
+      await tester.tap(find.text('confirm_cancel_ride'));
+      await tester.pump(const Duration(milliseconds: 500));
+      expect(Get.currentRoute, RideRoutes.rideCancel);
+      expect(pending.isCompleted, isFalse);
+      expect(tester.takeException(), isNull);
+    } finally {
+      repository.pendingDetail = null;
+      pending.complete(repository.detail);
+      await tester.pump();
+      await refresh;
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  workflowTest(
       'same-status payment event enables the live trip footer before its REST refresh finishes',
       (tester) async {
     final previousMaps = maps.GoogleMapsFlutterPlatform.instance;
@@ -878,10 +1027,25 @@ void main() {
         'customerPaymentEnabled': true,
       });
       await tester.pump();
-      expect(repository.detailReads, readsBeforeEvent + 1);
+      expect(repository.detailReads, readsBeforeEvent,
+          reason: 'the event batch must not start a REST read immediately');
       expect(pending.isCompleted, isFalse);
       expect(ride.activeRideStatus.value, '5');
       expect(ride.customerPaymentEnabled.value, isTrue);
+      expect(
+          tester
+              .widget<AppButton>(
+                  find.widgetWithText(AppButton, 'متابعة إلى الدفع'))
+              .onPressed,
+          isNotNull);
+
+      // The confirmed event enables the footer immediately; only the REST
+      // invalidation is coalesced across the 100ms burst window.
+      await tester.pump(const Duration(milliseconds: 99));
+      expect(repository.detailReads, readsBeforeEvent);
+      await tester.pump(const Duration(milliseconds: 1));
+      expect(repository.detailReads, readsBeforeEvent + 1);
+      expect(pending.isCompleted, isFalse);
       expect(
           tester
               .widget<AppButton>(
@@ -1044,7 +1208,7 @@ void main() {
       'live completion keeps review interactive after payment route is disposed',
       (tester) async {
     Get.delete<PaymentController>(force: true);
-    Bindings paymentBinding() => BindingsBuilder(() =>
+    Bindings paymentBinding() => BindingsBuilder<void>(() =>
         Get.lazyPut<PaymentController>(PaymentController.new, fenix: true));
     await tester.pumpWidget(
         GetMaterialApp(home: const Scaffold(body: Text('home')), getPages: [
@@ -1333,7 +1497,85 @@ void main() {
     expect(repository.quoteReads, 1);
   });
 
-  workflowTest('rider cancellation retains the live trip until server approval',
+  workflowTest(
+      'direct cancellation completes from acknowledgement when later reads fail',
+      (tester) async {
+    repository.status = 3;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    repository.cancellationDecision = {
+      'id': 21,
+      'rideId': 7,
+      'status': 3,
+      'rideStatus': 7,
+      'canDecide': false,
+      'reason': 'تغيير الخطة',
+      'serviceEndedAtUtc': '2026-11-04T18:00:00Z',
+    };
+    repository.failDetailReads = true;
+    final cancellation = ride.cancelActiveRide('تغيير الخطة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
+    await cancellation;
+    expect(repository.cancellationAttempts, 1);
+    expect(repository.safeStopConfirmations, [false]);
+    expect(ride.currentRideId, isNull);
+    expect(ride.cancellationReviewPending, false);
+    expect(Get.currentRoute, RideRoutes.requestThanks);
+    expect(find.text('سيصلك إشعار بقرار المراجعة.'), findsNothing);
+  });
+
+  workflowTest(
+      'completed transport is distinguished from pending financial review',
+      (tester) async {
+    repository.status = 4;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    repository.cancellationDecision = {
+      'id': 21,
+      'rideId': 7,
+      'status': 0,
+      'rideStatus': 7,
+      'canDecide': false,
+      'reason': 'تغيير الخطة',
+      'serviceEndedAtUtc': '2026-11-04T18:00:00Z',
+    };
+    api.cancellation = repository.cancellationDecision;
+    repository.status = 7;
+    final cancellation = ride.cancelActiveRide('تغيير الخطة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
+    await cancellation;
+    expect(ride.currentRideId, '7');
+    expect(ride.cancellationReviewPending, true);
+    expect(Get.currentRoute, RideRoutes.cancellationStatus);
+    expect(find.textContaining('أُلغيت الرحلة وانتهى النقل'), findsOneWidget);
+  });
+
+  workflowTest(
+      'in-progress cancellation sends safe-stop only after explicit confirmation',
+      (tester) async {
+    repository.status = 5;
+    await tester.pumpWidget(_host());
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    final cancellation = ride.cancelActiveRide('تغيير الخطة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('تأكيد الإلغاء'));
+    await tester.pumpAndSettle();
+    expect(repository.cancellationAttempts, 0);
+    await tester.tap(find.text('توقفنا بأمان'));
+    await tester.pumpAndSettle();
+    await cancellation;
+    expect(repository.safeStopConfirmations, [true]);
+  });
+
+  workflowTest(
+      'legacy cancellation response remains pending until canonical decision is read',
       (tester) async {
     await tester.pumpWidget(_host());
     await ride.resumeOpenRide('7');
@@ -1363,6 +1605,43 @@ void main() {
     hub.send('rideStatusUpdated', {'rideStatus': 7});
     await tester.pumpAndSettle();
     expect(ride.currentRideId, isNull);
+  });
+
+  workflowTest('older recipient snapshots cannot erase newly notified drivers',
+      (tester) async {
+    await tester.pumpWidget(_host());
+    repository.status = 1;
+    const firstDriver = RideRequestViewer(driverId: '2', name: 'أحمد');
+    const nextDriver = RideRequestViewer(driverId: '3', name: 'علي');
+    repository.recipients = [firstDriver];
+    await ride.resumeOpenRide('7');
+    await tester.pumpAndSettle();
+    final older = Completer<List<RideRequestViewer>>();
+    final newer = Completer<List<RideRequestViewer>>();
+    repository.recipientResponses.addAll([older, newer]);
+    hub.send('rideSearchRecipientsUpdated');
+    await tester.pump();
+    expect(repository.recipientResponses, hasLength(2));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(repository.recipientResponses, hasLength(1));
+    hub.send('rideSearchRecipientsUpdated');
+    await tester.pump();
+    // Put the events in different coalescing windows so both responses are
+    // really in flight before resolving them in reverse order.
+    expect(repository.recipientResponses, hasLength(1));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(repository.recipientResponses, isEmpty);
+    expect(older.isCompleted, isFalse);
+    newer.complete([firstDriver, nextDriver]);
+    await tester.pumpAndSettle();
+    expect(ride.requestRecipients.map((driver) => driver.driverId), ['2', '3']);
+    older.complete([firstDriver]);
+    await tester.pumpAndSettle();
+    expect(ride.requestRecipients.map((driver) => driver.driverId), ['2', '3']);
+    expect(ride.requestViewers, isEmpty,
+        reason: 'Being sent a request is not proof a driver opened it.');
+    expect(ride.driverOffers, isEmpty,
+        reason: 'Drivers must appear before they send any offer.');
   });
 
   workflowTest(

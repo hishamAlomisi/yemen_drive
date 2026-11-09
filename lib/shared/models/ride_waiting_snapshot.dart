@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 
-/// A display projection of a server-approved waiting session, never a charge.
+/// A display projection of the driver's waiting session, never a charge.
 class RideWaitingSnapshot {
   RideWaitingSnapshot(this.data) {
     if (date(data['serverNowUtc']) == null) {
@@ -14,6 +14,16 @@ class RideWaitingSnapshot {
       : const {};
   bool get isOpen => session['isOpen'] == true;
   bool get isActive => isOpen && date(session['startedAtUtc']) != null;
+  bool get resumeRequestPending =>
+      isActive &&
+      (data['resumeRequestPending'] == true ||
+          session['resumeRequestPending'] == true);
+  bool get canRequestResume =>
+      isActive &&
+      data['controlMode'] == 'driver' &&
+      data['canRequestResume'] == true &&
+      !resumeRequestPending &&
+      number(session['id']) > 0;
 
   static double number(Object? raw) {
     final value = raw is num ? raw.toDouble() : double.tryParse('$raw');

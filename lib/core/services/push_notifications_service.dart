@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:dio/dio.dart' as dio;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -8,29 +9,48 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:get/get.dart';
 
+import '../../features/ride/controllers/ride_controller.dart';
 import '../network/api_client.dart';
 import '../network/api_endpoints.dart';
 import '../storage/secure_storage_service.dart';
 import 'auth_session_service.dart';
-import '../../features/ride/controllers/ride_controller.dart';
+import 'branded_notifications.dart';
 
 const String pushNotificationChannelId = 'yemendrive_alerts';
 
+typedef OtpPushDataSupplier = Future<Map<String, Object?>> Function();
+
+class OtpPushRequestCancelled extends FormatException {
+  const OtpPushRequestCancelled()
+      : super('تغيرت جلسة الجهاز. أعد طلب رمز التحقق.');
+}
+
+Future<Map<String, Object?>> requestOtpPushData() async {
+  if (!Get.isRegistered<PushNotificationsService>()) return <String, Object?>{};
+  return Get.find<PushNotificationsService>().prepareOtpTarget();
+}
+
 @pragma('vm:entry-point')
 Future<void> firebasePushBackgroundHandler(RemoteMessage message) async {
-  // Android presents notification payloads in the system tray while the app is
-  // in the background. Keep this entry point initialized for data callbacks.
   await Firebase.initializeApp();
+  await showBrandedBackgroundNotification(message, clientType: 'customer');
 }
 
 class PushNotificationsService extends GetxService with WidgetsBindingObserver {
-  PushNotificationsService(this._client, this._session, this._storage);
+  PushNotificationsService(
+    this._client,
+    this._session,
+    this._storage, {
+    FirebaseMessaging? messaging,
+    FlutterLocalNotificationsPlugin? localNotifications,
+  })  : _messaging = messaging,
+        _localNotifications =
+            localNotifications ?? FlutterLocalNotificationsPlugin();
 
   final ApiClient _client;
   final AuthSessionService _session;
   final SecureStorageService _storage;
-  final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
+  final FlutterLocalNotificationsPlugin _localNotifications;
   final List<StreamSubscription<dynamic>> _subscriptions =
       <StreamSubscription<dynamic>>[];
   FirebaseMessaging? _messaging;
@@ -40,13 +60,15 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
   bool _tokenSyncInProgress = false;
   int _retryAttempt = 0;
   Timer? _retryTimer;
+  int _registrationEpoch = 0;
+  bool _otpPushEnabled = false;
 
   Future<PushNotificationsService> init() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return this;
 
     WidgetsBinding.instance.addObserver(this);
     FirebaseMessaging.onBackgroundMessage(firebasePushBackgroundHandler);
-    _messaging = FirebaseMessaging.instance;
+    _messaging ??= FirebaseMessaging.instance;
     await _localNotifications.initialize(
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_stat_yemendrive'),
@@ -72,7 +94,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
         .add(FirebaseMessaging.onMessage.listen(_showForegroundNotification));
     _subscriptions.add(
       FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        _openData(message.data);
+        openNotificationData(message.data);
       }),
     );
     _subscriptions.add(
@@ -87,7 +109,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
       _openPayload(localLaunch?.notificationResponse?.payload);
     }
     final initialMessage = await _messaging!.getInitialMessage();
-    if (initialMessage != null) _openData(initialMessage.data);
+    if (initialMessage != null) openNotificationData(initialMessage.data);
 
     _debugRegistrationState('initialized', authenticated: _isEligible);
     if (_isEligible) {
@@ -99,6 +121,102 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
   }
 
   bool get _isEligible => _session.isAuthenticated.value;
+
+  int get otpPushRequestGeneration => _registrationEpoch;
+
+  void ensureOtpPushRequestActive(int generation) {
+    if (generation != _registrationEpoch || isClosed) {
+      throw const OtpPushRequestCancelled();
+    }
+  }
+
+  Future<Map<String, Object?>> prepareOtpTarget() async {
+    final epoch = _registrationEpoch;
+    dio.Response<Object?> response;
+    try {
+      response = await _client.dio.get<Object?>('auth/otp-delivery');
+    } on Object {
+      if (epoch != _registrationEpoch) throw const OtpPushRequestCancelled();
+      rethrow;
+    }
+    if (epoch != _registrationEpoch) throw const OtpPushRequestCancelled();
+    final body = response.data;
+    if (body is! Map ||
+        body['success'] != true ||
+        body['data'] is! Map ||
+        (body['data'] as Map)['testPushEnabled'] is! bool) {
+      throw const FormatException(
+        'تعذر معرفة وسيلة وصول رمز التحقق. حاول مجددًا.',
+      );
+    }
+    if (epoch != _registrationEpoch) {
+      throw const OtpPushRequestCancelled();
+    }
+    _otpPushEnabled = (body['data'] as Map)['testPushEnabled'] == true;
+    if (!_otpPushEnabled) return <String, Object?>{};
+    final token = await requestOtpPushToken();
+    if (epoch != _registrationEpoch) throw const OtpPushRequestCancelled();
+    return <String, Object?>{
+      if (token != null) 'otpPushToken': token,
+      'deviceId': _session.deviceId,
+      'clientType': 'customer',
+    };
+  }
+
+  Future<String?> requestOtpPushToken() async {
+    final messaging = _messaging;
+    if (messaging == null) return null;
+    final epoch = _registrationEpoch;
+    try {
+      final permission = await messaging
+          .requestPermission()
+          .timeout(const Duration(seconds: 15));
+      if (epoch != _registrationEpoch) throw const OtpPushRequestCancelled();
+      bool? notificationsEnabled;
+      try {
+        notificationsEnabled = await _localNotifications
+            .resolvePlatformSpecificImplementation<
+                AndroidFlutterLocalNotificationsPlugin>()
+            ?.areNotificationsEnabled()
+            .timeout(const Duration(seconds: 5));
+      } on Object {
+        // Firebase settings remain the fallback when Android cannot answer.
+      }
+      if (epoch != _registrationEpoch) {
+        throw const OtpPushRequestCancelled();
+      }
+      if (notificationsEnabled == false ||
+          (notificationsEnabled != true &&
+              permission.authorizationStatus !=
+                  AuthorizationStatus.authorized &&
+              permission.authorizationStatus !=
+                  AuthorizationStatus.provisional)) {
+        return null;
+      }
+      await messaging
+          .setAutoInitEnabled(true)
+          .timeout(const Duration(seconds: 5));
+      if (epoch != _registrationEpoch) throw const OtpPushRequestCancelled();
+      final token =
+          await messaging.getToken().timeout(const Duration(seconds: 15));
+      if (epoch != _registrationEpoch) {
+        throw const OtpPushRequestCancelled();
+      }
+      if (token == null || token.trim().isEmpty) {
+        return null;
+      }
+      // This address is sent only with the OTP request. Account installation
+      // registration remains restricted to an authenticated session.
+      return token.trim();
+    } on OtpPushRequestCancelled {
+      rethrow;
+    } on Object {
+      if (epoch != _registrationEpoch) throw const OtpPushRequestCancelled();
+      // A trusted login can succeed without issuing a code. The API enforces
+      // a usable target and explains the failure only when a code is required.
+      return null;
+    }
+  }
 
   Future<void> onAuthenticated() async {
     final messaging = _messaging;
@@ -160,6 +278,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
   Future<void> onSessionEnded() => _disableLocalRegistration();
 
   Future<void> _disableLocalRegistration() async {
+    _registrationEpoch++;
+    _otpPushEnabled = false;
     _registrationAttemptedForSession = false;
     _registrationEnabled = false;
     _tokenSyncInProgress = false;
@@ -178,6 +298,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
   }
 
   Future<void> _queueTokenForSync(String token) async {
+    if (!_registrationEnabled || !_isEligible) return;
     final normalized = token.trim();
     if (normalized.isEmpty) return;
     try {
@@ -221,6 +342,7 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
           'deviceId': _session.deviceId,
           'fcmToken': token,
           'platform': 'android',
+          'notificationRenderer': appNotificationRenderer,
         },
       );
       final body = response.data;
@@ -273,7 +395,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
   void _debugRegistrationFailure(String operation, Object error) {
     if (!kDebugMode) return;
     debugPrint(
-        'Push registration failed during $operation: ${error.runtimeType}');
+      'Push registration failed during $operation: ${error.runtimeType}',
+    );
   }
 
   void _debugRegistrationState(
@@ -285,7 +408,8 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     final availability =
         messagingAvailable == null ? '' : ', messaging=$messagingAvailable';
     debugPrint(
-        'Push registration $state: authenticated=$authenticated$availability');
+      'Push registration $state: authenticated=$authenticated$availability',
+    );
   }
 
   @override
@@ -299,7 +423,22 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showForegroundNotification(RemoteMessage message) async {
+  Future<void> _showForegroundNotification(RemoteMessage message) =>
+      handleForegroundMessage(message);
+
+  Future<void> handleForegroundMessage(RemoteMessage message) async {
+    if (message.data['action'] == 'test_otp') {
+      final expiresAt =
+          DateTime.tryParse('${message.data['expiresAtUtc'] ?? ''}');
+      if (!_otpPushEnabled ||
+          message.data['clientType'] != 'customer' ||
+          '${message.data['challengeId'] ?? ''}'.trim().isEmpty ||
+          '${message.data['purpose'] ?? ''}'.trim().isEmpty ||
+          expiresAt == null ||
+          !expiresAt.isAfter(DateTime.now().toUtc())) {
+        return;
+      }
+    }
     if (message.data['action'] == 'ride_arrival_alert' &&
         Get.isRegistered<RideController>()) {
       await Get.find<RideController>().openNotificationPayload(
@@ -309,30 +448,17 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
       return;
     }
     final notification = message.notification;
-    if (notification == null) return;
+    final title = notification?.title ?? message.data['title']?.toString();
+    final body = notification?.body ?? message.data['body']?.toString();
+    if (title == null && body == null) return;
     final payload = Map<String, Object?>.from(message.data);
     await _localNotifications.show(
       id: int.tryParse('${message.data['notificationId'] ?? ''}') ??
           message.hashCode,
-      title: notification.title ?? 'يمن درايف',
-      body: notification.body ?? '',
-      notificationDetails: NotificationDetails(
-        android: AndroidNotificationDetails(
-          pushNotificationChannelId,
-          'إشعارات يمن درايف',
-          channelDescription: 'تحديثات الرحلات والدفع والحساب',
-          importance: Importance.high,
-          priority: Priority.high,
-          icon: 'ic_stat_yemendrive',
-          largeIcon:
-              const DrawableResourceAndroidBitmap('ic_brand_notification'),
-          category: AndroidNotificationCategory.status,
-          styleInformation: BigTextStyleInformation(
-            notification.body ?? '',
-            contentTitle: notification.title ?? 'يمن درايف',
-          ),
-        ),
-      ),
+      title: title ?? 'يمن درايف',
+      body: body ?? '',
+      notificationDetails:
+          brandedNotificationDetails(title ?? 'يمن درايف', body ?? ''),
       payload: jsonEncode(payload),
     );
   }
@@ -341,13 +467,18 @@ class PushNotificationsService extends GetxService with WidgetsBindingObserver {
     if (payload == null || payload.isEmpty) return;
     try {
       final decoded = jsonDecode(payload);
-      if (decoded is Map) _openData(Map<String, dynamic>.from(decoded));
+      if (decoded is Map) {
+        openNotificationData(Map<String, dynamic>.from(decoded));
+      }
     } on Object {
       // Ignore malformed payloads and preserve normal app startup.
     }
   }
 
-  void _openData(Map<String, dynamic> data) {
+  void openNotificationData(Map<String, dynamic> data) {
+    // OTP notifications are display-only. Keep the current authentication page
+    // and never route them into ride notifications or submit the code.
+    if (data['action'] == 'test_otp') return;
     if (!Get.isRegistered<AuthSessionService>()) return;
     Get.find<AuthSessionService>().openNotificationFromPush(data);
   }

@@ -39,7 +39,7 @@ class RideMapShell extends StatelessWidget {
     this.panelBottomMargin = 0,
     this.panelColor,
     this.panelElevation = 0,
-    this.allowPanelCollapse = false,
+    this.allowPanelCollapse = true,
     this.embedded = false,
     super.key,
   });
@@ -191,15 +191,16 @@ class _AdaptiveDraggablePanel extends StatefulWidget {
 
 class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
   static const double _defaultMinHeightFactor = .14;
-  static const double _collapsibleMinHeightFactor = .12;
   final DraggableScrollableController _sheetController =
       DraggableScrollableController();
   double? _lastTarget;
   bool _isCollapsed = false;
-  bool _isPanelAnimationInProgress = false;
+  bool _userAdjustedExtent = false;
 
   double get _minHeightFactor => widget.allowPanelCollapse
-      ? _collapsibleMinHeightFactor
+      ? ((48 + MediaQuery.paddingOf(context).bottom) /
+              MediaQuery.sizeOf(context).height)
+          .clamp(.04, widget.maxHeightFactor)
       : _defaultMinHeightFactor;
 
   @override
@@ -209,7 +210,10 @@ class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
   }
 
   void _fitToContent(Size size) {
-    if (_isCollapsed || !_sheetController.isAttached || !mounted) return;
+    if (_userAdjustedExtent ||
+        _isCollapsed ||
+        !_sheetController.isAttached ||
+        !mounted) return;
     final screenHeight = MediaQuery.sizeOf(context).height;
     final footerHeight = widget.panelFooter == null ? 0.0 : 76.0;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
@@ -229,26 +233,18 @@ class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
     });
   }
 
-  Future<void> _togglePanel() async {
+  Future<void> _setPanelExtent(bool expand) async {
     if (!_sheetController.isAttached) return;
-    final collapse = !_isCollapsed;
-    setState(() {
-      _isCollapsed = collapse;
-      _isPanelAnimationInProgress = true;
-    });
-    try {
-      await _sheetController.animateTo(
-        collapse ? _minHeightFactor : widget.maxHeightFactor,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOutCubic,
-      );
-    } finally {
-      if (mounted) setState(() => _isPanelAnimationInProgress = false);
-    }
+    _userAdjustedExtent = true;
+    await _sheetController.animateTo(
+      expand ? widget.maxHeightFactor : _minHeightFactor,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   bool _onSheetNotification(DraggableScrollableNotification notification) {
-    if (!widget.allowPanelCollapse || _isPanelAnimationInProgress) {
+    if (!widget.allowPanelCollapse) {
       return false;
     }
     final collapsed = notification.extent <= _minHeightFactor + .012;
@@ -260,30 +256,39 @@ class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
 
   @override
   Widget build(BuildContext context) =>
-      NotificationListener<DraggableScrollableNotification>(
-        onNotification: _onSheetNotification,
-        child: DraggableScrollableSheet(
-          controller: _sheetController,
-          initialChildSize: widget.maxHeightFactor,
-          minChildSize: _minHeightFactor,
-          maxChildSize: widget.maxHeightFactor,
-          snap: true,
-          snapSizes: <double>[_minHeightFactor, widget.maxHeightFactor],
-          builder: (context, scrollController) => _PanelSurface(
-            panel: widget.panel,
-            panelFooter: widget.panelFooter,
-            scrollController: scrollController,
-            expandContent: true,
-            onPanelSizeChanged: _fitToContent,
-            panelHeader: widget.allowPanelCollapse
-                ? _PanelCollapseHandle(
-                    isCollapsed: _isCollapsed,
-                    onPressed: _togglePanel,
-                  )
-                : null,
-            isCollapsed: _isCollapsed,
-            panelColor: widget.panelColor,
-            panelElevation: widget.panelElevation,
+      NotificationListener<ScrollStartNotification>(
+        onNotification: (notification) {
+          if (notification.dragDetails != null) _userAdjustedExtent = true;
+          return false;
+        },
+        child: NotificationListener<DraggableScrollableNotification>(
+          onNotification: _onSheetNotification,
+          child: DraggableScrollableSheet(
+            controller: _sheetController,
+            initialChildSize: widget.maxHeightFactor,
+            minChildSize: _minHeightFactor,
+            maxChildSize: widget.maxHeightFactor,
+            snap: true,
+            // Min/max are implicit snap points. A fresh snapSizes list here
+            // makes Flutter restart snapping and cancel an active drag when
+            // the collapsed header or live trip content rebuilds.
+            builder: (context, scrollController) => _PanelSurface(
+              panel: widget.panel,
+              panelFooter: widget.panelFooter,
+              scrollController: scrollController,
+              expandContent: true,
+              onPanelSizeChanged: _fitToContent,
+              panelHeader: widget.allowPanelCollapse
+                  ? _PanelCollapseHandle(
+                      isCollapsed: _isCollapsed,
+                      onExpand: () => _setPanelExtent(true),
+                      onCollapse: () => _setPanelExtent(false),
+                    )
+                  : null,
+              isCollapsed: _isCollapsed,
+              panelColor: widget.panelColor,
+              panelElevation: widget.panelElevation,
+            ),
           ),
         ),
       );
@@ -292,45 +297,35 @@ class _AdaptiveDraggablePanelState extends State<_AdaptiveDraggablePanel> {
 class _PanelCollapseHandle extends StatelessWidget {
   const _PanelCollapseHandle({
     required this.isCollapsed,
-    required this.onPressed,
+    required this.onExpand,
+    required this.onCollapse,
   });
 
   final bool isCollapsed;
-  final VoidCallback onPressed;
+  final VoidCallback onExpand;
+  final VoidCallback onCollapse;
 
   @override
   Widget build(BuildContext context) {
     final color = Theme.of(context).colorScheme.onSurface.withValues(alpha: .3);
     final label = isCollapsed ? 'إظهار تفاصيل الرحلة' : 'طي تفاصيل الرحلة';
     return Semantics(
-      button: true,
       label: label,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(20),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 7),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Container(
-                width: 42,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                isCollapsed
-                    ? Icons.keyboard_arrow_up_rounded
-                    : Icons.keyboard_arrow_down_rounded,
-                color: color,
-                semanticLabel: label,
-              ),
-            ],
+      hint: 'اسحب الشريط لأعلى لإظهار التفاصيل أو لأسفل لإخفائها',
+      onIncrease: onExpand,
+      onDecrease: onCollapse,
+      child: SizedBox(
+        key: const ValueKey('ride-panel-drag-handle'),
+        width: double.infinity,
+        height: 28,
+        child: Center(
+          child: Container(
+            width: 42,
+            height: 5,
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
           ),
         ),
       ),
@@ -411,11 +406,16 @@ class _PanelSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final content = SingleChildScrollView(
       controller: scrollController,
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: EdgeInsets.fromLTRB(
         ResponsiveContext(context).responsiveValue(phone: 16, tablet: 28),
         10,
         ResponsiveContext(context).responsiveValue(phone: 16, tablet: 28),
-        panelFooter == null || isCollapsed ? AppSpacing.md : AppSpacing.sm,
+        isCollapsed
+            ? 10
+            : panelFooter == null
+                ? AppSpacing.md
+                : AppSpacing.sm,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -432,7 +432,9 @@ class _PanelSurface extends StatelessWidget {
     return Align(
       alignment: Alignment.bottomCenter,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: AppBreakpoints.maxContent),
+        constraints: BoxConstraints(
+            maxWidth:
+                isCollapsed ? double.infinity : AppBreakpoints.maxContent),
         child: Material(
           color: panelColor ?? Theme.of(context).colorScheme.surface,
           elevation: panelElevation,
@@ -441,38 +443,49 @@ class _PanelSurface extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: SafeArea(
             top: false,
-            child: Column(
-              mainAxisSize: expandContent ? MainAxisSize.max : MainAxisSize.min,
-              children: <Widget>[
-                if (expandContent)
-                  Expanded(child: content)
-                else
-                  Flexible(child: content),
-                if (panelFooter != null && !isCollapsed)
-                  Container(
-                    width: double.infinity,
-                    padding: EdgeInsets.fromLTRB(
-                      ResponsiveContext(context)
-                          .responsiveValue(phone: 16, tablet: 28),
-                      AppSpacing.sm,
-                      ResponsiveContext(context)
-                          .responsiveValue(phone: 16, tablet: 28),
-                      AppSpacing.sm,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.surface,
-                      border: Border(
-                        top: BorderSide(
-                          color: Theme.of(context)
-                              .dividerColor
-                              .withValues(alpha: .35),
-                        ),
-                      ),
-                    ),
-                    child: panelFooter,
-                  ),
-              ],
-            ),
+            child: LayoutBuilder(
+                builder: (context, constraints) => Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize:
+                          expandContent ? MainAxisSize.max : MainAxisSize.min,
+                      children: <Widget>[
+                        if (expandContent)
+                          Expanded(child: content)
+                        else
+                          Flexible(child: content),
+                        if (panelFooter != null && !isCollapsed)
+                          ConstrainedBox(
+                            constraints: BoxConstraints(
+                              maxHeight: expandContent
+                                  ? math.max(0, constraints.maxHeight - 48)
+                                  : constraints.maxHeight,
+                            ),
+                            child: SingleChildScrollView(
+                                child: Container(
+                              width: double.infinity,
+                              padding: EdgeInsets.fromLTRB(
+                                ResponsiveContext(context)
+                                    .responsiveValue(phone: 16, tablet: 28),
+                                AppSpacing.sm,
+                                ResponsiveContext(context)
+                                    .responsiveValue(phone: 16, tablet: 28),
+                                AppSpacing.sm,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.surface,
+                                border: Border(
+                                  top: BorderSide(
+                                    color: Theme.of(context)
+                                        .dividerColor
+                                        .withValues(alpha: .35),
+                                  ),
+                                ),
+                              ),
+                              child: panelFooter,
+                            )),
+                          ),
+                      ],
+                    )),
           ),
         ),
       ),

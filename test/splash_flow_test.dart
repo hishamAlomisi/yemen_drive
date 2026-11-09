@@ -30,7 +30,7 @@ class _Connection extends StartupConnectionService {
   int attempts = 0;
 
   @override
-  Future<bool> verify() {
+  Future<bool> verify({bool userInitiated = false}) {
     attempts++;
     status.value = const StartupStatus(StartupPhase.checkingApi);
     pending = Completer<bool>();

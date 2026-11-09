@@ -341,6 +341,10 @@ void main() {
         rating: 4.8,
         etaMinutes: 2);
     ride.driverOffers.assignAll([offer]);
+    ride.requestRecipients.assignAll(const [
+      RideRequestViewer(driverId: '2', name: 'سائق الاختبار'),
+      RideRequestViewer(driverId: '3', name: 'سائق لم يقدم عرضًا'),
+    ]);
     var cancelled = false;
     final boundary = GlobalKey();
     await tester.pumpWidget(_host(RepaintBoundary(
@@ -360,10 +364,45 @@ void main() {
     await tester.pump();
     expect(find.text('قبول · 30 ث'), findsOneWidget);
     expect(find.text('اختيار سائق'), findsOneWidget);
+    expect(find.byKey(const ValueKey('request-recipient-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('request-recipient-3')), findsOneWidget);
+    expect(find.text('أُرسل الطلب إلى 2 من السائقين'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _capture(tester, boundary, 'offer-selection');
     await tester.tap(find.text('إلغاء الطلب'));
     expect(cancelled, isTrue);
+  });
+
+  testWidgets(
+      'all notified driver photos overlap and remain reachable on a small phone',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    ride.requestRecipients.assignAll(List.generate(
+        20,
+        (i) =>
+            RideRequestViewer(driverId: '${i + 1}', name: 'السائق ${i + 1}')));
+    final boundary = GlobalKey();
+    await tester.pumpWidget(_host(RepaintBoundary(
+        key: boundary, child: const SearchRequestRecipients())));
+    await tester.pump();
+    final first =
+        tester.getRect(find.byKey(const ValueKey('request-recipient-1')));
+    final second =
+        tester.getRect(find.byKey(const ValueKey('request-recipient-2')));
+    expect(first.overlaps(second), isTrue);
+    expect(first.size, const Size(48, 48));
+    expect(find.text('أُرسل الطلب إلى 20 من السائقين'), findsOneWidget);
+    expect(find.byType(Chip), findsNothing);
+    await _capture(tester, boundary, 'search-recipient-stack');
+    await tester
+        .ensureVisible(find.byKey(const ValueKey('request-recipient-20')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('request-recipient-20')).hitTestable(),
+        findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   test('safety page declares the binding for its ride and safety controllers',
@@ -418,6 +457,54 @@ void main() {
     expect(Get.isSnackbarOpen, isFalse);
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
+  });
+
+  testWidgets('request audit sends actual GPS independently of edited pickup',
+      (tester) async {
+    final previousGps = GeolocatorPlatform.instance;
+    final gps = _BookingGps();
+    GeolocatorPlatform.instance = gps;
+    addTearDown(() => GeolocatorPlatform.instance = previousGps);
+    await tester.pumpWidget(_host(const SizedBox()));
+    location.pickup.value = const LatLng(15.35, 44.2);
+    ride.setNearbyMapVisible('review', true);
+    await tester.pump();
+    await booking.refreshQuote();
+    await ride.requestRide();
+    final draft = repository.requests.single;
+    expect(draft.pickupCoordinate.latitude, 15.35);
+    expect(draft.passengerCoordinate!.latitude, 15.36);
+    expect(draft.passengerCoordinate!.longitude, 44.19);
+    expect(draft.passengerObservedAt, gps.observedAt);
+    await ApiRideNegotiationRepository(api)
+        .createRequest(draft.withPrice(1600));
+    expect(api.payload['pickupLatitude'], 15.35);
+    expect(api.payload['passengerLatitude'], 15.36);
+    expect(api.payload['passengerLongitude'], 44.19);
+    expect(api.payload['passengerAccuracy'], 8);
+    expect(api.payload['passengerObservedAtUtc'],
+        gps.observedAt.toIso8601String());
+    ride.setNearbyMapVisible('review', false);
+    ride.prepareNewRide();
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets(
+      'manual booking without a GPS fix leaves request audit position unknown',
+      (tester) async {
+    await tester.pumpWidget(_host(const SizedBox()));
+    await booking.refreshQuote();
+    await ride.requestRide();
+    final draft = repository.requests.single;
+    expect(draft.passengerCoordinate, isNull);
+    await ApiRideNegotiationRepository(api).createRequest(draft);
+    expect(
+        api.payload.keys.where((key) => key.startsWith('passengerL')), isEmpty);
+    expect(api.payload.containsKey('passengerObservedAtUtc'), isFalse);
+    expect(api.payload.containsKey('passengerAccuracy'), isFalse);
+    expect(api.payload['pickupLatitude'], 15.36);
+    ride.prepareNewRide();
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('map selection respects the destination field without an origin',
@@ -504,10 +591,25 @@ void main() {
     expect(find.text('search_retry'.tr), findsOneWidget);
     expect(find.text('search_end_trip'.tr), findsOneWidget);
     expect(repository.closedAsExhausted, isEmpty);
+    repository.pendingRestart = Completer<int>();
     await tester.tap(find.text('search_retry'.tr));
     await tester.pump(const Duration(milliseconds: 500));
     expect(repository.restartedPrices, hasLength(1));
+    expect(find.byKey(const ValueKey('search-retry-progress')), findsOneWidget);
+    expect(ride.searchRemainingSeconds.value, 0,
+        reason: 'The timer must wait for a confirmed restart.');
+    await ride.retryDriverSearch();
+    expect(repository.restartedPrices, hasLength(1));
+    repository.pendingRestart!.complete(2);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
     expect(ride.isSearchingForDriver.value, isTrue);
+    expect(ride.searchRemainingSeconds.value, 60);
+    expect(find.byKey(const ValueKey('search-retry-progress')), findsNothing);
+    ride.currentSearchTime =
+        ride.currentSearchTime!.add(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(ride.searchRemainingSeconds.value, 59);
     ride.currentSearchTime =
         ride.currentSearchTime!.add(const Duration(seconds: 60));
     await tester.pump(const Duration(seconds: 1));
@@ -517,6 +619,138 @@ void main() {
     expect(repository.closedAsExhausted, [false]);
     expect(ride.currentRideId, isNull);
     expect(Get.currentRoute, RideRoutes.homeTransport);
+  });
+
+  testWidgets(
+      'retry reaches API and reads offers while nearby and Hub are stalled',
+      (tester) async {
+    final hub = Get.put<TrackingHubService>(_QuietHub()) as _QuietHub;
+    await tester.pumpWidget(_host(const SizedBox()));
+    await booking.refreshQuote();
+    await ride.requestRide();
+    ride.pendingNearby = Completer<void>();
+    hub.pendingJoin = Completer<void>();
+    addTearDown(() {
+      if (!ride.pendingNearby!.isCompleted) ride.pendingNearby!.complete();
+      if (!hub.pendingJoin!.isCompleted) hub.pendingJoin!.complete();
+    });
+    final initialReads = repository.detailReads;
+    final retry = ride.retryDriverSearch();
+    await tester.pump();
+    expect(repository.restartedPrices, [null]);
+    expect(ride.nearbyLoads, 0,
+        reason: 'Map discovery cannot hold a requested search restart.');
+    expect(repository.detailReads, greaterThan(initialReads));
+    expect(ride.isRetryingSearch.value, false);
+    expect(ride.isSearchingForDriver.value, true);
+    expect(ride.searchRemainingSeconds.value, 60);
+    await retry;
+    hub.pendingJoin!.complete();
+    await tester.pump();
+    await ride.cancelDriverSearch();
+  });
+
+  testWidgets('failed retry presents the reason and can retry the same ride',
+      (tester) async {
+    _phoneSize(tester);
+    final originalMaps = maps.GoogleMapsFlutterPlatform.instance;
+    maps.GoogleMapsFlutterPlatform.instance = _MapPlatform();
+    addTearDown(() => maps.GoogleMapsFlutterPlatform.instance = originalMaps);
+    Get.put<TrackingHubService>(_QuietHub());
+    await tester.pumpWidget(_host(const SizedBox(), realReview: true));
+    await booking.refreshQuote();
+    ride.currentSearchTime = DateTime.utc(2026, 11, 4);
+    await ride.requestRide();
+    Get.toNamed<void>(RideRoutes.negotiationQuote);
+    await tester.pump();
+    ride.currentSearchTime =
+        ride.currentSearchTime!.add(const Duration(seconds: 60));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(milliseconds: 400));
+    repository.failRestart = true;
+    await tester.tap(find.text('search_retry'.tr));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('تعذر إعادة الإرسال'), findsOneWidget);
+    expect(find.text('search_retry'.tr), findsOneWidget);
+    expect(ride.currentRideId, '42');
+    expect(ride.isSearchingForDriver.value, false);
+    repository.failRestart = false;
+    await tester.tap(find.text('search_retry'.tr));
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(repository.restartedPrices, [null, null]);
+    expect(repository.requests, hasLength(1));
+    expect(ride.isSearchingForDriver.value, true);
+    expect(ride.searchRemainingSeconds.value, 60);
+    await ride.cancelDriverSearch();
+  });
+
+  testWidgets('late restart acknowledgement cannot resurrect a cleared request',
+      (tester) async {
+    Get.put<TrackingHubService>(_QuietHub());
+    await tester.pumpWidget(_host(const SizedBox()));
+    await booking.refreshQuote();
+    await ride.requestRide();
+    repository.pendingRestart = Completer<int>();
+    final retry = ride.retryDriverSearch();
+    ride.prepareNewRide();
+    repository.pendingRestart!.complete(1);
+    await retry;
+    expect(ride.currentRideId, isNull);
+    expect(ride.isSearchingForDriver.value, false);
+    expect(ride.isRetryingSearch.value, false);
+  });
+
+  testWidgets(
+      'older initial offer snapshot cannot erase the post-join snapshot',
+      (tester) async {
+    final hub = Get.put<TrackingHubService>(_QuietHub()) as _QuietHub;
+    await tester.pumpWidget(_host(const SizedBox()));
+    await booking.refreshQuote();
+    await ride.requestRide();
+    hub.pendingJoin = Completer<void>();
+    final initial = Completer<Map<String, Object?>>();
+    final joined = Completer<Map<String, Object?>>();
+    repository.detailResponses.addAll([initial, joined]);
+    await ride.retryDriverSearch();
+    await tester.pump();
+    hub.pendingJoin!.complete();
+    await tester.pump();
+    const offer = DriverOffer(
+        id: 'latest',
+        driverName: 'السائق',
+        price: 1500,
+        etaMinutes: 2,
+        rating: 4.5,
+        vehicleSummary: 'سيارة');
+    joined.complete({
+      'ride': {'status': 2},
+      'offers': [
+        {'offer': offer}
+      ]
+    });
+    await tester.pump();
+    expect(ride.driverOffers.map((item) => item.id), ['latest']);
+    initial.complete({
+      'ride': {'status': 1},
+      'offers': <Object?>[]
+    });
+    await tester.pump();
+    expect(ride.driverOffers.map((item) => item.id), ['latest']);
+    await ride.cancelDriverSearch();
+  });
+
+  test('cancellation repository preserves decision and never assumes safe stop',
+      () async {
+    final repository = ApiRideNegotiationRepository(api);
+    api.response = {'id': 21, 'rideId': 42, 'rideStatus': 7, 'status': 3};
+    final decision = await repository.requestCancellation('42', 'تغيير الخطة');
+    expect(decision?['status'], 3);
+    expect(decision?['rideStatus'], 7);
+    expect(api.payload['safeStopConfirmed'], false);
+    await repository.requestCancellation('42', 'تغيير الخطة',
+        safeStopConfirmed: true);
+    expect(api.payload['safeStopConfirmed'], true);
   });
 
   testWidgets(
@@ -1023,7 +1257,14 @@ void main() {
       await tester.drag(find.byKey(const ValueKey('home-sheet-handle')),
           const Offset(0, 900));
       await tester.pump(const Duration(seconds: 1));
-      expect(sheet.controller!.size, closeTo(.12, .01));
+      expect(sheet.controller!.size * size.height, closeTo(44, 1));
+      expect(find.byKey(const ValueKey('home-route-search')), findsNothing);
+      if (size.width == 390)
+        await _capture(tester, boundary, 'home-sheet-collapsed');
+      await tester.drag(find.byKey(const ValueKey('home-sheet-handle')),
+          const Offset(0, -550));
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byKey(const ValueKey('home-route-search')), findsOneWidget);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox());
     });
@@ -1151,6 +1392,73 @@ void main() {
       await tester.pumpWidget(const SizedBox());
     });
   }
+
+  testWidgets(
+      'a new ride after completion accepts the new offer from the same driver with fresh identities',
+      (tester) async {
+    Get.put<TrackingHubService>(_QuietHub());
+    await tester.pumpWidget(_host(const SizedBox()));
+    const firstOffer = DriverOffer(
+        id: '1838',
+        driverName: 'السائق نفسه',
+        vehicleSummary: 'السيارة نفسها',
+        price: 1500,
+        rating: 5,
+        etaMinutes: 3,
+    );
+    const secondOffer = DriverOffer(
+        id: '1839',
+        driverName: 'السائق نفسه',
+        vehicleSummary: 'السيارة نفسها',
+        price: 1500,
+        rating: 5,
+        etaMinutes: 3,
+    );
+    repository.snapshotOffers = [firstOffer];
+    await booking.refreshQuote();
+    await ride.requestRide();
+    await tester.pump();
+    await ride.acceptOffer(ride.driverOffers.single);
+    expect(ride.currentRideId, '42');
+    expect(ride.acceptedOffer.value?.id, '1838');
+
+    ride.activeRideStatus.value = 'Completed';
+    ride.pendingRatingRideId.value = '42';
+    ride.ratingSubmitted('42');
+    ride.prepareNewRide();
+    expect(ride.currentRideId, isNull);
+    expect(ride.currentDraft.value, isNull);
+    expect(ride.acceptedOffer.value, isNull);
+    expect(ride.driverOffers, isEmpty);
+    expect(ride.isRespondingToOffer.value, isFalse);
+
+    location.pickup.value = const LatLng(15.36, 44.19);
+    location.destination.value = const LatLng(15.38, 44.21);
+    location.serviceAreaAvailable.value = true;
+    ride.selectedServiceKindId.value = 1;
+    ride.catalogVehicles.assignAll([_vehicle]);
+    ride.selectedVehicle.value = _vehicle;
+    repository.nextRideId = '43';
+    repository.snapshotOffers = [secondOffer];
+    await booking.refreshQuote();
+    await ride.requestRide();
+    await tester.pump();
+    expect(ride.driverOffers.single.id, '1839');
+    await ride.acceptOffer(ride.driverOffers.single);
+
+    expect(repository.acceptedRequests, [('42', '1838'), ('43', '1839')]);
+    expect(repository.requests, hasLength(2));
+    expect(repository.requests.first.idempotencyKey, isNotEmpty);
+    expect(
+      repository.requests.last.idempotencyKey,
+      isNot(repository.requests.first.idempotencyKey),
+    );
+    expect(ride.currentRideId, '43');
+    expect(ride.acceptedOffer.value?.id, '1839');
+    expect(ride.isDriverAssigned.value, isTrue);
+    await tester.pumpWidget(const SizedBox());
+    ride.prepareNewRide();
+  });
 
   for (final autoAccept in [false, true]) {
     testWidgets(
@@ -1494,6 +1802,8 @@ class _QuietRide extends RideController {
       {ServiceKindRepository? serviceKinds})
       : super(repository, session, null, serviceKinds);
   DateTime? currentSearchTime;
+  Completer<void>? pendingNearby;
+  int nearbyLoads = 0;
   @override
   DateTime get searchTime => currentSearchTime ?? super.searchTime;
   @override
@@ -1503,7 +1813,11 @@ class _QuietRide extends RideController {
   @override
   void onReady() {}
   @override
-  Future<void> loadNearbyDrivers({LatLng? center}) async {}
+  Future<void> loadNearbyDrivers({LatLng? center}) async {
+    nearbyLoads++;
+    await pendingNearby?.future;
+  }
+
   @override
   void driverFound() {
     isSearchingForDriver.value = false;
@@ -1563,6 +1877,15 @@ class _Places implements LocationSearchRepository {
 }
 
 class _Repository implements RideNegotiationRepository {
+  int detailReads = 0;
+  final detailResponses = <Completer<Map<String, Object?>>>[];
+  @override
+  Future<List<NearbyDriver>> getNearbyDrivers({
+    required RideCoordinate pickup,
+    int? serviceKindId,
+    int? serviceCatalogItemId,
+  }) async =>
+      const [];
   @override
   Future<Map<String, Object?>?> getPendingRating() async => null;
   @override
@@ -1574,6 +1897,8 @@ class _Repository implements RideNegotiationRepository {
   final requests = <RideRequestDraft>[];
   final quotedCatalogIds = <int>[];
   final acceptedOfferIds = <String>[];
+  final acceptedRequests = <(String, String)>[];
+  String nextRideId = '42';
   List<DriverOffer> snapshotOffers = [];
   double? lastDistance;
   Completer<RideSearchStartResult>? pendingRequest;
@@ -1616,24 +1941,56 @@ class _Repository implements RideNegotiationRepository {
     requests.add(draft);
     return pendingRequest?.future ??
         Future.value(
-            const RideSearchStartResult(rideId: '42', recipientCount: 0));
+            RideSearchStartResult(rideId: nextRideId, recipientCount: 0));
   }
 
   @override
-  Future<Map<String, Object?>> getRideDetail(String requestId) async => {
-        'ride': {'status': 1},
-        'offers': snapshotOffers.map((offer) => {'offer': offer}).toList(),
-      };
+  Future<Map<String, Object?>> getRideDetail(String requestId) async {
+    detailReads++;
+    if (detailResponses.isNotEmpty) return detailResponses.removeAt(0).future;
+    return {
+      'ride': {'status': 1},
+      'offers': snapshotOffers.map((offer) => {'offer': offer}).toList(),
+    };
+  }
+
   @override
   DriverOffer? mapRealtimeOffer(Map<String, Object?> event) =>
       event['offer'] as DriverOffer?;
   @override
   Future<void> acceptOffer(String requestId, String offerId) async {
     acceptedOfferIds.add(offerId);
+    acceptedRequests.add((requestId, offerId));
   }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _BookingGps extends GeolocatorPlatform {
+  final observedAt = DateTime.now().toUtc();
+  @override
+  Future<bool> isLocationServiceEnabled() async => true;
+  @override
+  Future<LocationPermission> checkPermission() async =>
+      LocationPermission.whileInUse;
+  @override
+  Stream<Position> getPositionStream({LocationSettings? locationSettings}) =>
+      const Stream.empty();
+  @override
+  Future<Position> getCurrentPosition(
+          {LocationSettings? locationSettings}) async =>
+      Position(
+          latitude: 15.36,
+          longitude: 44.19,
+          timestamp: observedAt,
+          accuracy: 8,
+          altitude: 0,
+          altitudeAccuracy: 0,
+          heading: 0,
+          headingAccuracy: 0,
+          speed: 0,
+          speedAccuracy: 0);
 }
 
 class _LocationAccessPlatform extends GeolocatorPlatform {
@@ -1660,8 +2017,12 @@ class _LocationAccessPlatform extends GeolocatorPlatform {
 
 class _QuietHub extends TrackingHubService {
   _QuietHub() : super(SecureStorageService());
+  Completer<void>? pendingJoin;
   @override
-  Future<void> setRideSubscriptions(Iterable<int> rideIds) async {}
+  Future<void> setRideSubscriptions(Iterable<int> rideIds) async {
+    await pendingJoin?.future;
+  }
+
   @override
   Future<void> clearNearbyDriverSubscription() async {}
 }

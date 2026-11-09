@@ -119,13 +119,17 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
   Timer? _focusTimer;
   int _focusRevision = 0;
   bool _previewingRoute = false;
+  double get _minimumSheetExtent =>
+      ((44 + MediaQuery.paddingOf(context).bottom) /
+              MediaQuery.sizeOf(context).height)
+          .clamp(.04, .12);
 
   @override
   void initState() {
     super.initState();
     _sheet.addListener(_sheetChanged);
     _mapSelectionWorker = ever(controller.isChoosingMapPoint, (bool choosing) {
-      if (choosing) unawaited(_animateSheet(.12));
+      if (choosing) unawaited(_animateSheet(_minimumSheetExtent));
     });
     _bookingWorker = ever(booking.isOpeningHomeBooking, (bool opening) {
       if (!opening && _previewingRoute && mounted) {
@@ -138,11 +142,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
         if (!mounted) return;
         rideController.applyAdminDefaultServiceKind();
         await controller.ensureInitialPickupLocation();
-        if (!mounted) return;
-        if (rideController.nearbyDrivers.isEmpty) {
-          await rideController.loadNearbyDrivers(
-              center: controller.pickup.value);
-        }
       },
     );
   }
@@ -173,7 +172,7 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
 
   Future<void> _previewRoute() async {
     _previewingRoute = true;
-    await _animateSheet(.12);
+    await _animateSheet(_minimumSheetExtent);
     if (!mounted) return;
     _focusTimer?.cancel();
     _commitMapExtent();
@@ -253,19 +252,6 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                     child: Visibility(
                       visible: constraints.maxHeight * (1 - extent) > 170,
                       child: Row(textDirection: TextDirection.ltr, children: [
-                        RideIconButton(
-                          icon: Icons.near_me_outlined,
-                          tooltip: 'use_my_location'.tr,
-                          onPressed: () {
-                            if (booking.isOpeningHomeBooking.value ||
-                                rideController.bookingLocked) return;
-                            if (controller.hasDrivingRoute) {
-                              setState(() => _focusRevision++);
-                            } else {
-                              unawaited(controller.useCurrentLocation());
-                            }
-                          },
-                        ),
                         const Spacer(),
                         Obx(() => IconButton.filled(
                               key: const ValueKey('home-continue-icon'),
@@ -289,14 +275,17 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                   key: const ValueKey('home-services-sheet'),
                   controller: _sheet,
                   initialChildSize: .64,
-                  minChildSize: .12,
+                  minChildSize: _minimumSheetExtent,
                   maxChildSize: .90,
                   snap: true,
-                  snapSizes: const [.12, .64, .90],
+                  // Endpoints are implicit; keep the interior point stable so
+                  // rebuilding the page does not interrupt a user's drag.
+                  snapSizes: const [.64],
                   builder: (context, scrollController) => Align(
                     alignment: Alignment.bottomCenter,
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 720),
+                      constraints:
+                          const BoxConstraints(minWidth: double.infinity),
                       child: Material(
                         color: colors.surfaceContainerLow,
                         elevation: 0,
@@ -305,16 +294,20 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                         clipBehavior: Clip.antiAlias,
                         child: ListView(
                           controller: scrollController,
+                          physics: const AlwaysScrollableScrollPhysics(),
                           padding: EdgeInsets.fromLTRB(8, 0, 8,
                               MediaQuery.paddingOf(context).bottom + 12),
                           children: [
                             Semantics(
-                              button: true,
                               label: 'home_expand'.tr,
-                              child: InkWell(
+                              hint: 'اسحب الشريط لأعلى أو لأسفل',
+                              onIncrease: () => _animateSheet(.90),
+                              onDecrease: () =>
+                                  _animateSheet(_minimumSheetExtent),
+                              child: SizedBox(
                                 key: const ValueKey('home-sheet-handle'),
-                                onTap: () => _animateSheet(
-                                    _sheet.size > .70 ? .64 : .90),
+                                width: double.infinity,
+                                height: 32,
                                 child: Center(
                                     child: Container(
                                   width: 42,
@@ -327,7 +320,14 @@ class _LocationPickerPageState extends State<LocationPickerPage> {
                                 )),
                               ),
                             ),
-                            BookingPanel(previewRoute: _previewRoute),
+                            ValueListenableBuilder<double>(
+                              valueListenable: _extent,
+                              builder: (_, extent, child) =>
+                                  extent <= _minimumSheetExtent + .015
+                                      ? const SizedBox.shrink()
+                                      : child!,
+                              child: BookingPanel(previewRoute: _previewRoute),
+                            ),
                           ],
                         ),
                       ),

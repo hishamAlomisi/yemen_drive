@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import '../../core/network/api_client.dart';
 import '../../core/network/api_models.dart';
+import '../../core/realtime/realtime_state_binding.dart';
 
 String operationalText(String ar, String en) =>
     Get.locale?.languageCode == 'en' ? en : ar;
@@ -26,6 +27,7 @@ class _RideFinancialFollowUpState extends State<RideFinancialFollowUp>
   bool _busy = false;
   String? _error;
   Timer? _timer;
+  RealtimeStateBinding? _stateBinding;
   ApiClient get _api => Get.find<ApiClient>();
   static Map<String, Object?> _map(Object? raw) =>
       raw is Map ? Map<String, Object?>.from(raw) : {};
@@ -45,6 +47,14 @@ class _RideFinancialFollowUpState extends State<RideFinancialFollowUp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _stateBinding = RealtimeStateBinding(
+        owner: this,
+        resources: const {'ride', 'account', 'wallet'},
+        accepts: (change) =>
+            (change.resource == 'ride' && change.resourceId == widget.rideId) ||
+            change.resource == 'account' ||
+            change.resource == 'wallet',
+        refresh: () => _refresh(requireSuccess: true));
     unawaited(_refresh());
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _refresh());
   }
@@ -54,19 +64,25 @@ class _RideFinancialFollowUpState extends State<RideFinancialFollowUp>
     if (state == AppLifecycleState.resumed) unawaited(_refresh());
   }
 
-  Future<void> _refresh() async {
-    if (_busy) return;
+  Future<void> _refresh({bool requireSuccess = false}) async {
+    if (_busy) {
+      if (requireSuccess) throw StateError('Financial decision is in progress');
+      return;
+    }
     setState(() => _busy = true);
     try {
       await _load();
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted && error is! StateSnapshotSuperseded)
+        setState(() => _error = '$error');
+      if (requireSuccess) rethrow;
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _load() async {
+    final epoch = _stateBinding?.epoch;
     final detail =
         _map(await _execute('RideModel', 'get', {'id': widget.rideId}));
     final cases = await _execute(
@@ -81,6 +97,7 @@ class _RideFinancialFollowUpState extends State<RideFinancialFollowUp>
       throw FormatException(result.problem.detail ?? result.problem.title);
     }
     if (!mounted) return;
+    if (epoch != null) _stateBinding?.verify(epoch);
     setState(() {
       _detail = detail;
       _cases = cases is List ? cases.map(_map).toList() : [];
@@ -418,6 +435,7 @@ class _RideFinancialFollowUpState extends State<RideFinancialFollowUp>
       };
   @override
   void dispose() {
+    _stateBinding?.dispose();
     _timer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();

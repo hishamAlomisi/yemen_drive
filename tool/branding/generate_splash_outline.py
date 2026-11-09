@@ -6,7 +6,7 @@ from PIL import Image, ImageFilter
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "assets/images/branding/rider_splash_logo.png"
+SOURCE = ROOT / "assets/images/branding/brand_logo.webp"
 TARGET = ROOT / "lib/features/auth/splash/widgets/splash_logo_outline.dart"
 
 

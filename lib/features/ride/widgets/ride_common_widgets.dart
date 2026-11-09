@@ -124,6 +124,7 @@ class RideIconButton extends StatelessWidget {
     this.foregroundColor,
     this.badge = false,
     this.badgeCount,
+    this.badgeColor,
     this.iconWidget,
     super.key,
   });
@@ -135,6 +136,7 @@ class RideIconButton extends StatelessWidget {
   final Color? foregroundColor;
   final bool badge;
   final int? badgeCount;
+  final Color? badgeColor;
   final Widget? iconWidget;
 
   @override
@@ -158,7 +160,7 @@ class RideIconButton extends StatelessWidget {
               start: 2,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.secondary,
+                  color: badgeColor ?? Theme.of(context).colorScheme.secondary,
                   shape: BoxShape.circle,
                 ),
                 child: badgeCount != null && badgeCount! > 0
@@ -171,9 +173,10 @@ class RideIconButton extends StatelessWidget {
                               child: Text(
                                   '${badgeCount! > 99 ? '99+' : badgeCount}',
                                   style: TextStyle(
-                                      color: AppColors.onColor(Theme.of(context)
-                                          .colorScheme
-                                          .secondary),
+                                      color: AppColors.onColor(badgeColor ??
+                                          Theme.of(context)
+                                              .colorScheme
+                                              .secondary),
                                       fontSize: 10,
                                       fontWeight: FontWeight.w600))),
                         ),

@@ -2,17 +2,24 @@ import 'package:dio/dio.dart';
 
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_endpoints.dart';
+import '../../../../core/services/otp_sms_service.dart';
+import '../../../../core/services/push_notifications_service.dart';
 import '../models/registration_models.dart';
 
 class RegistrationProvider {
-  const RegistrationProvider(this._client);
+  const RegistrationProvider(this._client, {OtpPushDataSupplier? otpPushData})
+      : _otpPushData = otpPushData ?? requestOtpPushData;
 
   final ApiClient _client;
+  final OtpPushDataSupplier _otpPushData;
 
-  Future<Response<Object?>> requestOtp(SignUpDraft draft) =>
+  Future<Response<Object?>> requestOtp(SignUpDraft draft) async =>
       _client.dio.post<Object?>(
         '${ApiEndpoints.signUp}/request-otp',
-        data: draft.toJson(),
+        data: <String, Object?>{
+          ...draft.toJson(),
+          ...await OtpSmsService.prepareRequest(pushFields: _otpPushData),
+        },
       );
 
   Future<Response<Object?>> verifyOtp({

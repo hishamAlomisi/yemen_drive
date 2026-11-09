@@ -10,6 +10,8 @@ import 'package:share_plus/share_plus.dart';
 import '../../../app/theme/app_colors.dart';
 import '../../../app/theme/app_spacing.dart';
 import '../../../core/config/app_environment.dart';
+import '../../../core/realtime/tracking_hub_service.dart';
+import '../../../core/realtime/ride_map_route_observer.dart';
 import '../../../shared/widgets/app_button.dart';
 import '../../../shared/widgets/app_card.dart';
 import '../../../shared/widgets/app_google_map.dart';
@@ -39,20 +41,105 @@ class DriverLocationPage extends StatefulWidget {
   State<DriverLocationPage> createState() => _DriverLocationPageState();
 }
 
-class _DriverLocationPageState extends State<DriverLocationPage> {
+class _DriverLocationPageState extends State<DriverLocationPage>
+    with WidgetsBindingObserver, RouteAware {
   final RideController controller = Get.find<RideController>();
   bool _isSubmittingCashShortfallDecision = false;
   bool _isFollowingLiveRoute = true;
   int _liveRouteFocusRevision = 0;
   Worker? _cashShortfallOpenWorker;
-  Timer? _recencyTimer;
+  Timer? _mapLeaseTimer;
+  StreamSubscription<void>? _mapReconnect;
+  bool _mapVisible = true;
+  bool _mapForeground = true;
+  int _mapGeneration = 0;
+  int? _watchedRideId;
+  ModalRoute<void>? _observedRoute;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of<void>(context);
+    if (route == _observedRoute) return;
+    rideMapRouteObserver.unsubscribe(this);
+    _observedRoute = route;
+    if (route != null) rideMapRouteObserver.subscribe(this, route);
+    _setMapVisible(route?.isCurrent ?? true);
+  }
+
+  @override
+  void didPush() => _setMapVisible(true);
+  @override
+  void didPopNext() => _setMapVisible(true);
+  @override
+  void didPushNext() => _setMapVisible(false);
+  @override
+  void didPop() => _setMapVisible(false);
+
+  void _setMapVisible(bool visible) {
+    _mapVisible = visible;
+    _mapGeneration++;
+    _mapLeaseTimer?.cancel();
+    if (_mapVisible && _mapForeground) {
+      unawaited(_watchMap());
+      _mapLeaseTimer = Timer.periodic(
+          const Duration(seconds: 45), (_) => unawaited(_watchMap()));
+    } else {
+      _leaveMap();
+    }
+  }
+
+  Future<void> _watchMap() async {
+    if (!mounted ||
+        !_mapVisible ||
+        !_mapForeground ||
+        !Get.isRegistered<TrackingHubService>()) return;
+    final rideId = int.tryParse(controller.currentRideId ?? '');
+    if (rideId == null) return;
+    final hub = Get.find<TrackingHubService>();
+    final generation = _mapGeneration;
+    final previousRideId = _watchedRideId;
+    if (previousRideId != null && previousRideId != rideId)
+      await hub.leaveRideMap(previousRideId);
+    if (!mounted ||
+        !_mapVisible ||
+        !_mapForeground ||
+        generation != _mapGeneration) return;
+    _watchedRideId = rideId;
+    final location = await hub.watchRideMap(rideId);
+    if (!mounted ||
+        !_mapVisible ||
+        !_mapForeground ||
+        '$rideId' != controller.currentRideId) {
+      await hub.leaveRideMap(rideId);
+      return;
+    }
+    if (generation == _mapGeneration && location != null)
+      controller.applyMapWatchSnapshot(location);
+  }
+
+  void _leaveMap() {
+    final rideId = _watchedRideId;
+    _watchedRideId = null;
+    if (rideId != null && Get.isRegistered<TrackingHubService>())
+      unawaited(Get.find<TrackingHubService>().leaveRideMap(rideId));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _mapForeground = state == AppLifecycleState.resumed;
+    _setMapVisible(_mapVisible);
+  }
 
   @override
   void initState() {
     super.initState();
-    _recencyTimer = Timer.periodic(const Duration(seconds: 15), (_) {
-      if (mounted) setState(() {});
-    });
+    WidgetsBinding.instance.addObserver(this);
+    if (Get.isRegistered<TrackingHubService>()) {
+      _mapReconnect = Get.find<TrackingHubService>()
+          .connectionRestored
+          .listen((_) => unawaited(_watchMap()));
+    }
     _cashShortfallOpenWorker = ever<int?>(
       controller.cashShortfallApprovalToOpen,
       _openRequestedCashShortfall,
@@ -83,16 +170,28 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
 
   @override
   void dispose() {
-    _recencyTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    rideMapRouteObserver.unsubscribe(this);
+    _mapGeneration++;
+    _mapVisible = false;
+    _mapLeaseTimer?.cancel();
+    _mapReconnect?.cancel();
+    _leaveMap();
     _cashShortfallOpenWorker?.dispose();
     super.dispose();
   }
 
-  void _toggleLiveRouteFollowing() {
+  void _resumeLiveRouteFollowing() {
     setState(() {
-      _isFollowingLiveRoute = !_isFollowingLiveRoute;
-      if (_isFollowingLiveRoute) _liveRouteFocusRevision++;
+      _isFollowingLiveRoute = true;
+      _liveRouteFocusRevision++;
     });
+  }
+
+  void _pauseLiveRouteFollowing() {
+    if (mounted && _isFollowingLiveRoute) {
+      setState(() => _isFollowingLiveRoute = false);
+    }
   }
 
   Future<RideRouteDestination?> _selectChangedDestination() {
@@ -127,7 +226,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
     if (Get.isRegistered<PaymentController>()) {
       await Get.find<PaymentController>().loadPaymentSummary();
     }
-    if (mounted) setState(() => _liveRouteFocusRevision++);
   }
 
   Future<void> _showTripSharePrompt() => Get.dialog<void>(
@@ -207,7 +305,6 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
 
   @override
   Widget build(BuildContext context) => Obx(() {
-        final location = Get.find<LocationController>();
         final transportEnded = const {'Completed', '6', 'Cancelled', '7'}
             .contains(controller.activeRideStatus.value);
         final canProceedToPayment =
@@ -240,44 +337,13 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
           'Cancelled' || '7' => 'انتهى النقل بالإلغاء',
           _ => 'جاري تحديث حالة الرحلة',
         };
-        final liveRouteBounds =
-            controller.trackingFocusBounds ?? location.selectedRouteBounds;
-        final gps = controller.latestDriverGpsSample;
-        final positionAge = gps == null
-            ? null
-            : DateTime.now().toUtc().difference(gps.updatedAt.toUtc());
         return PopScope<void>(
           canPop: !lockBackNavigation,
           child: RideMapShell(
-            map: AppGoogleMap(
-              initialTarget:
-                  location.pickup.value ?? const LatLng(15.3694, 44.1910),
-              markers: <Marker>{
-                // The pickup marker is the customer's personal marker.
-                // Do not add a second generic passenger pin during live
-                // tracking, otherwise the destination becomes unclear.
-                ...location.markers,
-                ...controller.trackingMarkers,
-              },
-              polylines: controller.trackingPolylines.isNotEmpty
-                  ? controller.trackingPolylines
-                  : location.polylines,
-              mapType: location.mapType.value,
-              useModernMapStyle: true,
-              focusTarget: _isFollowingLiveRoute && gps != null
-                  ? LatLng(gps.location.latitude, gps.location.longitude)
-                  : null,
-              focusTargetZoom: 17,
-              mapPadding: EdgeInsets.only(
-                  bottom: MediaQuery.sizeOf(context).height * .4),
-              // The bounds contain the actual GPS position plus the remaining
-              // road route. A passenger can pause this automatic camera move
-              // to inspect the map, then enable it again from the map button.
-              focusBounds:
-                  _isFollowingLiveRoute && gps == null ? liveRouteBounds : null,
-              focusBoundsPadding: 104,
-              focusBoundsRevision: _liveRouteFocusRevision,
-              focusBoundsUpdateInterval: const Duration(milliseconds: 650),
+            map: TripTrackingMap(
+              isFollowing: _isFollowingLiveRoute,
+              followRequestId: _liveRouteFocusRevision,
+              onUserInteraction: _pauseLiveRouteFollowing,
             ),
             showRoute: true,
             showMarker: false,
@@ -287,10 +353,8 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
               icon: _isFollowingLiveRoute
                   ? Icons.gps_fixed_rounded
                   : Icons.gps_not_fixed_rounded,
-              tooltip: _isFollowingLiveRoute
-                  ? 'إيقاف تتبع مسار السائق'
-                  : 'تتبع مسار السائق',
-              onPressed: _toggleLiveRouteFollowing,
+              tooltip: 'متابعة الرحلة على الخريطة',
+              onPressed: _resumeLiveRouteFollowing,
             ),
             mapActionAtStart: true,
             panelFooter: Column(
@@ -346,7 +410,12 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
                     : const RideBackButton(),
                 RideStatusPill(
                   label: statusLabel,
-                  icon: Icons.local_taxi_rounded,
+                  icon: switch (controller.activeRideStatus.value) {
+                    'InProgress' || '5' => Icons.navigation_rounded,
+                    'DriverArrived' || '9' => Icons.where_to_vote_rounded,
+                    'Completed' || '6' => Icons.flag_rounded,
+                    _ => Icons.directions_car_filled_rounded,
+                  },
                 ),
               ],
             ),
@@ -354,18 +423,29 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 DriverCard(status: statusLabel),
-                if (!transportEnded)
-                  Text(gps == null || gps.updatedAt.year < 2000
-                      ? operationalText(
-                          'موقع السائق غير متاح حالياً. استخدم الاتصال أو الرسائل.',
-                          'Driver position is unavailable. Use calling or messaging.')
-                      : positionAge!.inSeconds > 30
-                          ? operationalText(
-                              'آخر موقع معروف قبل ${positionAge.inMinutes > 0 ? '${positionAge.inMinutes} دقيقة' : '${positionAge.inSeconds} ثانية'}. الاتصال المباشر متاح؛ هذا الموقع ليس تحديثاً حياً.',
-                              'Last known position ${positionAge.inSeconds} seconds ago. Contact remains available; this position is not live.')
-                          : operationalText(
-                              'آخر تحديث لموقع السائق قبل ${positionAge.inSeconds.clamp(0, 30)} ثانية.',
-                              'Driver position updated ${positionAge.inSeconds.clamp(0, 30)} seconds ago.')),
+                if (controller.passengerLocationApproximate.value)
+                  const Text(
+                      'الموقع تقريبي · فعّل الموقع الدقيق لإرسال موقعك للسائق.'),
+                if (controller.passengerLocationError.value != null)
+                  Text(controller.passengerLocationError.value!),
+                if (Get.isRegistered<TrackingHubService>())
+                  Obx(() {
+                    final hub = Get.find<TrackingHubService>();
+                    return Text(!hub.isConnected.value
+                        ? operationalText(
+                            'الاتصال منقطع — تظهر آخر حالة مؤكدة.',
+                            'Disconnected — showing the last confirmed state.')
+                        : hub.supportsStateRecovery.value &&
+                                !hub.isStateSynchronized.value
+                            ? operationalText('تجري مزامنة تغييرات الرحلة…',
+                                'Synchronizing trip changes…')
+                            : hub.isStateSynchronized.value
+                                ? operationalText('حالة الرحلة متزامنة.',
+                                    'Trip state synchronized.')
+                                : operationalText('الاتصال المباشر متاح.',
+                                    'Live connection available.'));
+                  }),
+                if (!transportEnded) const _TripPositionStatus(),
                 const DriverCancellationDecisionCard(),
                 if (const {
                       '3',
@@ -471,6 +551,126 @@ class _DriverLocationPageState extends State<DriverLocationPage> {
       _isSubmittingCashShortfallDecision = false;
     }
   }
+}
+
+/// Keeps frequent marker animation updates outside the trip's controls,
+/// draggable panel, waiting requests and payment widgets.
+class TripTrackingMap extends StatelessWidget {
+  const TripTrackingMap({
+    required this.isFollowing,
+    required this.followRequestId,
+    required this.onUserInteraction,
+    super.key,
+  });
+
+  final bool isFollowing;
+  final int followRequestId;
+  final VoidCallback onUserInteraction;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = Get.find<RideController>();
+    final location = Get.find<LocationController>();
+    return RepaintBoundary(
+      child: Obx(() {
+        final vehicle = controller.displayedVehicle;
+        final passenger = controller.trackedPassenger.value;
+        return AppGoogleMap(
+          showNearbyDrivers: false,
+          initialTarget:
+              location.pickup.value ?? const LatLng(15.3694, 44.1910),
+          markers: <Marker>{
+            ...location.liveTripMarkers(
+              hasTrackedDriver: vehicle != null,
+              passengerPosition: passenger == null
+                  ? null
+                  : LatLng(passenger.latitude, passenger.longitude),
+            ),
+            ...controller.trackingMarkers,
+          },
+          polylines: controller.trackingPolylines,
+          mapType: location.mapType.value,
+          useModernMapStyle: true,
+          focusTarget: isFollowing && vehicle != null
+              ? LatLng(vehicle.location.latitude, vehicle.location.longitude)
+              : null,
+          continuousFocusTarget: true,
+          // Vehicle interpolation already limits notifications to 30 fps.
+          // A second timer here would delay those same frames again.
+          focusTargetZoom: 17,
+          pauseOnUserInteraction: true,
+          followRequestId: followRequestId,
+          onUserInteraction: onUserInteraction,
+          mapPadding:
+              EdgeInsets.only(bottom: MediaQuery.sizeOf(context).height * .4),
+          // Computing route bounds scans the route. A vehicle-following map
+          // never needs that scan, especially on each interpolated frame.
+          focusBounds: isFollowing && vehicle == null
+              ? location.selectedRouteBounds
+              : null,
+          focusBoundsPadding: 104,
+          focusBoundsUpdateInterval: const Duration(milliseconds: 650),
+        );
+      }),
+    );
+  }
+}
+
+class _TripPositionStatus extends StatefulWidget {
+  const _TripPositionStatus();
+
+  @override
+  State<_TripPositionStatus> createState() => _TripPositionStatusState();
+}
+
+class _TripPositionStatusState extends State<_TripPositionStatus> {
+  Timer? _recencyTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _recencyTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (mounted &&
+          TickerMode.of(context) &&
+          (lifecycle == null || lifecycle == AppLifecycleState.resumed)) {
+        setState(() {});
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _recencyTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Obx(() {
+        final controller = Get.find<RideController>();
+        final gps = controller.latestVehicleGpsSample;
+        if (const {'InProgress', '5'}
+            .contains(controller.activeRideStatus.value)) {
+          return Text(controller.vehicleUsesPassengerGps.value
+              ? 'يجري تتبع رحلتك باستخدام موقع هاتفك.'
+              : gps == null
+                  ? 'بانتظار موقع هاتفك الدقيق لعرض حركة الرحلة.'
+                  : 'موقع هاتفك غير متاح مؤقتاً. يظهر آخر موقع معروف لك.');
+        }
+        if (gps == null || gps.updatedAt.year < 2000) {
+          return Text(operationalText(
+              'موقع السائق غير متاح حالياً. استخدم الاتصال أو الرسائل.',
+              'Driver position is unavailable. Use calling or messaging.'));
+        }
+        final age = DateTime.now().toUtc().difference(gps.updatedAt.toUtc());
+        return Text(age.inSeconds > 30
+            ? operationalText(
+                'آخر موقع معروف قبل ${age.inMinutes > 0 ? '${age.inMinutes} دقيقة' : '${age.inSeconds} ثانية'}. الاتصال المباشر متاح؛ هذا الموقع ليس تحديثاً حياً.',
+                'Last known position ${age.inSeconds} seconds ago. Contact remains available; this position is not live.')
+            : operationalText(
+                'آخر تحديث لموقع السائق قبل ${age.inSeconds.clamp(0, 30)} ثانية.',
+                'Driver position updated ${age.inSeconds.clamp(0, 30)} seconds ago.'));
+      });
 }
 
 class _RideCancelDecisionDialog extends StatelessWidget {
@@ -825,8 +1025,39 @@ class _TripShareVisual extends StatelessWidget {
   }
 }
 
-class RideChatPage extends GetView<ChatController> {
+class RideChatPage extends StatefulWidget {
   const RideChatPage({super.key});
+
+  @override
+  State<RideChatPage> createState() => _RideChatPageState();
+}
+
+class _RideChatPageState extends State<RideChatPage> with RouteAware {
+  final controller = Get.find<ChatController>();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    rideMapRouteObserver.unsubscribe(this);
+    final route = ModalRoute.of(context);
+    if (route != null) rideMapRouteObserver.subscribe(this, route);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) controller.setPageVisible(route?.isCurrent ?? true);
+    });
+  }
+
+  @override
+  void didPushNext() => controller.setPageVisible(false);
+  @override
+  void didPopNext() => controller.setPageVisible(true);
+  @override
+  void didPop() => controller.setPageVisible(false);
+  @override
+  void dispose() {
+    controller.setPageVisible(false);
+    rideMapRouteObserver.unsubscribe(this);
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -844,6 +1075,17 @@ class RideChatPage extends GetView<ChatController> {
       body: Column(
         children: <Widget>[
           const _ChatDriverStatus(),
+          Obx(() => controller.error.value == null
+              ? const SizedBox.shrink()
+              : Row(children: [
+                  Expanded(
+                      child: Text(controller.error.value!,
+                          style: TextStyle(
+                              color: Theme.of(context).colorScheme.error))),
+                  TextButton(
+                      onPressed: controller.loadMessages,
+                      child: const Text('إعادة المحاولة')),
+                ])),
           Expanded(
             child: Obx(
               () => controller.isLoading.value && controller.messages.isEmpty
@@ -924,7 +1166,16 @@ class RideChatPage extends GetView<ChatController> {
                             : controller.sendMessage,
                         tooltip: 'إرسال',
                         color: Theme.of(context).colorScheme.onPrimary,
-                        icon: Icon(Icons.send_rounded),
+                        icon: controller.isSending.value
+                            ? SizedBox(
+                                width: 20,
+                                height: 20,
+                                child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onPrimary))
+                            : const Icon(Icons.send_rounded),
                       ),
                     ),
                   ),
@@ -1015,9 +1266,13 @@ class _RidePaymentPageState extends State<RidePaymentPage>
         title: 'طريقة الدفع',
         actions: [
           if (Get.find<RideController>().isDriverAssigned.value)
-            IconButton(
+            RideIconButton(
               tooltip: 'محادثة السائق',
-              icon: const Icon(Icons.chat_bubble_outline_rounded),
+              badgeColor: const Color(0xFFD93025),
+              icon: Icons.chat_bubble_outline_rounded,
+              badgeCount: Get.isRegistered<ChatController>()
+                  ? Get.find<ChatController>().unreadCount.value
+                  : 0,
               onPressed: () => Get.toNamed<void>(RideRoutes.chat),
             ),
         ],
@@ -1228,6 +1483,8 @@ class RideCancellationStatusPage extends GetView<RideController> {
           body: Obx(() {
             final request = controller.driverCancellationRequest.value;
             final status = int.tryParse('${request?['status']}');
+            final transportEnded = const {'7', 'Cancelled'}
+                .contains(controller.activeRideStatus.value);
             final label = switch (status) {
               0 => 'بانتظار مراجعة السائق',
               2 || 12 => 'قيد مراجعة الإدارة',
@@ -1247,8 +1504,10 @@ class RideCancellationStatusPage extends GetView<RideController> {
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.titleLarge),
                     const SizedBox(height: 12),
-                    const Text(
-                        'أُرسل طلب الإلغاء. ستتحدث هذه الشاشة تلقائياً عند صدور القرار. لا ترسل طلباً آخر للرحلة نفسها.',
+                    Text(
+                        transportEnded
+                            ? 'أُلغيت الرحلة وانتهى النقل. المتابعة هنا تخص الحقوق والمبالغ، ولا تعني انتظار الموافقة على إيقاف الرحلة.'
+                            : 'أُرسل طلب الإلغاء. ستتحدث هذه الشاشة تلقائياً عند صدور القرار. لا ترسل طلباً آخر للرحلة نفسها.',
                         textAlign: TextAlign.center),
                     if (request?['reason'] != null)
                       Padding(
@@ -1555,20 +1814,46 @@ class _MessageBubble extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    message.timeLabel,
-                    style: TextStyle(
-                      color: message.isMine
-                          ? Theme.of(context)
-                              .colorScheme
-                              .onPrimary
-                              .withValues(alpha: .72)
-                          : Theme.of(
-                              context,
-                            ).colorScheme.onSurface.withValues(alpha: .5),
-                      fontSize: 11,
-                    ),
-                  ),
+                  Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (message.isMine) ...[
+                      Tooltip(
+                        message: message.isPending
+                            ? 'جارٍ الإرسال'
+                            : message.readAtUtc != null
+                                ? 'تمت القراءة'
+                                : message.deliveredAtUtc != null
+                                    ? 'تم الوصول'
+                                    : 'تم الإرسال',
+                        child: Icon(
+                            message.isPending
+                                ? Icons.schedule_rounded
+                                : message.readAtUtc != null ||
+                                        message.deliveredAtUtc != null
+                                    ? Icons.done_all_rounded
+                                    : Icons.done_rounded,
+                            size: 16,
+                            color: message.readAtUtc != null
+                                ? const Color(0xFF80DEFF)
+                                : Theme.of(context)
+                                    .colorScheme
+                                    .onPrimary
+                                    .withValues(alpha: .72)),
+                      ),
+                      const SizedBox(width: 4),
+                    ],
+                    Text(message.timeLabel,
+                        style: TextStyle(
+                          color: message.isMine
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .onPrimary
+                                  .withValues(alpha: .72)
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.onSurface.withValues(alpha: .5),
+                          fontSize: 11,
+                        )),
+                  ]),
                 ],
               ),
             ),

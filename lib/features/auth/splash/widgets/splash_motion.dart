@@ -64,10 +64,10 @@ class SplashTracePainter extends CustomPainter {
     _size = size;
     final Path path;
     if (shape == SplashTraceShape.logo) {
-      // Matches the 744 x 691 asset with BoxFit.contain/bottomCenter.
-      final scale = math.min(size.width / 744, size.height / 691);
-      final width = 744 * scale;
-      final height = 691 * scale;
+      // Matches the 642 x 621 asset with BoxFit.contain/bottomCenter.
+      final scale = math.min(size.width / 642, size.height / 621);
+      final width = 642 * scale;
+      final height = 621 * scale;
       path = createSplashLogoOutline()
           .transform(
             Matrix4.diagonal3Values(width, height, 1).storage,

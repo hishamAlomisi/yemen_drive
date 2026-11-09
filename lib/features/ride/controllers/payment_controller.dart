@@ -8,6 +8,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/storage/secure_storage_service.dart';
 import '../../../core/network/api_models.dart';
 import '../../../core/realtime/tracking_hub_service.dart';
+import '../../../core/realtime/realtime_state_binding.dart';
 import '../ride_routes.dart';
 import '../repositories/wallet_ride_payment_repository.dart';
 import 'ride_controller.dart';
@@ -40,8 +41,17 @@ class PaymentController extends GetxController {
   final TextEditingController reviewController = TextEditingController();
   StreamSubscription<TrackingHubEvent>? _hubEventSubscription;
   StreamSubscription<void>? _hubConnectionSubscription;
-  bool _summaryLoading = false;
+
   bool _summaryRefreshRequested = false;
+  Future<void>? _summaryTask;
+  int _legacyRevision = 0;
+  int get _stateEpoch =>
+      _legacyRevision +
+      (Get.isRegistered<TrackingHubService>()
+          ? Get.find<TrackingHubService>()
+              .stateChanges
+              .epochForResources(const {'ride', 'wallet', 'account'})
+          : 0);
   final RxnString _dismissedExternalPaymentId = RxnString();
   final RxBool choosingReplacementMethod = false.obs;
   late final WalletRidePaymentController externalPayment =
@@ -146,6 +156,15 @@ class PaymentController extends GetxController {
     unawaited(loadPaymentSummary());
     if (Get.isRegistered<TrackingHubService>()) {
       final hub = Get.find<TrackingHubService>();
+      hub.stateChanges.register(this, (changes) async {
+        if (changes.any((change) =>
+            (change.resource == 'ride' &&
+                '${change.resourceId}' == _ride.currentRideId) ||
+            change.resource == 'wallet' ||
+            change.resource == 'account')) {
+          await loadPaymentSummary(requireSuccess: true);
+        }
+      });
       _hubEventSubscription = hub.events.listen(_handleRealtimeEvent);
       _hubConnectionSubscription = hub.connectionRestored.listen((_) {
         unawaited(loadPaymentSummary());
@@ -162,28 +181,44 @@ class PaymentController extends GetxController {
     }
     final rideId = _ride.currentRideId;
     if (rideId == null || event.payload['rideId']?.toString() != rideId) return;
+    _legacyRevision++;
     unawaited(loadPaymentSummary());
   }
 
-  Future<void> loadPaymentSummary() async {
-    if (_summaryLoading) {
-      _summaryRefreshRequested = true;
-      return;
+  Future<void> loadPaymentSummary({bool requireSuccess = false}) async {
+    _summaryRefreshRequested = true;
+    final existing = _summaryTask;
+    late final Future<void> task;
+    if (existing != null) {
+      task = existing;
+    } else {
+      task = _drainPaymentSummaries().whenComplete(() {
+        if (identical(_summaryTask, task)) _summaryTask = null;
+      });
+      _summaryTask = task;
     }
-    _summaryLoading = true;
     try {
-      do {
-        _summaryRefreshRequested = false;
-        final rideId = _ride.currentRideId;
-        if (rideId == null) return;
-        await _loadPaymentSummary(rideId);
-      } while (_summaryRefreshRequested);
-    } finally {
-      _summaryLoading = false;
+      await task;
+    } catch (_) {
+      if (requireSuccess) rethrow;
     }
   }
 
+  Future<void> _drainPaymentSummaries() async {
+    do {
+      _summaryRefreshRequested = false;
+      final rideId = _ride.currentRideId;
+      if (rideId == null) return;
+      try {
+        await _loadPaymentSummary(rideId);
+      } on StateSnapshotSuperseded {
+        _summaryRefreshRequested = true;
+      }
+    } while (_summaryRefreshRequested && !isClosed);
+  }
+
   Future<void> _loadPaymentSummary(String rideId) async {
+    final epoch = _stateEpoch;
     if (summaryRideId.value != rideId) {
       choosingReplacementMethod.value = false;
       paymentCompleted.value = false;
@@ -194,8 +229,10 @@ class PaymentController extends GetxController {
     final detail = await _api.execute<Object?>(
       model: 'RideModel',
       operation: 'get',
-      data: <String, Object?>{'id': rideId},
+      data: <String, Object?>{'id': rideId, 'includeRouteHistory': false},
     );
+    if (isClosed || _ride.currentRideId != rideId) return;
+    if (epoch != _stateEpoch) throw const StateSnapshotSuperseded();
     if (detail is ApiSuccess && detail.data is Map) {
       summaryError.value = '';
       final values = Map<Object?, Object?>.from(detail.data as Map);
@@ -245,6 +282,8 @@ class PaymentController extends GetxController {
           operation: 'get',
           data: <String, Object?>{'rideId': rideId},
         );
+        if (isClosed || _ride.currentRideId != rideId) return;
+        if (epoch != _stateEpoch) throw const StateSnapshotSuperseded();
         if (cashRequest is ApiSuccess && cashRequest.data is Map) {
           cashRequestStatus.value =
               int.tryParse('${(cashRequest.data as Map)['status']}') ?? -1;
@@ -262,14 +301,19 @@ class PaymentController extends GetxController {
       summaryError.value = detail is ApiFailure
           ? detail.problem.detail ?? detail.problem.title
           : 'تعذر تحديث بيانات الدفع. أعد المحاولة.';
+      throw StateError(summaryError.value);
     }
     final wallet = await _api.execute<Object?>(
       model: 'WalletModel',
       operation: 'get',
       data: const <String, Object?>{},
     );
+    if (isClosed || _ride.currentRideId != rideId) return;
+    if (epoch != _stateEpoch) throw const StateSnapshotSuperseded();
     if (wallet is ApiSuccess && wallet.data is Map) {
       walletBalance.value = _number((wallet.data as Map)['balance']);
+    } else {
+      throw StateError('تعذر تحديث رصيد المحفظة.');
     }
   }
 
@@ -294,6 +338,8 @@ class PaymentController extends GetxController {
 
   @override
   void onClose() {
+    if (Get.isRegistered<TrackingHubService>())
+      Get.find<TrackingHubService>().stateChanges.unregister(this);
     externalPayment.dispose();
     _hubEventSubscription?.cancel();
     _hubConnectionSubscription?.cancel();

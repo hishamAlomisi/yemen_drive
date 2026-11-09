@@ -77,6 +77,9 @@ class RideRequestDraft {
     this.idempotencyKey,
     this.pricingQuoteToken,
     this.paymentMethodCode = 'cash',
+    this.passengerCoordinate,
+    this.passengerAccuracy,
+    this.passengerObservedAt,
   });
 
   final String pickup;
@@ -99,6 +102,9 @@ class RideRequestDraft {
   final String? idempotencyKey;
   final String? pricingQuoteToken;
   final String paymentMethodCode;
+  final RideCoordinate? passengerCoordinate;
+  final double? passengerAccuracy;
+  final DateTime? passengerObservedAt;
 
   RideRequestDraft withPrice(double price) => RideRequestDraft(
         pickup: pickup,
@@ -121,6 +127,9 @@ class RideRequestDraft {
         idempotencyKey: idempotencyKey,
         pricingQuoteToken: pricingQuoteToken,
         paymentMethodCode: paymentMethodCode,
+        passengerCoordinate: passengerCoordinate,
+        passengerAccuracy: passengerAccuracy,
+        passengerObservedAt: passengerObservedAt,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -139,12 +148,26 @@ class RideRequestDraft {
         'moreThanFourPassengers': moreThanFourPassengers,
         'passengerNotes': passengerNotes,
         'paymentMethodCode': paymentMethodCode,
+        ...passengerLocationJson,
         if (routeDistanceMeters != null)
           'routeDistanceMeters': routeDistanceMeters,
         if (routeDurationSeconds != null)
           'routeDurationSeconds': routeDurationSeconds,
         if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
       };
+
+  Map<String, Object?> get passengerLocationJson =>
+      passengerCoordinate == null ||
+              passengerAccuracy == null ||
+              passengerObservedAt == null
+          ? const <String, Object?>{}
+          : <String, Object?>{
+              'passengerLatitude': passengerCoordinate!.latitude,
+              'passengerLongitude': passengerCoordinate!.longitude,
+              'passengerAccuracy': passengerAccuracy,
+              'passengerObservedAtUtc':
+                  passengerObservedAt!.toUtc().toIso8601String(),
+            };
 }
 
 class RideSearchStartResult {
@@ -178,6 +201,7 @@ class NearbyDriver {
     this.completedTrips = 0,
     this.heading,
     this.isAvailable = true,
+    this.observedAt,
   });
 
   final String id;
@@ -191,6 +215,7 @@ class NearbyDriver {
   final int completedTrips;
   final double? heading;
   final bool isAvailable;
+  final DateTime? observedAt;
 }
 
 class DriverTrackingSnapshot {
@@ -333,6 +358,9 @@ class RideChatMessage {
     required this.text,
     required this.timeLabel,
     required this.isMine,
+    this.deliveredAtUtc,
+    this.readAtUtc,
+    this.isPending = false,
   });
 
   final int id;
@@ -340,4 +368,18 @@ class RideChatMessage {
   final String text;
   final String timeLabel;
   final bool isMine;
+  final String? deliveredAtUtc;
+  final String? readAtUtc;
+  final bool isPending;
+
+  RideChatMessage mergeReceipts(RideChatMessage newer) => RideChatMessage(
+        id: id,
+        createdAtUtc: createdAtUtc,
+        text: text,
+        timeLabel: timeLabel,
+        isMine: isMine,
+        deliveredAtUtc: deliveredAtUtc ?? newer.deliveredAtUtc,
+        readAtUtc: readAtUtc ?? newer.readAtUtc,
+        isPending: isPending && newer.isPending,
+      );
 }

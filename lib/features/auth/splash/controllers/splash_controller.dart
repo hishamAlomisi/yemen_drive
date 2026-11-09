@@ -16,14 +16,17 @@ class SplashController extends GetxController {
   @override
   void onReady() {
     super.onReady();
-    retry();
+    _continue(userInitiated: false);
   }
 
-  Future<void> retry() async {
+  Future<void> retry() => _continue(userInitiated: true);
+
+  Future<void> _continue({required bool userInitiated}) async {
     if (_continuing) return;
     _continuing = true;
     try {
-      final connected = connection.isVerified || await connection.verify();
+      final connected = connection.isVerified ||
+          await connection.verify(userInitiated: userInitiated);
       if (!connected || isClosed) return;
       _continueAfterSplash();
     } finally {

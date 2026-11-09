@@ -237,7 +237,9 @@ class BookingPanel extends GetView<BookingController> {
                 !location.hasDrivingRoute &&
                 !location.isRouteLoading.value)
               _BookingNotice(
-                message: 'تعذر تحديد طريق الوصول',
+                message: location.routeError.value.isEmpty
+                    ? 'تعذر تحديد طريق الوصول'
+                    : location.routeError.value,
                 onRetry: location.retryDrivingRoute,
               ),
             if (ride.quoteError.value.isNotEmpty)

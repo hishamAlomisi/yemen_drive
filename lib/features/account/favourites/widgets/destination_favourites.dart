@@ -55,9 +55,8 @@ class SaveDestinationButton extends GetView<LocationController> {
 
   @override
   Widget build(BuildContext context) => Obx(() {
-        final onPressed = controller.destination.value == null
-            ? null
-            : () => _save(context);
+        final onPressed =
+            controller.destination.value == null ? null : () => _save(context);
         const key = ValueKey('save-destination-favourite');
         const icon = Icon(Icons.favorite_border_rounded, size: 20);
         if (iconOnly) {
@@ -207,6 +206,7 @@ class FavouriteDestinationShortcuts extends GetView<LocationController> {
                   avatar: Icon(savedPlaceIcon(place.kind), size: 19),
                   label: Text(place.title),
                   onPressed: () => controller.selectPlace(place,
-                      field: 1, closeSearchPage: false)),
+                      field: controller.focusedRouteField.value ??
+                          controller.activeField.value)),
           ]));
 }

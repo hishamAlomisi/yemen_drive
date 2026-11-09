@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
+import '../../../shared/widgets/nearby_driver_card.dart';
 import '../../../core/cache/persistent_network_image.dart';
+export '../../../shared/widgets/nearby_driver_card.dart';
 import '../../../shared/widgets/app_google_map.dart';
 import '../../account/account_routes.dart';
 import '../location_selection/controllers/location_selection_controller.dart';
@@ -34,10 +36,6 @@ class RideHomeTemplate extends GetView<RideController> {
         (_) async {
           final location = Get.find<LocationController>();
           await location.ensureInitialPickupLocation();
-          if (location.pickup.value != null &&
-              controller.nearbyDrivers.isEmpty) {
-            await controller.loadNearbyDrivers(center: location.pickup.value);
-          }
         },
       );
     }
@@ -117,14 +115,14 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
   OverlayEntry? _driverCardOverlay;
   Offset? _markerPosition;
   DateTime? _lastDriverMarkerTapAt;
+  Worker? _selectedDriverWorker;
 
   @override
-  void didUpdateWidget(covariant NearbyDriversMap oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    final updatedPickup = widget.followTarget;
-    if (updatedPickup != null && updatedPickup != oldWidget.followTarget) {
-      unawaited(_rideController.loadNearbyDrivers(center: updatedPickup));
-    }
+  void initState() {
+    super.initState();
+    _selectedDriverWorker = ever(_rideController.selectedNearbyDriver, (_) {
+      if (_activeCardOwner == this) unawaited(_updateCardPosition());
+    });
   }
 
   void _selectDriverFromThisMap(NearbyDriver driver) {
@@ -265,7 +263,7 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
     final driver = _rideController.selectedNearbyDriver.value;
     if (!mounted) return;
     if (mapController == null || driver == null) {
-      setState(() => _markerPosition = null);
+      _dismissDriverCard(clearSelection: false);
       return;
     }
     try {
@@ -294,286 +292,46 @@ class _NearbyDriversMapState extends State<NearbyDriversMap> {
   Widget build(BuildContext context) => KeyedSubtree(
         key: _mapKey,
         child: Obx(
-          () => AppGoogleMap(
-            initialTarget: widget.initialTarget,
-            initialZoom: widget.initialZoom,
-            followTarget: widget.focusBounds == null
-                ? widget.followTarget ?? _locationController.pickup.value
-                : null,
-            focusBounds: widget.focusBounds,
-            focusBoundsRevision: widget.focusBoundsRevision,
-            focusBoundsPadding: 44,
-            markers: <Marker>{
-              ...widget.additionalMarkers,
-              ..._rideController.nearbyDriverMarkersFor(
-                onTap: _selectDriverFromThisMap,
-              ),
-            },
-            polylines: widget.polylines,
-            mapType: widget.mapType,
-            useModernMapStyle: widget.useModernMapStyle,
-            mapPadding: widget.mapPadding,
-            onMapCreated: (controller) {
-              _mapController = controller;
-              widget.onMapCreated?.call(controller);
-              _updateCardPosition();
-            },
-            onCameraIdle: _updateCardPosition,
-            onTap: _handleMapTap,
-          ),
+          () {
+            final pickup = _locationController.pickup.value;
+            return AppGoogleMap(
+              initialTarget: widget.initialTarget,
+              initialZoom: widget.initialZoom,
+              followTarget: widget.focusBounds == null
+                  ? widget.followTarget ?? pickup
+                  : null,
+              focusBounds: widget.focusBounds,
+              focusBoundsRevision: widget.focusBoundsRevision,
+              focusBoundsPadding: 44,
+              markers: <Marker>{
+                ...widget.additionalMarkers,
+              },
+              onNearbyDriverTap: _selectDriverFromThisMap,
+              onNearbyVisibilityChanged: (visible) {
+                if (!visible) _dismissDriverCard();
+              },
+              polylines: widget.polylines,
+              mapType: widget.mapType,
+              useModernMapStyle: widget.useModernMapStyle,
+              mapPadding: widget.mapPadding,
+              onMapCreated: (controller) {
+                _mapController = controller;
+                widget.onMapCreated?.call(controller);
+                _updateCardPosition();
+              },
+              onCameraIdle: _updateCardPosition,
+              onTap: _handleMapTap,
+            );
+          },
         ),
       );
 
   @override
   void dispose() {
+    _selectedDriverWorker?.dispose();
     _dismissDriverCard();
     super.dispose();
   }
-}
-
-class NearbyDriverCard extends StatelessWidget {
-  const NearbyDriverCard({
-    required this.driver,
-    required this.pointerX,
-    required this.onClose,
-    super.key,
-  });
-
-  final NearbyDriver driver;
-  final double pointerX;
-  final VoidCallback onClose;
-
-  String get _vehicleTypeKey => switch (driver.vehicleType) {
-        RideVehicleType.car => 'vehicle_car',
-        RideVehicleType.taxi => 'vehicle_taxi',
-        RideVehicleType.bike => 'vehicle_bike',
-        RideVehicleType.cycle => 'vehicle_cycle',
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final surface = colors.surface.withValues(alpha: .96);
-    return Stack(
-      clipBehavior: Clip.none,
-      children: <Widget>[
-        Positioned.fill(
-          bottom: 10,
-          child: Material(
-            color: surface,
-            elevation: 12,
-            shadowColor: Colors.black.withValues(alpha: .28),
-            borderRadius: BorderRadius.circular(16),
-            clipBehavior: Clip.antiAlias,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: colors.primary.withValues(alpha: .42),
-                ),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 11),
-                child: Column(
-                  children: <Widget>[
-                    Row(
-                      children: <Widget>[
-                        _DriverPhoto(driver: driver),
-                        const SizedBox(width: 11),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: <Widget>[
-                              Text(
-                                driver.name,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Row(
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.star_rounded,
-                                    size: 17,
-                                    color: colors.primary,
-                                  ),
-                                  const SizedBox(width: 3),
-                                  Text(
-                                    driver.rating.toStringAsFixed(1),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 7),
-                                  Flexible(
-                                    child: Text(
-                                      '${driver.completedTrips} ${'completed_trips'.tr}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodySmall
-                                          ?.copyWith(fontSize: 10),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: onClose,
-                          tooltip: 'close_driver_details'.tr,
-                          visualDensity: VisualDensity.compact,
-                          icon: const Icon(Icons.close_rounded, size: 19),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 9),
-                    Divider(height: 1, color: Theme.of(context).dividerColor),
-                    const SizedBox(height: 9),
-                    Row(
-                      children: <Widget>[
-                        Expanded(
-                          child: _DriverDetail(
-                            icon: Icons.directions_car_filled_rounded,
-                            label: 'vehicle_model'.tr,
-                            value: driver.vehicleModel.isEmpty
-                                ? _vehicleTypeKey.tr
-                                : '${_vehicleTypeKey.tr} · ${driver.vehicleModel}',
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: _DriverDetail(
-                            icon: Icons.pin_outlined,
-                            label: 'plate_number'.tr,
-                            value: driver.plateNumber,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        Positioned(
-          left: pointerX - 8,
-          bottom: 3,
-          child: Transform.rotate(
-            angle: math.pi / 4,
-            child: Container(
-              width: 16,
-              height: 16,
-              decoration: BoxDecoration(
-                color: surface,
-                border: Border(
-                  right: BorderSide(
-                    color: colors.primary.withValues(alpha: .42),
-                  ),
-                  bottom: BorderSide(
-                    color: colors.primary.withValues(alpha: .42),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _DriverPhoto extends StatelessWidget {
-  const _DriverPhoto({required this.driver});
-
-  final NearbyDriver driver;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        width: 52,
-        height: 52,
-        padding: const EdgeInsets.all(2),
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          border: Border.all(
-            color: Theme.of(context).colorScheme.primary,
-            width: 1.5,
-          ),
-        ),
-        child: ClipOval(
-          child: driver.photoUrl.isEmpty
-              ? Image.asset(
-                  'assets/images/branding/yemen_drive_logo.png',
-                  fit: BoxFit.cover,
-                )
-              : PersistentNetworkImage(
-                  driver.photoUrl,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const Icon(
-                    Icons.person_rounded,
-                  ),
-                ),
-        ),
-      );
-}
-
-class _DriverDetail extends StatelessWidget {
-  const _DriverDetail({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
-
-  final IconData icon;
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Icon(
-            icon,
-            size: 17,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        fontSize: 9,
-                      ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.w700,
-                    height: 1.3,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      );
 }
 
 class RideHomeHeader extends StatelessWidget {

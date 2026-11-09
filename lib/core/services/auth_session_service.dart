@@ -78,7 +78,8 @@ class AuthSessionService extends GetxService {
     // offline. Any completed server rejection means the stored session is no
     // longer usable and must not keep the UI in a false signed-in state.
     if (failure.problem.code == 'network_error' ||
-        failure.problem.code == 'invalid_response') {
+        failure.problem.code == 'invalid_response' ||
+        failure.problem.status >= 500) {
       return;
     }
     await _clearLocalSession(navigate: false);

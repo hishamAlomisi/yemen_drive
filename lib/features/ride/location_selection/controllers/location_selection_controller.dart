@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -11,6 +9,8 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
 import '../../../../core/services/auth_session_service.dart';
+import '../../../../core/services/startup_connection_service.dart';
+import '../../../../shared/widgets/live_tracking_marker_icons.dart';
 import '../../../auth/routes/auth_routes.dart';
 import '../../models/ride_models.dart';
 import '../../ride_routes.dart';
@@ -52,6 +52,7 @@ class LocationController extends GetxController {
   final RxnInt focusedRouteField = RxnInt();
   Object? focusedRouteOwner;
   final RxBool isRouteLoading = false.obs;
+  final RxString routeError = ''.obs;
   final RxList<LatLng> routePoints = <LatLng>[].obs;
   final RxInt routeDistanceMeters = 0.obs;
   final RxInt routeDurationSeconds = 0.obs;
@@ -73,13 +74,19 @@ class LocationController extends GetxController {
   String? _lastResumedLocationSearchId;
   Map<String, Object?>? _pendingSearchAfterLogin;
   Worker? _authenticationWorker;
+  StreamSubscription<void>? _apiRecovery;
 
   final RxList<RecentPlace> recentPlaces = <RecentPlace>[].obs;
   final Rxn<BitmapDescriptor> _personalPickupMarkerIcon =
       Rxn<BitmapDescriptor>();
+  final Rxn<BitmapDescriptor> _destinationMarkerIcon = Rxn<BitmapDescriptor>();
+  String _pickupLabel = 'نقطة الالتقاء';
 
   void resetForNewRide() {
     _pickupEditRevision++;
+    _routeRequestId++;
+    _searchRequestId++;
+    routeError.value = '';
     pickup.value = null;
     destination.value = null;
     pickupArea.value = '';
@@ -101,6 +108,16 @@ class LocationController extends GetxController {
   @override
   void onInit() {
     super.onInit();
+    if (Get.isRegistered<StartupConnectionService>()) {
+      _apiRecovery = Get.find<StartupConnectionService>().recovered.listen((_) {
+        if (!isClosed &&
+            hasCompleteRoute &&
+            !hasDrivingRoute &&
+            !isRouteLoading.value) {
+          unawaited(retryDrivingRoute());
+        }
+      });
+    }
     _authenticationWorker =
         ever(_session.isAuthenticated, (bool authenticated) {
       if (!authenticated) {
@@ -157,7 +174,7 @@ class LocationController extends GetxController {
   /// that dedicated upload feature is added, the pickup is still rendered as
   /// a personal avatar rather than an anonymous green pin.
   Future<void> _loadPersonalPickupMarker() async {
-    var displayName = 'م';
+    var displayName = 'نقطة الالتقاء';
     try {
       final result = await _client.execute<Object?>(
         model: 'UserModel',
@@ -171,73 +188,12 @@ class LocationController extends GetxController {
     } catch (_) {
       // Profile lookup must not block map interaction.
     }
-    _personalPickupMarkerIcon.value =
-        await _buildPersonalPickupMarker(displayName);
-  }
-
-  Future<BitmapDescriptor?> _buildPersonalPickupMarker(String name) async {
-    try {
-      const width = 88;
-      const height = 104;
-      const avatarCenter = ui.Offset(44, 37);
-      final recorder = ui.PictureRecorder();
-      final canvas = ui.Canvas(recorder);
-      final shadow = ui.Paint()
-        ..isAntiAlias = true
-        ..color = const ui.Color(0x3D000000);
-      final fill = ui.Paint()
-        ..isAntiAlias = true
-        ..color = const ui.Color(0xFF087AC1);
-      final tail = ui.Path()
-        ..moveTo(44, 88)
-        ..lineTo(27, 58)
-        ..lineTo(61, 58)
-        ..close();
-      canvas.drawPath(tail.shift(const ui.Offset(0, 3)), shadow);
-      canvas.drawCircle(avatarCenter + const ui.Offset(0, 3), 31, shadow);
-      canvas.drawPath(tail, fill);
-      canvas.drawCircle(avatarCenter, 31, fill);
-      canvas.drawCircle(
-        avatarCenter,
-        26,
-        ui.Paint()
-          ..isAntiAlias = true
-          ..color = const ui.Color(0xFFFFFFFF),
-      );
-      canvas.drawCircle(
-        avatarCenter,
-        23,
-        ui.Paint()
-          ..isAntiAlias = true
-          ..color = const ui.Color(0xFFEAF5FF),
-      );
-      final value = name.trim();
-      final letter = value.isEmpty ? 'م' : value.substring(0, 1);
-      final painter = TextPainter(
-        text: TextSpan(
-          text: letter,
-          style: const TextStyle(
-            color: Color(0xFF102C50),
-            fontSize: 27,
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        textDirection: TextDirection.rtl,
-      )..layout();
-      painter.paint(
-        canvas,
-        avatarCenter - Offset(painter.width / 2, painter.height / 2),
-      );
-      final image = await recorder.endRecording().toImage(width, height);
-      final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-      if (bytes == null) return null;
-      return BitmapDescriptor.bytes(
-        Uint8List.sublistView(bytes),
-        imagePixelRatio: 2,
-      );
-    } catch (_) {
-      return null;
-    }
+    if (isClosed) return;
+    _pickupLabel = displayName.trim().split(RegExp(r'\s+')).take(2).join(' ');
+    _personalPickupMarkerIcon.value = await LiveTrackingMarkerIcons.buildStop(
+        destination: false, label: _pickupLabel);
+    _destinationMarkerIcon.value = await LiveTrackingMarkerIcons.buildStop(
+        destination: true, label: 'الوجهة');
   }
 
   Future<bool> saveCurrentDestination({String? kind, String? label}) async {
@@ -301,8 +257,8 @@ class LocationController extends GetxController {
           Marker(
             markerId: const MarkerId('pickup'),
             position: pickup.value!,
-            infoWindow: const InfoWindow(title: 'موقعي — نقطة الانطلاق'),
-            anchor: const Offset(.5, .84),
+            infoWindow: InfoWindow(title: _pickupLabel),
+            anchor: LiveTrackingMarkerIcons.stopAnchor,
             icon: _personalPickupMarkerIcon.value ??
                 BitmapDescriptor.defaultMarkerWithHue(
                   BitmapDescriptor.hueGreen,
@@ -313,8 +269,28 @@ class LocationController extends GetxController {
             markerId: const MarkerId('destination'),
             position: destination.value!,
             infoWindow: const InfoWindow(title: 'الوجهة'),
-            icon:
+            anchor: LiveTrackingMarkerIcons.stopAnchor,
+            icon: _destinationMarkerIcon.value ??
                 BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          ),
+      };
+
+  /// Booking coordinates stay fixed while the avatar follows the actual GPS.
+  Set<Marker> liveTripMarkers({
+    LatLng? passengerPosition,
+    bool hasTrackedDriver = false,
+  }) =>
+      <Marker>{
+        ...markers,
+        if (passengerPosition != null && !hasTrackedDriver)
+          Marker(
+            markerId: const MarkerId('tracked-passenger'),
+            position: passengerPosition,
+            infoWindow: const InfoWindow(title: 'موقعي الآن'),
+            anchor: const Offset(.5, .84),
+            icon: _personalPickupMarkerIcon.value ??
+                BitmapDescriptor.defaultMarkerWithHue(
+                    BitmapDescriptor.hueViolet),
           ),
       };
 
@@ -637,6 +613,7 @@ class LocationController extends GetxController {
     activeField.value = field;
     cancelSearch();
     _routeRequestId++;
+    routeError.value = '';
     routePoints.clear();
     routeDistanceMeters.value = 0;
     routeDurationSeconds.value = 0;
@@ -766,9 +743,12 @@ class LocationController extends GetxController {
     if (field != null) activeField.value = field;
     FocusManager.instance.primaryFocus?.unfocus();
     cancelSearch();
-    final value = place.kind == 'recent' ? place.title : place.address;
+    final address = place.address.trim();
+    final title = place.title.trim();
+    final value = address.isNotEmpty ? address : title;
     final point = LatLng(place.latitude, place.longitude);
     if (activeField.value == 0) {
+      _pickupEditRevision++;
       pickup.value = point;
       pickupIsCurrentLocation.value = false;
       routePoints.clear();
@@ -781,8 +761,8 @@ class LocationController extends GetxController {
       destination.value = point;
       _clearDestinationAddressFields();
       toController.text = value;
-      confirmedDestination.value = '${place.title}، ${place.address}';
-      addressNameController.text = place.title;
+      confirmedDestination.value = value;
+      addressNameController.text = title.isNotEmpty ? title : value;
       streetController.text = place.address;
       detailsController.text = place.address;
       destinationArea.value = place.title;
@@ -796,7 +776,6 @@ class LocationController extends GetxController {
     }
     if (destination.value == null) {
       await _fitSelectedRoute();
-      if (closeSearchPage) Get.snackbar('تم تحديد نقطة الانطلاق', 'حدد الوجهة للمتابعة');
     }
   }
 
@@ -893,6 +872,7 @@ class LocationController extends GetxController {
     if (start == null || end == null) return;
     final requestId = ++_routeRequestId;
     isRouteLoading.value = true;
+    routeError.value = '';
     routePoints.clear();
     routeDistanceMeters.value = 0;
     routeDurationSeconds.value = 0;
@@ -901,19 +881,30 @@ class LocationController extends GetxController {
         origin: start,
         destination: end,
       );
-      if (requestId != _routeRequestId) return;
+      if (isClosed ||
+          requestId != _routeRequestId ||
+          pickup.value != start ||
+          destination.value != end) return;
       routePoints.assignAll(route.points);
       routeDistanceMeters.value = route.distanceMeters;
       routeDurationSeconds.value = route.durationSeconds;
-    } on RouteRequestException {
-      if (requestId != _routeRequestId) return;
+    } on RouteRequestException catch (error) {
+      if (isClosed ||
+          requestId != _routeRequestId ||
+          pickup.value != start ||
+          destination.value != end) return;
+      routeError.value = error.message;
       Get.snackbar(
         'تعذر حساب المسار',
-        'تعذر حساب مسار الرحلة حاليًا. حاول مرة أخرى لاحقًا.',
+        error.message,
         duration: const Duration(seconds: 7),
       );
     } catch (_) {
-      if (requestId != _routeRequestId) return;
+      if (isClosed ||
+          requestId != _routeRequestId ||
+          pickup.value != start ||
+          destination.value != end) return;
+      routeError.value = 'تعذر حساب مسار الرحلة حاليًا. حاول مرة أخرى لاحقًا.';
       Get.snackbar(
         'تعذر حساب المسار',
         'تعذر حساب مسار الرحلة حاليًا. حاول مرة أخرى لاحقًا.',
@@ -924,7 +915,9 @@ class LocationController extends GetxController {
   }
 
   Future<void> ensureInitialPickupLocation() async {
-    if (pickup.value != null || isClosed || fromController.text.trim().isNotEmpty) return;
+    if (pickup.value != null ||
+        isClosed ||
+        fromController.text.trim().isNotEmpty) return;
     final active = _initialLocationRequest;
     if (active != null) {
       await active;
@@ -977,6 +970,9 @@ class LocationController extends GetxController {
 
   @override
   void onClose() {
+    _routeRequestId++;
+    _searchRequestId++;
+    _apiRecovery?.cancel();
     _authenticationWorker?.dispose();
     // The AppGoogleMap widget owns and disposes its native controller.
     _mapController = null;

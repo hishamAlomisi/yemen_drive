@@ -1,5 +1,6 @@
 import '../../../../core/network/api_client.dart';
 import '../../../../core/network/api_models.dart';
+import '../../../../core/utils/utc_timestamp.dart';
 import '../../models/ride_models.dart';
 
 abstract interface class RideNegotiationRepository {
@@ -23,7 +24,9 @@ abstract interface class RideNegotiationRepository {
   NearbyDriver? mapRealtimeNearbyDriver(Map<String, Object?> event);
   Future<void> acceptOffer(String requestId, String offerId);
   Future<void> rejectOffer(String requestId, String offerId);
-  Future<void> requestCancellation(String requestId, String reason);
+  Future<Map<String, Object?>?> requestCancellation(
+      String requestId, String reason,
+      {bool safeStopConfirmed = false});
   Future<Map<String, Object?>> getCancellationQuote(String requestId);
   Future<Map<String, Object?>?> findLatestOpenRide();
   Future<Map<String, Object?>> getRideDetail(String requestId);
@@ -112,6 +115,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
         'moreThanFourPassengers': draft.moreThanFourPassengers,
         'passengerNotes': draft.passengerNotes,
         'paymentMethodCode': draft.paymentMethodCode,
+        ...draft.passengerLocationJson,
       },
     );
     if (result is ApiFailure) {
@@ -286,11 +290,12 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   @override
   Future<void> acceptOffer(String requestId, String offerId) async {
     final result = await _client.execute<Object?>(
-        model: 'RideOfferActionModel',
-        operation: 'accept',
-        data: {'rideId': requestId, 'offerId': offerId});
-    if (result is! ApiSuccess) {
-      throw const FormatException('تعذر قبول عرض السائق من الخادم.');
+      model: 'RideOfferActionModel',
+      operation: 'accept',
+      data: {'rideId': requestId, 'offerId': offerId},
+    );
+    if (result is ApiFailure) {
+      throw FormatException(_failureMessage(result.problem));
     }
   }
 
@@ -306,17 +311,26 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
   }
 
   @override
-  Future<void> requestCancellation(String requestId, String reason) async {
+  Future<Map<String, Object?>?> requestCancellation(
+      String requestId, String reason,
+      {bool safeStopConfirmed = false}) async {
     final result = await _client.execute<Object?>(
       model: 'RideCancellationRequestModel',
       operation: 'add',
-      data: <String, Object?>{'rideId': requestId, 'reason': reason, 'safeStopConfirmed': true},
+      data: <String, Object?>{
+        'rideId': requestId,
+        'reason': reason,
+        'safeStopConfirmed': safeStopConfirmed
+      },
     );
     if (result is! ApiSuccess) {
       throw FormatException(result is ApiFailure
           ? result.problem.detail ?? result.problem.title
           : 'تعذر إرسال طلب الإلغاء إلى الخادم.');
     }
+    return result.data is Map
+        ? Map<String, Object?>.from(result.data as Map)
+        : null;
   }
 
   @override
@@ -358,7 +372,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
     final result = await _client.execute<Object?>(
       model: 'RideModel',
       operation: 'get',
-      data: <String, Object?>{'id': requestId},
+      data: <String, Object?>{'id': requestId, 'includeRouteHistory': false},
     );
     if (result is! ApiSuccess) {
       throw const FormatException('تعذر تحديث حالة الرحلة من الخادم.');
@@ -378,6 +392,7 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       data: <String, Object?>{
         'pickupLatitude': pickup.latitude,
         'pickupLongitude': pickup.longitude,
+        'radiusMeters': 3000,
         if (serviceKindId != null) 'serviceKindId': serviceKindId,
         if (serviceCatalogItemId != null)
           'serviceCatalogItemId': serviceCatalogItemId,
@@ -426,7 +441,8 @@ class ApiRideNegotiationRepository implements RideNegotiationRepository {
       plateNumber: data['plateNumber']?.toString().trim() ?? '',
       completedTrips: _number(data['completedTrips']).round(),
       heading: _numberOrNull(data['bearing']),
-      isAvailable: true,
+      isAvailable: data['isAvailable'] != false,
+      observedAt: parseUtcTimestamp(data['observedAtUtc']),
     );
   }
 

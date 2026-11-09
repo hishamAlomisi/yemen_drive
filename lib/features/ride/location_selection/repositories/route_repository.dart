@@ -64,9 +64,12 @@ class ApiRoutesRepository implements RouteRepository {
       },
     );
     if (result is ApiFailure<Object?>) {
+      final detail = result.problem.detail?.trim();
       throw RouteRequestException(
         statusCode: result.problem.status,
-        message: result.problem.title,
+        message:
+            detail == null || detail.isEmpty ? result.problem.title : detail,
+        code: result.problem.code,
       );
     }
     if (result is! ApiSuccess<Object?> || result.data is! Map) {
@@ -169,10 +172,12 @@ class RouteRequestException implements Exception {
   const RouteRequestException({
     required this.statusCode,
     required this.message,
+    this.code,
   });
 
   final int statusCode;
   final String message;
+  final String? code;
 
   @override
   String toString() => 'RouteRequestException($statusCode): $message';
